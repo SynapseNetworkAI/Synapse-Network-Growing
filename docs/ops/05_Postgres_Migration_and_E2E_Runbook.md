@@ -4,7 +4,7 @@ title: Postgres Migration and E2E Runbook
 role: dev_rel
 status: ready
 created_at: 2026-05-04
-updated_at: 2026-05-16
+updated_at: 2026-05-17
 author: codex
 target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 ---
@@ -120,9 +120,9 @@ Required UI coverage:
 
 Each checked page must render without uncaught browser errors or 5xx API responses, and core modals/tabs must be usable.
 
-## Full Staging Release E2E
+## Full Local Runner Release E2E
 
-This step performs real staging writes through GitHub Actions + WIF. It creates release tasks and immediately deploys them sequentially.
+This step performs real GCP writes through the local deploy runner. It creates release tasks, writes local `DeploymentRecord` rows, and executes the runner sequentially. GitHub is code hosting only; it is not the CI/CD executor.
 
 ```bash
 PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python \
@@ -147,8 +147,8 @@ Success criteria:
 1. Service `ReleaseTask.status=completed`.
 2. Linked `DeploymentRecord.status=succeeded`.
 3. Health is `passed` / `healthy`.
-4. GitHub Actions URL is recorded.
+4. Local runner events are readable from `deployment_events`.
 5. Successful deployment appears in `/releases -> 上线记录`.
-6. Scheduled job task reaches `completed` with an Actions URL.
+6. Scheduled job task reaches `completed` with local runner evidence.
 
-If any publish fails, do not mark it manually complete. Open the Actions link, fix the root cause, then rerun from the failed target or create a new proof run.
+If any publish fails, do not mark it manually complete. Open the deployment detail logs, fix the root cause, then rerun from the failed target or create a new proof run.

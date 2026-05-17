@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from server.services.releases.scheduled_job_schemas import ScheduledCloudRunJobOut
 
-SCHEDULED_JOBS_WORKFLOW_FILE = "deploy-staging-jobs.yml"
+SCHEDULED_JOBS_WORKFLOW_FILE = "local_scheduled_job_runner"
 SCHEDULED_JOBS_REPO = "SynapseNetworkAI/Synapse-Network"
-SCHEDULED_JOBS_TRIGGER_SOURCE = "scheduled_job_release"
+SCHEDULED_JOBS_TRIGGER_SOURCE = "local_deploy_runner"
 SCHEDULED_JOB_ACTIVE_STATUSES = {"requested", "running", "pending"}
 SCHEDULED_JOB_TERMINAL_STATUSES = {"succeeded", "failed", "blocked", "cancelled"}
 SCHEDULED_JOB_FAMILIES = {"gateway", "gateway-admin", "all"}

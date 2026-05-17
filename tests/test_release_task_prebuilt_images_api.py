@@ -38,36 +38,16 @@ def _create_user_front_task(client):
 def test_frontend_release_task_can_attach_prebuilt_image_and_deploy_digest(
     monkeypatch, synced_client, db_session
 ):
-    calls = []
     digest = (
         "us-central1-docker.pkg.dev/fabled-archive-494108-k5/"
         "synapse-staging/user-front@sha256:" + ("a" * 64)
     )
     commit_sha = "b" * 40
-
-    def fake_dispatch(**kwargs):
-        calls.append(kwargs)
-        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging-frontends.yml"
-
-    monkeypatch.setattr(
-        release_tasks_service, "_dispatch_github_workflow", fake_dispatch
-    )
-    monkeypatch.setattr(
-        release_tasks_service,
-        "_callback_url",
-        lambda record_id: f"https://ops.example/api/deployments/{record_id}/report",
-    )
     monkeypatch.setattr(
         release_tasks_service,
         "_release_task_pr_gate_for",
         lambda row, repo: _successful_pr_gate(),
     )
-    monkeypatch.setattr(
-        release_tasks_service,
-        "_missing_required_staging_deploy_secrets",
-        lambda repo, **kwargs: ([], None),
-    )
-
     task = _create_user_front_task(synced_client)
     attach = synced_client.post(
         f"/api/releases/tasks/{task['id']}/attach-prebuilt-image",
@@ -89,20 +69,17 @@ def test_frontend_release_task_can_attach_prebuilt_image_and_deploy_digest(
     )
 
     assert response.status_code == 200
-    assert calls[0]["workflow_file"] == "deploy-staging-frontends.yml"
-    assert calls[0]["inputs"]["deploy_scope"] == "user-front"
-    assert calls[0]["inputs"]["prebuilt_image_digest"] == digest
-    assert calls[0]["inputs"]["source_ref_type"] == "commit"
-    assert calls[0]["inputs"]["source_ref"] == commit_sha
-    assert calls[0]["inputs"]["commit_sha"] == commit_sha
 
     deployment = db_session.get(
         DeploymentRecordRow, response.json()["deployment_record_id"]
     )
+    assert deployment.trigger_source == "local_deploy_runner"
+    assert deployment.workflow_file == "local_deploy_runner"
     metadata = json.loads(deployment.metadata_json)
     assert metadata["prebuiltImageDigest"] == digest
-    assert metadata["imageSource"] == "prebuilt_digest"
+    assert metadata["imageSource"] == "ephemeral_worktree_local_build"
     assert metadata["sourceCommitSha"] == commit_sha
+    assert metadata["localRunnerCommand"][-2:] == ["--prebuilt-image-digest", digest]
 
 
 def test_prebuilt_image_attach_defers_digest_identity_checks_to_actions(synced_client):
@@ -188,7 +165,7 @@ def test_prebuilt_deploy_plan_handles_missing_and_corrupt_metadata(db_session):
     db_session.commit()
 
     assert not prebuilt_image_service.prebuilt_deploy_plan(
-        row, service_key="user-front", workflow_file="deploy-staging-frontends.yml"
+        row, service_key="user-front", workflow_file="local_deploy_runner"
     ).enabled
 
     row.metadata_json = "{not-json"
@@ -222,10 +199,10 @@ def test_prebuilt_deploy_plan_rejects_wrong_workflow(db_session):
 
     try:
         prebuilt_image_service.prebuilt_deploy_plan(
-            row, service_key="user-front", workflow_file="deploy-staging-admin.yml"
+            row, service_key="user-front", workflow_file="legacy-github-workflow.yml"
         )
     except ValueError as exc:
-        assert "staging frontend workflow" in str(exc)
+        assert "local frontend deploy runner" in str(exc)
     else:
         raise AssertionError("wrong workflow should fail closed")
 
@@ -251,10 +228,10 @@ def test_prebuilt_image_policy_rejects_invalid_scope_and_identity(db_session):
         (
             {
                 "project_key": "synapse-network",
-                "service_key": "user-front",
+                "service_key": "gateway",
                 "environment": "production",
             },
-            "only allowed for staging",
+            "admin-front/user-front/docs-front",
         ),
         (
             {
@@ -330,6 +307,38 @@ def test_admin_front_can_attach_prebuilt_image_digest(synced_client):
 
     assert response.status_code == 200
     assert response.json()["task_metadata"]["buildService"] == "admin-front"
+
+
+def test_production_frontend_task_can_attach_prebuilt_image_digest(synced_client):
+    task = synced_client.post(
+        "/api/releases/tasks",
+        json={
+            "project_key": "synapse-network",
+            "project_display_name": "Synapse-Network",
+            "service_key": "docs-front",
+            "branch_name": "main",
+            "environment": "production",
+        },
+    ).json()
+
+    response = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/attach-prebuilt-image",
+        json={
+            "service_key": "docs-front",
+            "image_digest": (
+                "us-central1-docker.pkg.dev/synapse-network-prod/"
+                "synapse-prod/docs-front@sha256:" + ("a" * 64)
+            ),
+            "source_commit_sha": "b" * 40,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["target_commit_sha"] == "b" * 40
+    assert payload["task_metadata"]["prebuiltImageDigest"].startswith(
+        "us-central1-docker.pkg.dev/synapse-network-prod/"
+    )
 
 
 def test_prebuilt_image_attach_ignores_non_dict_evidence(db_session):

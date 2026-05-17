@@ -51,13 +51,13 @@ from server.services.releases.sdk_package_schemas import (
 from server.services.releases.tasks import (
     create_release_task,
     create_release_task_pr,
-    deploy_release_task_to_staging,
     list_release_task_branch_options,
     list_release_tasks,
     sync_release_task_deployment_statuses,
     update_release_task,
 )
 from server.services.releases.production_tasks import deploy_release_task
+from server.services.releases.local_deploy_tasks import deploy_release_task_locally
 from server.services.releases.gate_status import release_task_gate_status
 from server.services.releases.task_query import query_release_tasks
 from server.services.releases.task_query_schemas import ReleaseTaskPageOut
@@ -82,14 +82,11 @@ from server.services.releases.scheduled_job_schemas import (
     ScheduledCloudRunJobsSyncOut,
 )
 
-
 router = APIRouter(prefix="/api/releases", tags=["releases"])
-
 
 @router.get("/candidates", response_model=list[ReleaseCandidateOut])
 def list_release_candidates_endpoint(db: Session = Depends(get_db)):
     return list_release_candidates(db)
-
 
 @router.get("/tasks", response_model=list[ReleaseTaskOut])
 def list_release_tasks_endpoint(
@@ -106,7 +103,6 @@ def list_release_tasks_endpoint(
         status=status,
         source_type=source_type,
     )
-
 
 @router.get("/tasks/query", response_model=ReleaseTaskPageOut)
 def query_release_tasks_endpoint(
@@ -130,7 +126,6 @@ def query_release_tasks_endpoint(
         offset=offset,
     )
 
-
 @router.get("/tasks/{task_id}/gate-status", response_model=ReleaseTaskPrGateOut)
 def release_task_gate_status_endpoint(task_id: int, db: Session = Depends(get_db)):
     try:
@@ -139,7 +134,6 @@ def release_task_gate_status_endpoint(task_id: int, db: Session = Depends(get_db
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
-
 
 @router.get("/branch-options", response_model=list[ReleaseBranchOptionOut])
 def list_release_branch_options_endpoint(
@@ -151,7 +145,6 @@ def list_release_branch_options_endpoint(
         return list_release_task_branch_options(db, project_key=project_key, service_key=service_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 
 @router.get("/online-records", response_model=list[OnlineReleaseRecordOut])
 def list_online_release_records_endpoint(
@@ -169,21 +162,17 @@ def list_online_release_records_endpoint(
         limit=limit,
     )
 
-
 @router.post("/tasks/sync-deployment-statuses")
 def sync_release_task_deployment_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_release_task_deployment_statuses(db, max_records=max_records)
-
 
 @router.get("/scheduled-jobs/catalog", response_model=list[ScheduledCloudRunJobOut])
 def scheduled_jobs_catalog_endpoint():
     return scheduled_job_catalog()
 
-
 @router.get("/scheduled-jobs/status", response_model=ScheduledCloudRunJobsStatusOut)
 def scheduled_jobs_status_endpoint(db: Session = Depends(get_db)):
     return scheduled_jobs_status(db)
-
 
 @router.get("/scheduled-jobs/tasks", response_model=ScheduledCloudRunJobRecordsOut)
 def scheduled_job_release_tasks_endpoint(
@@ -205,7 +194,6 @@ def scheduled_job_release_tasks_endpoint(
         offset=offset,
     )
 
-
 @router.post("/scheduled-jobs/tasks", response_model=ScheduledCloudRunJobRecordOut)
 def create_scheduled_job_release_task_endpoint(
     body: ScheduledCloudRunJobTaskCreateRequest, db: Session = Depends(get_db)
@@ -215,14 +203,12 @@ def create_scheduled_job_release_task_endpoint(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
 @router.get("/scheduled-jobs/tasks/{task_id}", response_model=ScheduledCloudRunJobRecordOut)
 def get_scheduled_job_release_task_endpoint(task_id: int, db: Session = Depends(get_db)):
     try:
         return get_scheduled_job_release_task(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
 
 @router.post("/scheduled-jobs/tasks/{task_id}/publish", response_model=ScheduledCloudRunJobsPublishOut)
 def publish_scheduled_job_release_task_endpoint(
@@ -237,7 +223,6 @@ def publish_scheduled_job_release_task_endpoint(
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/scheduled-jobs/tasks/{task_id}/cancel", response_model=ScheduledCloudRunJobRecordOut)
 def cancel_scheduled_job_release_task_endpoint(task_id: int, db: Session = Depends(get_db)):
     try:
@@ -247,7 +232,6 @@ def cancel_scheduled_job_release_task_endpoint(task_id: int, db: Session = Depen
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/scheduled-jobs/publish", response_model=ScheduledCloudRunJobsPublishOut)
 def publish_scheduled_jobs_endpoint(_body: ScheduledCloudRunJobsPublishRequest, _db: Session = Depends(get_db)):
     raise HTTPException(
@@ -255,11 +239,9 @@ def publish_scheduled_jobs_endpoint(_body: ScheduledCloudRunJobsPublishRequest, 
         detail="Scheduled job releases are two-step now: create /scheduled-jobs/tasks, then publish /scheduled-jobs/tasks/{id}/publish.",
     )
 
-
 @router.post("/scheduled-jobs/sync", response_model=ScheduledCloudRunJobsSyncOut)
 def sync_scheduled_job_publish_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_scheduled_job_publish_statuses(db, max_records=max_records)
-
 
 @router.get("/sdk-packages", response_model=list[SdkPackageReleaseOut])
 def list_sdk_package_releases_endpoint(
@@ -275,7 +257,6 @@ def list_sdk_package_releases_endpoint(
         status=status,
     )
 
-
 @router.post("/sdk-packages/initialize-train", response_model=list[SdkPackageReleaseOut])
 def initialize_sdk_release_train_endpoint(body: SdkPackageReleaseInitializeRequest, db: Session = Depends(get_db)):
     try:
@@ -283,16 +264,13 @@ def initialize_sdk_release_train_endpoint(body: SdkPackageReleaseInitializeReque
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
 @router.post("/sdk-packages/sync-statuses", response_model=SdkPackageReleaseSyncResult)
 def sync_sdk_package_release_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_sdk_package_release_statuses(db, max_records=max_records)
 
-
 @router.get("/sdk-trains", response_model=list[SdkReleaseTrainOut])
 def list_sdk_release_trains_endpoint(db: Session = Depends(get_db)):
     return list_sdk_release_trains(db)
-
 
 @router.get("/sdk-trains/{version}", response_model=SdkReleaseTrainOut)
 def get_sdk_release_train_endpoint(version: str, db: Session = Depends(get_db)):
@@ -303,7 +281,6 @@ def get_sdk_release_train_endpoint(version: str, db: Session = Depends(get_db)):
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.get("/sdk-packages/{release_id}", response_model=SdkPackageReleaseOut)
 def get_sdk_package_release_endpoint(release_id: int, db: Session = Depends(get_db)):
     try:
@@ -311,14 +288,12 @@ def get_sdk_package_release_endpoint(release_id: int, db: Session = Depends(get_
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-
 @router.get("/sdk-packages/{release_id}/events", response_model=list[SdkPackageReleaseEventOut])
 def list_sdk_package_release_events_endpoint(release_id: int, db: Session = Depends(get_db)):
     try:
         return list_sdk_package_release_events(db, release_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
 
 @router.post("/sdk-packages/{release_id}/dry-run", response_model=SdkPackageReleaseOut)
 def dry_run_sdk_package_release_endpoint(
@@ -333,7 +308,6 @@ def dry_run_sdk_package_release_endpoint(
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/sdk-packages/{release_id}/publish", response_model=SdkPackageReleaseOut)
 def publish_sdk_package_release_endpoint(
     release_id: int,
@@ -346,7 +320,6 @@ def publish_sdk_package_release_endpoint(
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
-
 
 @router.post("/sdk-packages/{release_id}/retry", response_model=SdkPackageReleaseOut)
 def retry_sdk_package_release_endpoint(
@@ -361,14 +334,12 @@ def retry_sdk_package_release_endpoint(
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/tasks", response_model=ReleaseTaskOut)
 def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = Depends(get_db)):
     try:
         return create_release_task(db, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 
 @router.patch("/tasks/{task_id}", response_model=ReleaseTaskOut)
 def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db: Session = Depends(get_db)):
@@ -379,7 +350,6 @@ def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/tasks/{task_id}/create-pr", response_model=ReleaseTaskOut)
 def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
     try:
@@ -389,16 +359,14 @@ def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.post("/tasks/{task_id}/deploy-staging", response_model=ReleaseTaskOut)
 def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
     try:
-        return deploy_release_task_to_staging(db, task_id, body)
+        return deploy_release_task_locally(db, task_id, body)
     except ValueError as exc:
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
-
 
 @router.post("/tasks/{task_id}/deploy", response_model=ReleaseTaskOut)
 def deploy_release_task_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
@@ -409,14 +377,12 @@ def deploy_release_task_endpoint(task_id: int, body: ReleaseTaskDeployRequest, d
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
-
 @router.get("/{requirement_id}", response_model=ReleaseDetailOut)
 def get_release_detail_endpoint(requirement_id: int, db: Session = Depends(get_db)):
     try:
         return build_release_detail(db, requirement_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
 
 @router.post("/{requirement_id}/prepare", response_model=ReleaseDetailOut)
 def prepare_release_endpoint(requirement_id: int, body: ReleaseActionRequest, db: Session = Depends(get_db)):
@@ -425,14 +391,12 @@ def prepare_release_endpoint(requirement_id: int, body: ReleaseActionRequest, db
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
 @router.post("/{requirement_id}/open-pr", response_model=ReleaseDetailOut)
 def open_release_pr_endpoint(requirement_id: int, body: ReleaseActionRequest, db: Session = Depends(get_db)):
     try:
         return open_release_pr(db, requirement_id, actor=body.actor, note=body.note)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 
 @router.post("/{requirement_id}/deploy/staging", response_model=ReleaseDetailOut)
 def deploy_release_staging_endpoint(requirement_id: int, body: ReleaseActionRequest, db: Session = Depends(get_db)):
@@ -450,7 +414,6 @@ def deploy_release_staging_endpoint(requirement_id: int, body: ReleaseActionRequ
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
 @router.post("/{requirement_id}/deploy/production", response_model=ReleaseDetailOut)
 def deploy_release_production_endpoint(requirement_id: int, body: ReleaseActionRequest, db: Session = Depends(get_db)):
     try:
@@ -467,7 +430,6 @@ def deploy_release_production_endpoint(requirement_id: int, body: ReleaseActionR
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-
 @router.post("/{requirement_id}/no-deploy", response_model=ReleaseDetailOut)
 def mark_release_no_deploy_endpoint(requirement_id: int, body: ReleaseActionRequest, db: Session = Depends(get_db)):
     try:
@@ -482,7 +444,6 @@ def mark_release_no_deploy_endpoint(requirement_id: int, body: ReleaseActionRequ
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 
 @router.post("/{requirement_id}/rollback", response_model=ReleaseDetailOut)
 def rollback_release_endpoint(requirement_id: int, body: ReleaseRollbackRequest, db: Session = Depends(get_db)):

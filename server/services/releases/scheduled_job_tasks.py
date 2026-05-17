@@ -9,11 +9,8 @@ from sqlalchemy.orm import Session
 
 from server.database import DeploymentRecordRow, utcnow
 from server.database_scheduled_jobs import ScheduledJobReleaseTaskRow
-from server.services.delivery.deployment_governance import _dispatch_github_workflow
 from server.services.releases.scheduled_job_catalog import (
-    SCHEDULED_JOBS_REPO,
     SCHEDULED_JOBS_TRIGGER_SOURCE,
-    SCHEDULED_JOBS_WORKFLOW_FILE,
 )
 from server.services.releases.scheduled_job_schemas import (
     ScheduledCloudRunJobRecordOut,
@@ -26,12 +23,9 @@ from server.services.releases.scheduled_job_schemas import (
 from server.services.releases.scheduled_jobs import (
     _clean,
     _create_publish_record,
-    _ensure_remote_workflow_accepts_inputs,
     _json_load,
-    _mark_dispatch_failed,
     _record_jobs,
     _resolve_single_job_target,
-    _workflow_inputs,
 )
 from server.services.delivery.deployment_governance import _json_dump
 
@@ -161,12 +155,6 @@ def publish_scheduled_job_release_task(
     source_ref = _clean(row.source_ref) or "main"
     record = _create_task_deployment_record(db, request, target, actor, source_ref)
     _mark_task_deploying(row, record, actor)
-    inputs = _task_workflow_inputs(record, request, target, actor, source_ref)
-    try:
-        _dispatch_task_workflow(record, inputs)
-    except Exception as exc:  # noqa: BLE001
-        _mark_task_dispatch_failed(db, row, record, exc)
-        raise
     db.commit()
     return ScheduledCloudRunJobsPublishOut(
         deployment_record_id=int(record.id),
@@ -178,7 +166,7 @@ def publish_scheduled_job_release_task(
         status=_clean(row.status) or "deploying",
         external_url=_clean(record.external_url) or None,
         jobs=[job.job_name for job in target.jobs],
-        message=f"Scheduled job release task #{row.id} dispatched to staging.",
+        message=f"Scheduled job release task #{row.id} queued for local runner.",
     )
 
 
@@ -230,26 +218,17 @@ def _task_workflow_inputs(
     actor: str,
     source_ref: str,
 ) -> dict[str, str]:
-    return _workflow_inputs(
-        record,
-        request,
-        family=target.family,
-        environment=target.environment,
-        actor=actor,
-        source_ref=source_ref,
-    )
+    return {
+        "record_id": str(int(record.id)),
+        "actor": actor,
+        "source_ref": source_ref,
+    }
 
 
 def _dispatch_task_workflow(
     record: DeploymentRecordRow, inputs: dict[str, str]
 ) -> None:
-    _ensure_remote_workflow_accepts_inputs(inputs)
-    record.external_url = _dispatch_github_workflow(
-        repo_full_name=SCHEDULED_JOBS_REPO,
-        workflow_file=SCHEDULED_JOBS_WORKFLOW_FILE,
-        ref="main",
-        inputs=inputs,
-    )
+    raise ValueError("github_workflows_removed: scheduled jobs use local runner.")
 
 
 def _mark_task_dispatch_failed(
@@ -258,7 +237,10 @@ def _mark_task_dispatch_failed(
     record: DeploymentRecordRow,
     exc: Exception,
 ) -> None:
-    _mark_dispatch_failed(db, record, exc)
+    record.status = "failed"
+    record.health_status = "failed"
+    record.notes = str(exc)[:1000]
+    record.finished_at = utcnow()
     row.status = "failed"
     row.health_status = "failed"
     row.failure_summary = str(exc)[:1000]

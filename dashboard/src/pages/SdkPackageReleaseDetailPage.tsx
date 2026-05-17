@@ -76,7 +76,7 @@ export default function SdkPackageReleaseDetailPage() {
       <SectionFrame
         eyebrow="SDK Package Release"
         title={`${item.sdk_language} · ${item.package_name}`}
-        description="单个 SDK package 的 dry-run、publish、retry 和 patch version 都在这里操作；Growing 只调度 GitHub Actions，不保存 registry token。"
+        description="单个 SDK package 的 dry-run、publish、retry 和 patch version 都在这里操作；Growing 创建本地 publish run，不保存 registry token。"
         actions={
           <>
             <button type="button" className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/releases/sdk-trains/${encodeURIComponent(item.release_train_version)}`)}>
@@ -159,11 +159,11 @@ export default function SdkPackageReleaseDetailPage() {
           {item.failure_summary ? <div className="mt-4 rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]">{item.failure_summary}</div> : null}
         </SectionFrame>
 
-        <SectionFrame eyebrow="Links" title="发布链路">
+        <SectionFrame eyebrow="Links" title="本地发布链路">
           <div className="space-y-3 text-sm text-[color:var(--ops-text-muted)]">
-            <div>Workflow：{item.workflow_run_url ? <button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(item.workflow_run_url)}>打开 GitHub Actions</button> : '-'}</div>
+            <div>Local run：<span className="font-mono">{item.workflow_run_url || '-'}</span></div>
             <div>Package：{item.package_url ? <button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(item.package_url)}>打开 Registry 页面</button> : '-'}</div>
-            <div>Registry secrets：只存在 GitHub Actions secrets，不进入 Growing DB。</div>
+            <div>Registry secrets：只存在本地 runner 环境 / Secret Manager，不进入 Growing DB。</div>
             <div>重复发布：registry 已发布同版本不可覆盖，必须 bump patch version。</div>
           </div>
         </SectionFrame>

@@ -27,6 +27,10 @@ export default function ProductionDeployModal({
   const effectiveGate = gate || task?.pr_gate
   const gateReady = Boolean(effectiveGate?.can_deploy_production)
   const gateLoading = gateStatus === 'loading'
+  const directFrontend = task.project_key === 'synapse-network'
+    && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
+    && gateReady
+    && !effectiveGate?.staging_deployment_record_id
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -40,16 +44,25 @@ export default function ProductionDeployModal({
           <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] p-4 text-sm text-[color:var(--ops-state-blocked-text)]">
             <div className="font-semibold">Production Human Gate</div>
             <p className="mt-2">
-              请确认目标是 <span className="font-mono">synapse-network-prod</span>，分支为 <span className="font-mono">main</span>，
-              且同一 commit 已通过 staging。确认后仍需要 GitHub production environment reviewers 放行。
+              请确认目标是 <span className="font-mono">synapse-network-prod</span>，分支为 <span className="font-mono">main</span>。
+              {directFrontend ? ' 这是前端 direct production deploy，不强制要求同 commit 先通过 staging。' : ' 且同一 commit 已通过 staging。'}
+              确认后仍需要 GitHub production environment reviewers 放行。
             </p>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <InfoCard label="Project / Service" value={`${task.project_display_name || task.project_key} · ${task.service_key || '-'}`} />
             <InfoCard label="GCP Project" value="synapse-network-prod" mono />
             <InfoCard label="Main Commit" value={effectiveGate?.resolved_commit_sha || '-'} mono />
-            <InfoCard label="Staging Evidence" value={`Deployment #${effectiveGate?.staging_deployment_record_id || '-'}`} />
+            <InfoCard
+              label="Staging Evidence"
+              value={directFrontend ? 'Direct frontend deploy' : `Deployment #${effectiveGate?.staging_deployment_record_id || '-'}`}
+            />
           </div>
+          {directFrontend ? (
+            <div className="rounded-2xl border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] p-4 text-sm text-[color:var(--ops-state-running-text)]">
+              前端 production 可直接从 main 发布。建议先绑定 Prebuilt Image digest；未绑定时 workflow 会走 Cloud Build，成本和耗时会更高。
+            </div>
+          ) : null}
           {!gateReady ? (
             <div className="rounded-2xl border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] p-4 text-sm text-[color:var(--ops-state-running-text)]">
               {gateLoading ? 'Production gate 检查中…' : effectiveGate?.blocked_reason || '请先检查 production gate。'}

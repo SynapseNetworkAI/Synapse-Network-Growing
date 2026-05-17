@@ -34,7 +34,7 @@
     "RAW_DICT_RETURN:server/services/forum_feedback.py:192:run_forum_feedback_sweep",
     "RAW_DICT_RETURN:server/services/forum_feedback.py:37:classify_forum_topic",
     "RAW_DICT_RETURN:server/services/projects/intelligence.py:402:resolve_requirement_routing",
-    "RAW_DICT_RETURN:server/services/projects/onboarding.py:155:project_onboarding_to_dict",
+    "RAW_DICT_RETURN:server/services/projects/onboarding.py:153:project_onboarding_to_dict",
     "RAW_DICT_RETURN:server/services/projects/policy_defaults.py:29:default_capability_matrix",
     "RAW_DICT_RETURN:server/services/projects/policy_defaults.py:43:default_interrupt_policy",
     "RAW_DICT_RETURN:server/services/projects/policy_registry.py:145:project_policy_to_dict",

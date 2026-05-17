@@ -28,9 +28,9 @@ function releaseTask(overrides: Partial<ReleaseTask> = {}): ReleaseTask {
     deployment_status: 'failed',
     deployment_external_run_id: null,
     deployment_external_url: null,
-    deployment_failure_summary: 'GitHub Actions staging deploy failure.',
+    deployment_failure_summary: 'Local runner staging deploy failure.',
     deployment_health_status: 'failed',
-    deployment_workflow_file: 'deploy-staging.yml',
+    deployment_workflow_file: 'local_deploy_runner',
     deployment_commit_sha: null,
     deployment_started_at: null,
     deployment_finished_at: null,
@@ -57,7 +57,7 @@ describe('Release task failure compaction', () => {
   it('compacts long multiline failures into a bounded summary', () => {
     const result = releaseTaskFailureSummary(
       [
-        'GitHub Actions staging deploy failure.',
+        'Local runner staging deploy failure.',
         'staging drift guard failed:',
         'PERMISSION_DENIED secretmanager.versions.access repeated repeated repeated repeated repeated repeated repeated repeated repeated',
         'UNIQUE_FULL_FAILURE_TAIL',
@@ -72,18 +72,18 @@ describe('Release task failure compaction', () => {
 
   it('shows compact failure text with a details hint', () => {
     render(
-      <ReleaseTaskCompactFailure value="GitHub Actions staging deploy failure. repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated UNIQUE_FULL_FAILURE_TAIL" />,
+      <ReleaseTaskCompactFailure value="Local runner staging deploy failure. repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated UNIQUE_FULL_FAILURE_TAIL" />,
     )
 
     expect(screen.getByText('详情查看完整失败日志')).toBeTruthy()
     expect(screen.queryByText(/UNIQUE_FULL_FAILURE_TAIL/)).toBeNull()
   })
 
-  it('keeps GitHub Actions excerpts compact outside details', () => {
+  it('keeps local runner excerpts compact outside details', () => {
     const longExcerpt = [
       'Run staging smoke check',
       'curl returned 403 while reading a protected endpoint repeated repeated repeated repeated repeated repeated repeated repeated repeated repeated',
-      'Actions log line with detailed remediation context',
+      'Local runner log line with detailed remediation context',
       'UNIQUE_ACTIONS_EXCERPT_TAIL',
     ].join('\n')
 
@@ -94,7 +94,7 @@ describe('Release task failure compaction', () => {
   })
 
   it('shows full failure details inside the centered modal', () => {
-    const longFailure = 'GitHub Actions staging deploy failure. UNIQUE_FULL_FAILURE_TAIL'
+    const longFailure = 'Local runner staging deploy failure. UNIQUE_FULL_FAILURE_TAIL'
     const longExcerpt = 'Run staging smoke check\nUNIQUE_ACTIONS_EXCERPT_TAIL'
 
     render(

@@ -47,7 +47,7 @@ function shortSha(value: unknown) {
 }
 
 function isFrontendPrebuiltCandidate(task: ReleaseTask) {
-  return task.environment === 'staging'
+  return ['staging', 'production'].includes(task.environment)
     && task.project_key === 'synapse-network'
     && task.status === 'requested'
     && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
@@ -255,7 +255,7 @@ export function ReleaseTasksTable({
                         <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenDetails(task)}>
                           详情
                         </button>
-                        {task.status === 'deploying' && task.deployment_external_url ? <a className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">GitHub Actions</a> : null}
+                        {task.status === 'deploying' && task.deployment_external_url ? <a className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">外部日志</a> : null}
                         {task.status === 'deploying' ? (
                           <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" disabled={Boolean(busyAction)} onClick={onRefresh}>
                             同步状态

@@ -687,12 +687,12 @@ class ProjectPolicyCreate(BaseModel):
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
 
 
@@ -744,12 +744,12 @@ class ProjectPolicyOut(BaseModel):
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -767,8 +767,8 @@ class ProjectCreate(BaseModel):
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
 
 
@@ -802,8 +802,8 @@ class ProjectOut(BaseModel):
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
     policy_id: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -1855,7 +1855,7 @@ class EnvironmentStatusOut(BaseModel):
     project_key: str
     deploy_repo_full_name: Optional[str] = None
     host_label: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     trigger_enabled: bool = False
     current_commit_sha: Optional[str] = None
     current_branch: Optional[str] = None
@@ -1871,7 +1871,7 @@ class DeploymentProjectOverviewOut(BaseModel):
     project_key: str
     display_name: str
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None

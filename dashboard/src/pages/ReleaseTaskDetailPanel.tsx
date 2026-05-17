@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ReleaseTask } from '../api'
 import { OverlayModal, StateBadge } from '../components/workbench'
+import { ReleaseTaskDeploymentEventsPanel } from './ReleaseTaskDeploymentEventsPanel'
 import { STATUS_LABEL, releaseTone } from './releaseListUi'
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -41,11 +42,13 @@ function shortSha(value: string | null) {
 function localPrebuiltCommand(task: ReleaseTask) {
   const service = task.service_key || ''
   const ref = task.branch_name || 'main'
+  const environment = task.environment || 'staging'
   return [
     'cd /Users/cliff/workspace/agent/Synapse-Network',
     '',
-    'bash scripts/deploy/local_build_staging_image.sh \\',
+    'bash scripts/deploy/local_build_frontend_image.sh \\',
     `  --service ${service} \\`,
+    `  --environment ${environment} \\`,
     `  --ref ${ref} \\`,
     `  --release-task-id ${task.id}`,
   ].join('\n')
@@ -149,6 +152,7 @@ export function ReleaseTaskDetailModal({
   onClose,
   onRefresh,
   onAttachPrebuiltImage,
+  onResetRunningDeployment,
 }: Readonly<{
   task: ReleaseTask | null
   onClose: () => void
@@ -157,11 +161,16 @@ export function ReleaseTaskDetailModal({
     task: ReleaseTask,
     payload: { image_digest: string; source_commit_sha: string },
   ) => Promise<void>
+  onResetRunningDeployment?: (
+    task: ReleaseTask,
+    payload: { confirm_phrase: string; reason: string },
+  ) => Promise<void>
 }>) {
   const [prebuiltDigest, setPrebuiltDigest] = useState('')
   const [prebuiltCommit, setPrebuiltCommit] = useState('')
   const [prebuiltBusy, setPrebuiltBusy] = useState(false)
   const [commandCopied, setCommandCopied] = useState(false)
+
   if (!task) return null
   const hasDeployment = Boolean(task.deployment_record_id)
   const showFailure = shouldShowReleaseTaskFailure(task)
@@ -172,11 +181,10 @@ export function ReleaseTaskDetailModal({
   const attachedPrebuiltImage = metadataString(taskMetadata, 'prebuiltImageDigest')
   const attachedPrebuiltCommit = metadataString(taskMetadata, 'sourceCommitSha')
   const buildCommand = localPrebuiltCommand(task)
-  const isPrebuiltFrontendTask = task.environment === 'staging'
+  const isPrebuiltFrontendTask = ['staging', 'production'].includes(task.environment)
     && task.project_key === 'synapse-network'
     && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
-  const canAttachPrebuiltImage = task.environment === 'staging'
-    && isPrebuiltFrontendTask
+  const canAttachPrebuiltImage = isPrebuiltFrontendTask
     && task.status === 'requested'
     && !task.deployment_record_id
     && Boolean(onAttachPrebuiltImage)
@@ -208,7 +216,7 @@ export function ReleaseTaskDetailModal({
       open={Boolean(task)}
       eyebrow="Release Task Detail"
       title={`发布任务 #${task.id}`}
-      description="查看 PR gate、DeploymentRecord、GitHub Actions 链接、健康检查和失败摘要。"
+      description="查看 PR gate、DeploymentRecord、本地 runner、健康检查和失败摘要。"
       onClose={onClose}
     >
       <div className="space-y-5">
@@ -239,7 +247,7 @@ export function ReleaseTaskDetailModal({
             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Prebuilt Image</h3>
             {attachedPrebuiltImage ? (
               <div className="mt-3 space-y-2 rounded-xl border border-[color:var(--ops-state-ready-border)] bg-[color:var(--ops-state-ready-bg)] p-3 text-sm text-[color:var(--ops-state-ready-text)]">
-                <div>Prebuilt image attached. Staging frontend workflow will deploy by immutable digest and skip Cloud Build.</div>
+                <div>Prebuilt image attached. Frontend workflow will deploy by immutable digest and skip Cloud Build.</div>
                 <div className="break-all font-mono text-xs">{attachedPrebuiltImage}</div>
                 <div className="text-xs">Digest: <span className="font-mono">{shortDigest(attachedPrebuiltImage)}</span></div>
                 {attachedPrebuiltCommit ? <div className="font-mono text-xs">commit {shortSha(attachedPrebuiltCommit)}</div> : null}
@@ -247,6 +255,7 @@ export function ReleaseTaskDetailModal({
             ) : (
               <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
                 可选：先用本地 ephemeral worktree 构建并推送镜像，再把 immutable digest 绑定到此任务。未绑定时发布会走 Cloud Build，通常会多消耗约 5 分钟 Actions 时间。
+                {task.environment === 'production' ? ' Production 前端可直接从 main 发布；如果未先发 staging，务必确认这是有意的 direct production frontend deploy。' : ''}
               </div>
             )}
             {!attachedPrebuiltImage ? (
@@ -272,7 +281,7 @@ export function ReleaseTaskDetailModal({
                     className="mt-2 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-3 py-2 font-mono text-xs text-[color:var(--ops-text-title)]"
                     value={prebuiltDigest}
                     onChange={(event) => setPrebuiltDigest(event.target.value)}
-                    placeholder={`us-central1-docker.pkg.dev/.../${task.service_key}@sha256:...`}
+                    placeholder={`${task.environment === 'production' ? 'us-central1-docker.pkg.dev/synapse-network-prod/...' : 'us-central1-docker.pkg.dev/...'}${task.service_key}@sha256:...`}
                   />
                 </label>
                 <label className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">
@@ -328,7 +337,7 @@ export function ReleaseTaskDetailModal({
               </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div>Record ID：{task.deployment_record_id}</div>
-                <div>Workflow：{task.deployment_workflow_file || '-'}</div>
+                <div>Runner：{task.deployment_workflow_file || 'local_deploy_runner'}</div>
                 <div>Run ID：{task.deployment_external_run_id || '-'}</div>
                 <div>Commit：{task.deployment_commit_sha || '-'}</div>
                 <div>Started：{formatTime(task.deployment_started_at)}</div>
@@ -336,7 +345,7 @@ export function ReleaseTaskDetailModal({
               </div>
               {task.deployment_external_url ? (
                 <a className="inline-flex rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={task.deployment_external_url} target="_blank" rel="noreferrer">
-                  打开 GitHub Actions 日志
+                  打开外部日志
                 </a>
               ) : null}
               {showFailure && task.deployment_failure_summary ? (
@@ -346,17 +355,18 @@ export function ReleaseTaskDetailModal({
               ) : null}
               {failureLogExcerpt ? (
                 <div className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-panel)] p-3">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-state-blocked-text)]">GitHub Actions failed step</div>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-state-blocked-text)]">Legacy external failure excerpt</div>
                   <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">{failureLogExcerpt}</pre>
                 </div>
               ) : failureLogError ? (
                 <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
-                  无法读取 GitHub Actions 失败日志：{failureLogError}
+                  无法读取外部失败日志：{failureLogError}
                   <div className="mt-2 text-xs text-[color:var(--ops-text-caption)]">
-                    私有仓库需要后端运行环境的 GitHub token 拥有该 repo 的 Actions read / Contents read 权限；classic PAT 需要 repo + workflow scope。
+                    本地 runner 会把完整 stdout / stderr 写入 Deployment Events；旧外部日志仅用于历史记录排障。
                   </div>
                 </div>
               ) : null}
+              <ReleaseTaskDeploymentEventsPanel task={task} onResetRunningDeployment={onResetRunningDeployment} />
               <details className="rounded-xl bg-[color:var(--ops-panel)] p-3">
                 <summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Deployment metadata</summary>
                 <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-[color:var(--ops-text-muted)]">
@@ -366,7 +376,7 @@ export function ReleaseTaskDetailModal({
             </div>
           ) : (
             <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
-              还没有 DeploymentRecord。只有点击“发布到 staging”并通过 PR gate 后，系统才会创建部署记录并写入 GitHub Actions 链接、健康检查和结果。
+              还没有 DeploymentRecord。只有点击发布并通过对应 Gate 后，系统才会创建本地部署记录，并由本地 runner 写入健康检查、结果和完整事件日志。
             </div>
           )}
         </section>
@@ -380,10 +390,15 @@ export function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
   if (!gate) return null
   if (task.environment === 'production') {
     const ready = Boolean(gate.can_deploy_production)
+    const directFrontend = task.project_key === 'synapse-network'
+      && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
+      && ready
+      && !gate.staging_deployment_record_id
     return (
       <div className="mt-2 space-y-1">
         <StateBadge tone={ready ? 'delivered' : 'blocked'}>Production Gate: {ready ? '已满足' : gate.blocked_reason || '待满足'}</StateBadge>
         {gate.environment_gate_summary ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">{gate.environment_gate_summary}</div> : null}
+        {directFrontend ? <div className="max-w-xs text-xs text-[color:var(--ops-state-running-text)]">Direct production frontend deploy: 未强制要求 staging evidence。</div> : null}
         {gate.resolved_commit_sha ? <div className="max-w-xs font-mono text-xs text-[color:var(--ops-text-caption)]">main {gate.resolved_commit_sha.slice(0, 12)}</div> : null}
         {gate.staging_deployment_record_id ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">staging deployment #{gate.staging_deployment_record_id}</div> : null}
       </div>
