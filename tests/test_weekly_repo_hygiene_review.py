@@ -228,6 +228,28 @@ def test_weekly_repo_hygiene_scanner_detects_repo_entropy(tmp_path, monkeypatch)
     assert payload["auto_fixable_count"] == 2
 
 
+def test_weekly_repo_hygiene_scanner_ignores_todo_strings_inside_code(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(repo_hygiene_scan.config, "PROJECT_ROOT", tmp_path)
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    (server_dir / "embedded_string.py").write_text(
+        'MESSAGE = "TODO should not count when it is only a string literal."\n',
+        encoding="utf-8",
+    )
+    (server_dir / "real_comment.py").write_text(
+        "# TODO: tracked cleanup item\n",
+        encoding="utf-8",
+    )
+
+    payload = repo_hygiene_scan.scan_repo_hygiene_payload(root=tmp_path)
+
+    ids = {item["id"] for item in payload["repo_findings"]}
+    assert "todo:server/real_comment.py" in ids
+    assert "todo:server/embedded_string.py" not in ids
+
+
 def test_weekly_repo_hygiene_high_risk_or_duplicate_noops(db_session):
     high_risk = _finding(id="auth:secret-cleanup", risk_level="high", auto_fixable=True)
 

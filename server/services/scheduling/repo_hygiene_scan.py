@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from server import config
 
 
 ROOT_MARKDOWN_ALLOWLIST = {"AGENTS.md", "ARCHITECTURE.md", "README.md", "llms.txt"}
+TODO_COMMENT_PATTERNS = (
+    re.compile(r"#\s*(TODO|FIXME)\b"),
+    re.compile(r"//\s*(TODO|FIXME)\b"),
+    re.compile(r"/\*\s*(TODO|FIXME)\b"),
+    re.compile(r"\*\s*(TODO|FIXME)\b"),
+)
 
 
 def _repo_rel(path: Path) -> str:
@@ -114,6 +121,10 @@ def _pr_template_findings(root: Path) -> list[dict[str, Any]]:
     ]
 
 
+def _has_todo_comment(text: str) -> bool:
+    return any(pattern.search(text) for pattern in TODO_COMMENT_PATTERNS)
+
+
 def _todo_findings(root: Path, *, limit: int = 8) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     for base in [root / "server", root / "scripts", root / "dashboard" / "src"]:
@@ -126,7 +137,7 @@ def _todo_findings(root: Path, *, limit: int = 8) -> list[dict[str, Any]]:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            if "TODO" not in text and "FIXME" not in text:
+            if not _has_todo_comment(text):
                 continue
             findings.append(
                 _finding(
