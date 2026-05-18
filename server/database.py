@@ -161,12 +161,12 @@ class ProjectPolicyRow(Base):
     max_parallel_requirements = Column(Integer, nullable=False, default=1)
     portfolio_budget_points = Column(Integer, nullable=False, default=100)
     deploy_repo_full_name = Column(Text)
-    deploy_strategy = Column(Text, nullable=False, default="github_actions_ssh")
+    deploy_strategy = Column(Text, nullable=False, default="local_deploy_runner")
     deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
     staging_host_label = Column(Text)
     production_host_label = Column(Text)
-    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
-    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
+    staging_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
+    production_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -194,8 +194,8 @@ class ProjectRow(Base):
     deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
     staging_host_label = Column(Text)
     production_host_label = Column(Text)
-    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
-    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
+    staging_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
+    production_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -469,6 +469,66 @@ class DeploymentRecordRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
     requirement = relationship("RequirementRow")
     project_policy = relationship("ProjectPolicyRow")
+
+
+class DeploymentEventRow(Base):
+    __tablename__ = "deployment_events"
+    __table_args__ = (
+        UniqueConstraint("deployment_record_id", "sequence", name="deployment_events_record_sequence_uq"),
+        Index("deployment_events_record_sequence_idx", "deployment_record_id", "sequence"),
+        Index("deployment_events_record_created_idx", "deployment_record_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    deployment_record_id = Column(Integer, ForeignKey("deployment_records.id"), nullable=False)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(Text, nullable=False)
+    step_key = Column(Text)
+    message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    deployment_record = relationship("DeploymentRecordRow")
+
+
+class LocalCiRunRow(Base):
+    __tablename__ = "local_ci_runs"
+    __table_args__ = (
+        Index("local_ci_runs_status_idx", "status"),
+        Index("local_ci_runs_repo_status_idx", "repo_path", "status"),
+        Index("local_ci_runs_created_at_idx", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_path = Column(Text, nullable=False)
+    branch_name = Column(Text, nullable=False)
+    commit_sha = Column(Text, nullable=False)
+    base_ref = Column(Text, nullable=False, default="origin/main")
+    scope = Column(Text, nullable=False, default="auto")
+    status = Column(Text, nullable=False, default="requested")
+    actor = Column(Text, nullable=False, default="operator")
+    exit_code = Column(Integer)
+    summary = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    started_at = Column(DateTime)
+    finished_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class LocalCiEventRow(Base):
+    __tablename__ = "local_ci_events"
+    __table_args__ = (
+        UniqueConstraint("ci_run_id", "sequence", name="local_ci_events_run_sequence_uq"),
+        Index("local_ci_events_run_sequence_idx", "ci_run_id", "sequence"),
+        Index("local_ci_events_run_created_idx", "ci_run_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ci_run_id = Column(Integer, ForeignKey("local_ci_runs.id"), nullable=False)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(Text, nullable=False)
+    step_key = Column(Text)
+    message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    ci_run = relationship("LocalCiRunRow")
+
+
 class ReleaseTaskRow(Base):
     __tablename__ = "release_tasks"
     __table_args__ = (
@@ -1532,12 +1592,12 @@ def _migrate(engine_):
             "max_parallel_requirements": "INTEGER DEFAULT 1",
             "portfolio_budget_points": "INTEGER DEFAULT 100",
             "deploy_repo_full_name": "TEXT",
-            "deploy_strategy": "TEXT DEFAULT 'github_actions_ssh'",
+            "deploy_strategy": "TEXT DEFAULT 'local_deploy_runner'",
             "deploy_trigger_enabled": "BOOLEAN DEFAULT false",
             "staging_host_label": "TEXT",
             "production_host_label": "TEXT",
-            "staging_workflow_file": "TEXT DEFAULT 'deploy-staging.yml'",
-            "production_workflow_file": "TEXT DEFAULT 'deploy-production.yml'",
+            "staging_workflow_file": "TEXT DEFAULT 'local_deploy_runner'",
+            "production_workflow_file": "TEXT DEFAULT 'local_deploy_runner'",
         }
         for col, col_type in project_policy_cols.items():
             if col not in existing:
@@ -1595,6 +1655,18 @@ def _migrate(engine_):
             with engine_.connect() as conn:
                 conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
                 conn.commit()
+
+    if "deployment_events" not in tables:
+        logger.info("Migrating: creating 'deployment_events' table")
+        DeploymentEventRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "local_ci_runs" not in tables:
+        logger.info("Migrating: creating 'local_ci_runs' table")
+        LocalCiRunRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "local_ci_events" not in tables:
+        logger.info("Migrating: creating 'local_ci_events' table")
+        LocalCiEventRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "release_tasks" not in tables:
         logger.info("Migrating: creating 'release_tasks' table")

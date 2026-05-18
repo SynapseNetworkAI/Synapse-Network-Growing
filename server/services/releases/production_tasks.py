@@ -2,31 +2,22 @@
 
 from __future__ import annotations
 
+import subprocess
 from typing import Any
-from urllib.parse import quote
 
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import DeploymentRecordRow, ReleaseTaskRow, utcnow
+from server.database import DeploymentRecordRow, ReleaseTaskRow
 from server.schemas import ReleaseTaskOut, ReleaseTaskPrGateOut
-from server.services.delivery.deployment_governance import (
-    _callback_url,
-    _json_dump,
-)
-from server.services.releases.github_cli import run_gh_json as _run_gh_json
 from server.services.releases.tasks import (
     E2E_BRANCH_OPTIONS,
     _clean,
+    _json_load,
     _policy_for_project,
     _release_task_deploy_repo,
-    _release_task_to_out,
     _service_key_error_for_project,
     _valid_service_keys_for_project,
-    deploy_release_task_to_staging,
-)
-from server.services.releases.production_workflows import (
-    production_workflow_file_for_service,
 )
 from server.services.releases.production_staging_evidence import (
     deployment_commit_sha as _deployment_commit_sha,
@@ -36,60 +27,47 @@ from server.services.releases.production_staging_evidence import (
 
 PRODUCTION_GCP_PROJECT_ID = "synapse-network-prod"
 PRODUCTION_CONFIRM_PHRASE = "YES"
-REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS = {
-    "PROD_GCP_WORKLOAD_IDENTITY_PROVIDER",
-    "PROD_GCP_DEPLOY_SERVICE_ACCOUNT",
-    "PROD_GCP_PROJECT_ID",
-    "PROD_GCP_REGION",
-    "PROD_ARTIFACT_REGISTRY_REPOSITORY",
-    "PROD_EVIDENCE_BUCKET",
+PRODUCTION_DEPLOY_SERVICE_ACCOUNT = (
+    "synapse-prod-github-deployer@synapse-network-prod.iam.gserviceaccount.com"
+)
+LOCAL_REPO_PATH_BY_PROJECT = {
+    "synapse-network": "/Users/cliff/workspace/agent/Synapse-Network",
+    "synapse-network-provider": "/Users/cliff/workspace/agent/Synapse-Network-Provider",
 }
 
 
-def _missing_required_production_deploy_secrets(
-    repo_full_name: str,
-) -> tuple[list[str], str | None]:
-    if config.E2E_MODE:
-        return [], None
-    status, payload, error = _run_gh_json(
-        ["secret", "list", "--repo", repo_full_name, "--json", "name"],
-        timeout=30,
-    )
-    if status != "ok":
-        return sorted(
-            REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS
-        ), error or "Unable to verify GitHub production deployment secrets."
-    if not isinstance(payload, list):
-        return sorted(
-            REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS
-        ), "GitHub secret list response was not valid."
-    present = {_clean(item.get("name")) for item in payload if isinstance(item, dict)}
-    missing = sorted(
-        secret
-        for secret in REQUIRED_GCP_PRODUCTION_DEPLOY_SECRETS
-        if secret not in present
-    )
-    return missing, None
-
-
-def _github_branch_commit_sha(
-    repo_full_name: str, branch_name: str
+def _local_branch_commit_sha(
+    project_key: str, branch_name: str
 ) -> tuple[str | None, str | None]:
     if config.E2E_MODE:
         if branch_name in E2E_BRANCH_OPTIONS:
             return f"e2e-commit-{branch_name.replace('/', '-')}", None
         return None, "分支不存在，请重新选择有效远端分支"
-    status, payload, error = _run_gh_json(
-        ["api", f"repos/{repo_full_name}/branches/{quote(branch_name, safe='')}"],
-        timeout=30,
-    )
-    if status != "ok" or not isinstance(payload, dict):
-        return None, error or "Unable to resolve branch commit sha."
-    commit = payload.get("commit") if isinstance(payload.get("commit"), dict) else {}
-    sha = _clean(commit.get("sha"))
-    return (
-        sha or None
-    ), None if sha else "GitHub branch response did not include commit sha."
+    repo_path = LOCAL_REPO_PATH_BY_PROJECT.get(_clean(project_key))
+    if not repo_path:
+        return None, "Local production gate has no registered repository path."
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_path, "rev-parse", f"{branch_name}^{{commit}}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return None, f"Unable to resolve local branch commit sha: {exc}"
+    if result.returncode != 0:
+        return None, (result.stderr or result.stdout or "Local branch not found.").strip()
+    sha = _clean(result.stdout)
+    return sha or None, None if sha else "Local git did not return commit sha."
+
+
+def _github_branch_commit_sha(
+    project_key: str, branch_name: str
+) -> tuple[str | None, str | None]:
+    """Backward-compatible name for the local production gate resolver."""
+
+    return _local_branch_commit_sha(project_key, branch_name)
 
 
 def _task_target_commit_sha(row: ReleaseTaskRow) -> str:
@@ -116,7 +94,7 @@ def release_task_production_gate(
     if service_key not in _valid_service_keys_for_project(project_key):
         gate.blocked_reason = _service_key_error_for_project(project_key)
         return gate
-    current_main_sha, commit_error = _github_branch_commit_sha(repo_full_name, branch_name)
+    current_main_sha, commit_error = _github_branch_commit_sha(project_key, branch_name)
     gate.branch_exists = bool(current_main_sha)
     target_commit_sha = _task_target_commit_sha(row) or current_main_sha
     gate.resolved_commit_sha = target_commit_sha
@@ -128,9 +106,7 @@ def release_task_production_gate(
         gate.blocked_reason = (
             "Production target commit is no longer the current origin/main commit."
         )
-        gate.environment_gate_summary = (
-            "Redeploy the current main commit to staging before production."
-        )
+        gate.environment_gate_summary = "Redeploy the current main commit to staging before production."
         return gate
     staging_record = _successful_staging_deployment_for_task(
         db,
@@ -173,71 +149,6 @@ def release_task_production_gate(
     return gate
 
 
-def _production_workflow_file(
-    policy: Any, *, project_key: str, service_key: str
-) -> str:
-    return production_workflow_file_for_service(
-        configured_workflow_file=getattr(policy, "production_workflow_file", None),
-        project_key=project_key,
-        service_key=service_key,
-    )
-
-
-def _production_deployment_metadata(
-    *,
-    row: ReleaseTaskRow,
-    repo_full_name: str,
-    service_key: str,
-    commit_sha: str,
-    staging_record: DeploymentRecordRow,
-) -> dict[str, Any]:
-    return {
-        "release_task_id": int(row.id),
-        "service_key": service_key,
-        "deploy_repo_full_name": repo_full_name,
-        "deploy_strategy": "github_actions_wif_cloudrun",
-        "sourceRefType": "branch",
-        "sourceRef": "main",
-        "deployScope": service_key,
-        "gcpProject": PRODUCTION_GCP_PROJECT_ID,
-        "region": "us-central1",
-        "sourceStagingDeploymentRecordId": int(staging_record.id),
-        "environmentIsolationVersion": "v1",
-        "resolvedCommitSha": commit_sha,
-        "controlledSteps": [
-            "github_environment_gate",
-            "wif_auth",
-            "cloud_build",
-            "artifact_push",
-            "cloud_run_deploy",
-            "prod_smoke",
-            "callback",
-        ],
-    }
-
-
-def _pending_production_deployment_metadata(
-    *,
-    row: ReleaseTaskRow,
-    repo_full_name: str,
-    service_key: str,
-) -> dict[str, Any]:
-    return {
-        "release_task_id": int(row.id),
-        "service_key": service_key,
-        "deploy_repo_full_name": repo_full_name,
-        "deploy_strategy": "github_actions_wif_cloudrun",
-        "sourceRefType": "branch",
-        "sourceRef": "main",
-        "deployScope": service_key,
-        "gcpProject": PRODUCTION_GCP_PROJECT_ID,
-        "region": "us-central1",
-        "environmentIsolationVersion": "v1",
-        "dispatchPending": True,
-        "dispatchStatus": "pending",
-    }
-
-
 def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow:
     row = db.get(ReleaseTaskRow, int(task_id))
     if row is None:
@@ -265,112 +176,49 @@ def _production_task_row(db: Session, task_id: int, body: Any) -> ReleaseTaskRow
             raise ValueError(
                 "Failed release task can only retry after a failed deployment record."
             )
+        if record is not None and _clean(record.status).lower() == "failed":
+            row.deployment_record_id = None
+            db.flush()
     return row
 
 
 def _production_staging_evidence(
     db: Session, gate: ReleaseTaskPrGateOut
-) -> DeploymentRecordRow:
+) -> DeploymentRecordRow | None:
     if not (
         gate.can_deploy_production
         and gate.resolved_commit_sha
-        and gate.staging_deployment_record_id
     ):
         raise ValueError(gate.blocked_reason or "Production gate is not ready.")
+    if not gate.staging_deployment_record_id:
+        return None
     staging_record = db.get(DeploymentRecordRow, int(gate.staging_deployment_record_id))
     if staging_record is None:
         raise ValueError("Source staging deployment record was not found.")
     return staging_record
 
 
-def _assert_production_deploy_secrets(repo_full_name: str) -> None:
-    missing_secrets, secret_error = _missing_required_production_deploy_secrets(
-        repo_full_name
-    )
-    if missing_secrets:
-        detail = ", ".join(missing_secrets)
-        suffix = f" ({secret_error})" if secret_error else ""
-        raise ValueError(
-            f"Production deploy is blocked: missing GitHub secrets {detail}.{suffix}"
-        )
-
-
-def _create_pending_production_deployment_record(
-    db: Session,
-    *,
-    row: ReleaseTaskRow,
-    policy: Any,
-    repo_full_name: str,
-    actor: str,
-    note: str | None,
-) -> DeploymentRecordRow:
-    service_key = _clean(getattr(row, "service_key", None)).lower()
-    project_key = _clean(row.project_key)
-    workflow_file = _production_workflow_file(
-        policy, project_key=project_key, service_key=service_key
-    )
-    record = DeploymentRecordRow(
-        requirement_id=int(row.requirement_id)
-        if row.requirement_id is not None
-        else None,
-        project_policy_id=int(policy.id) if policy is not None else None,
-        project_key=project_key,
-        environment="production",
-        action="deploy",
-        status="requested",
-        health_status="checking",
-        branch_name="main",
-        workflow_file=workflow_file,
-        actor=actor,
-        trigger_source="release_task",
-        notes=note or "Production dispatch pending; sync will verify gate before dispatch.",
-        metadata_json=_json_dump(
-            _pending_production_deployment_metadata(
-                row=row,
-                repo_full_name=repo_full_name,
-                service_key=service_key,
-            )
-        ),
-        started_at=utcnow(),
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    row.deployment_record_id = int(record.id)
-    row.status = "deploying"
-    row.operator = actor
-    row.note = note
-    row.updated_at = utcnow()
-    db.commit()
-    db.refresh(row)
-    return record
-
-
-def _production_dispatch_inputs(
-    *,
-    row: ReleaseTaskRow,
-    record: DeploymentRecordRow,
-    commit_sha: str,
-    service_key: str,
-    actor: str,
-) -> dict[str, str]:
-    inputs = {
-        "requirement_id": f"release-task-{int(row.id)}",
-        "record_id": str(int(record.id)),
-        "commit_sha": commit_sha,
-        "source_ref_type": "branch",
-        "source_ref": "main",
-        "actor": actor,
-        "trigger_source": "release_task",
-    }
-    if _clean(getattr(record, "workflow_file", None)) == "deploy-production-frontends.yml":
-        inputs["deploy_scope"] = service_key
-    callback_url = _callback_url(int(record.id))
-    if callback_url:
-        inputs["callback_url"] = callback_url
-    if config.DEPLOY_WEBHOOK_TOKEN:
-        inputs["callback_token"] = config.DEPLOY_WEBHOOK_TOKEN
-    return inputs
+def _staging_image_digest(staging_record: DeploymentRecordRow | None) -> str | None:
+    if staging_record is None:
+        return None
+    metadata = _json_load(getattr(staging_record, "metadata_json", None), {})
+    for key in (
+        "imageDigest",
+        "image_digest",
+        "effectiveImage",
+        "prebuiltImageDigest",
+        "stagingImageDigest",
+    ):
+        value = _clean(metadata.get(key))
+        if "@sha256:" in value:
+            return value
+    manifest = metadata.get("manifest")
+    if isinstance(manifest, dict):
+        for key in ("image_digest", "imageDigest", "effectiveImage"):
+            value = _clean(manifest.get(key))
+            if "@sha256:" in value:
+                return value
+    return None
 
 
 def _deploy_release_task_to_production(
@@ -380,25 +228,39 @@ def _deploy_release_task_to_production(
     project_key = _clean(row.project_key)
     policy = _policy_for_project(db, project_key)
     repo_full_name = _release_task_deploy_repo(policy, project_key)
+    gate = release_task_production_gate(db, row, repo_full_name)
+    staging_record = _production_staging_evidence(db, gate)
+    image_digest = _staging_image_digest(staging_record)
+    if not image_digest:
+        raise ValueError("staging_digest_missing")
     actor = _clean(getattr(body, "actor", "operator")) or "operator"
     note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
-    _create_pending_production_deployment_record(
+    from server.services.releases.local_deploy_tasks import (
+        create_local_deploy_record_for_task,
+    )
+
+    return create_local_deploy_record_for_task(
         db,
-        row=row,
-        policy=policy,
-        repo_full_name=repo_full_name,
+        row,
         actor=actor,
         note=note,
+        pr_gate=gate,
+        extra_metadata={
+            "gcpProject": PRODUCTION_GCP_PROJECT_ID,
+            "sourceRef": "main",
+            "sourceRefType": "branch",
+            "productionConfirmPhrase": PRODUCTION_CONFIRM_PHRASE,
+            "deploy_repo_full_name": repo_full_name,
+            "sourceStagingDeploymentRecordId": int(staging_record.id)
+            if staging_record is not None
+            else None,
+            "stagingImageDigest": image_digest,
+            "promoteImageDigest": image_digest,
+            "resolvedCommitSha": gate.resolved_commit_sha,
+            "environmentIsolationVersion": "v1",
+            "impersonateServiceAccount": PRODUCTION_DEPLOY_SERVICE_ACCOUNT,
+        },
     )
-    queued_gate = ReleaseTaskPrGateOut(
-        branch_exists=True,
-        pr_state="production",
-        checks_status="pending",
-        checks_summary="Production dispatch queued.",
-        environment_gate_summary="Production dispatch queued; sync will verify gate before dispatch.",
-        blocked_reason=None,
-    )
-    return _release_task_to_out(row, db=db, pr_gate=queued_gate)
 
 
 def deploy_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
@@ -407,7 +269,22 @@ def deploy_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
         raise ValueError("Release task not found.")
     environment = _clean(row.environment).lower()
     if environment == "staging":
-        return deploy_release_task_to_staging(db, task_id, body)
+        from server.services.releases.local_deploy_tasks import (
+            create_local_deploy_record_for_task,
+        )
+
+        return create_local_deploy_record_for_task(
+            db,
+            row,
+            actor=_clean(getattr(body, "actor", "operator")) or "operator",
+            note=_clean(getattr(body, "note", None)) or _clean(row.note) or None,
+            pr_gate=ReleaseTaskPrGateOut(
+                branch_exists=True,
+                checks_status="local_runner",
+                checks_summary="Local deploy runner will execute this staging deploy.",
+                can_deploy_staging=True,
+            ),
+        )
     if environment == "production":
         return _deploy_release_task_to_production(db, task_id, body)
     raise ValueError("Release task environment must be staging or production.")

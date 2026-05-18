@@ -3,28 +3,19 @@
 from __future__ import annotations
 
 import json
-import re
-from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
 
-from sqlalchemy import and_, case, or_
 from sqlalchemy.orm import Session
 
 from server import config
 from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseTaskRow, RequirementRow, utcnow
 from server.schemas import ReleaseBranchOptionOut, ReleaseTaskOut, ReleaseTaskPrGateOut
-from server.services.delivery.deployment_governance import _callback_url, _dispatch_github_workflow, _json_dump
+from server.services.delivery.deployment_governance import _json_dump
 from server.services.delivery.pull_request import _gh_env
 from server.services.projects.policy_registry import ensure_default_project_policies
-from server.services.releases.github_cli import run_gh_json as _run_gh_json, run_gh_text as _run_gh_text
-from server.services.releases.github_actions_logs import github_failure_log_result
+from server.services.releases.github_cli import run_gh_json as _run_gh_json
 from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
-from server.services.releases.deployment_success import _apply_deployment_success_state, _deployment_has_failure_metadata
-from server.services.releases.prebuilt_images import (
-    prebuilt_deploy_plan,
-)
-from server.services.releases.staging_workflows import staging_workflow_file_for_service
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
 subprocess = _github_cli.subprocess
@@ -32,8 +23,6 @@ VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
 VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "deploying", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-DEPLOYMENT_ACTIVE_STATUSES = {"requested", "running", "pending"}
-DEPLOYMENT_TERMINAL_STATUSES = {"succeeded", "failed", "blocked", "cancelled"}
 SYNAPSE_NETWORK_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user-front", "docs-front"}
 PROJECT_SERVICE_KEYS = {
     "synapse-network": SYNAPSE_NETWORK_SERVICE_KEYS,
@@ -42,15 +31,10 @@ PROJECT_SERVICE_KEYS = {
 DIRECT_STAGING_BRANCHES = {"main"}
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 SYNAPSE_NETWORK_REPO = "SynapseNetworkAI/Synapse-Network"
-SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY = "synapse-network-provider"
-STAGING_WORKFLOW_FILE = "deploy-staging.yml"
 E2E_BRANCH_OPTIONS = ["main", "codex/e2e-staging-release-task", "codex/branch-based-staging-deploy"]
 SUCCESS_CHECK_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 FAILED_CHECK_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
-FAILED_GITHUB_RUN_CONCLUSIONS = {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
 PENDING_CHECK_STATUSES = {"QUEUED", "IN_PROGRESS", "PENDING", "REQUESTED", "WAITING"}
-REQUIRED_GCP_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT"}
-REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "GCP_DEPLOY_SERVICE_ACCOUNT", "STAGING_GCP_PROJECT_ID", "STAGING_GCP_REGION", "STAGING_ARTIFACT_REGISTRY_REPOSITORY", "STAGING_EVIDENCE_BUCKET"}
 
 def _valid_service_keys_for_project(project_key: str) -> set[str]:
     return PROJECT_SERVICE_KEYS.get(_clean(project_key), SYNAPSE_NETWORK_SERVICE_KEYS)
@@ -58,21 +42,6 @@ def _valid_service_keys_for_project(project_key: str) -> set[str]:
 def _service_key_error_for_project(project_key: str) -> str:
     allowed = ", ".join(sorted(_valid_service_keys_for_project(project_key)))
     return f"service_key must be one of: {allowed}"
-
-def _deploy_strategy_for_project(project_key: str) -> str:
-    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
-        return "github_actions_wif_cloudrun"
-    return "github_actions_gcp_cloudrun"
-
-def _controlled_steps_for_project(project_key: str) -> list[str]:
-    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
-        return ["checkout", "resolve_ref", "wif_auth", "cloud_build", "artifact_push", "cloud_run_deploy", "health_check"]
-    return ["checkout", "preflight", "build", "push", "cloud_run_deploy", "health_check"]
-
-def _required_staging_deploy_secrets_for_project(project_key: str | None) -> set[str]:
-    if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
-        return REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS
-    return REQUIRED_GCP_STAGING_DEPLOY_SECRETS
 
 def _clean(value: str | None) -> str:
     return str(value or "").strip()
@@ -203,43 +172,6 @@ def _manual_completion_deployment_record(row: ReleaseTaskRow, *, operator: str, 
     )
 
 
-def _deployment_needs_failure_log_enrichment(record: DeploymentRecordRow) -> bool:
-    metadata = _json_load(getattr(record, "metadata_json", None), {})
-    if _clean(metadata.get("githubFailureLogExcerpt")) or _clean(metadata.get("githubFailureLogError")):
-        return False
-    run_id = _clean(getattr(record, "external_run_id", None)) or _github_actions_run_id_from_url(getattr(record, "external_url", None))
-    if not run_id:
-        return False
-    conclusion = _clean(metadata.get("githubRunConclusion")).lower()
-    if conclusion and conclusion not in FAILED_GITHUB_RUN_CONCLUSIONS:
-        return False
-    return _clean(getattr(record, "status", None)).lower() == "failed"
-
-
-def _enrich_deployment_failure_log(record: DeploymentRecordRow, *, repo_full_name: str, run_id: str, conclusion: str | None = None) -> bool:
-    failure_log = github_failure_log_result(
-        repo_full_name,
-        run_id,
-        conclusion=_clean(conclusion).lower() or "failure",
-        run_gh_text=lambda args: _run_gh_text(args, timeout=45),
-    )
-    updates = {
-        **failure_log.metadata,
-        "githubFailureLogSyncedAt": utcnow().isoformat(),
-    }
-    _merge_metadata(record, updates)
-    if failure_log.excerpt:
-        record.notes = failure_log.note
-        return True
-    failure_error = _clean(failure_log.metadata.get("githubFailureLogError"))
-    if failure_error and not _clean(getattr(record, "notes", None)):
-        record.notes = _bounded_error_excerpt(
-            f"GitHub Actions staging deploy failed. Unable to read Actions failed logs: {failure_error}",
-            1500,
-        )
-    return False
-
-
 def _github_branch_exists(repo_full_name: str, branch_name: str) -> tuple[bool, str | None]:
     if config.E2E_MODE:
         return branch_name in E2E_BRANCH_OPTIONS, None if branch_name in E2E_BRANCH_OPTIONS else "分支不存在，请重新选择有效远端分支"
@@ -251,30 +183,6 @@ def _github_branch_exists(repo_full_name: str, branch_name: str) -> tuple[bool, 
     if status == "not_found":
         return False, "分支不存在，请重新选择有效远端分支"
     return False, error or "无法确认分支状态，请稍后同步"
-
-
-def _missing_required_staging_deploy_secrets(repo_full_name: str, project_key: str | None = None) -> tuple[list[str], str | None]:
-    """Return missing GitHub secrets required before dispatching staging deploy.
-
-    This is a fail-fast preflight. Without these secrets the GitHub workflow
-    fails before build/deploy, so triggering it creates noisy failed runs rather
-    than a useful release attempt.
-    """
-
-    if config.E2E_MODE:
-        return [], None
-    required_secrets = _required_staging_deploy_secrets_for_project(project_key)
-    status, payload, error = _run_gh_json(
-        ["secret", "list", "--repo", repo_full_name, "--json", "name"],
-        timeout=30,
-    )
-    if status != "ok":
-        return sorted(required_secrets), error or "Unable to verify GitHub deployment secrets."
-    if not isinstance(payload, list):
-        return sorted(required_secrets), "GitHub secret list response was not valid."
-    present = {_clean(item.get("name")) for item in payload if isinstance(item, dict)}
-    missing = sorted(secret for secret in required_secrets if secret not in present)
-    return missing, None
 
 
 def _checks_summary(status_rollup: list[Any]) -> tuple[str, str]:
@@ -666,551 +574,39 @@ def create_release_task_pr(db: Session, task_id: int, body: Any) -> ReleaseTaskO
     )
 
 
-def _github_actions_run_id_from_url(url: str | None) -> str | None:
-    match = re.search(r"/actions/runs/(\d+)", _clean(url))
-    return match.group(1) if match else None
-
-
-def _parse_github_timestamp(value: object) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        return datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
-def _find_recent_actions_run_id(repo_full_name: str, record: DeploymentRecordRow, metadata: dict[str, Any]) -> str | None:
-    workflow_file = _clean(record.workflow_file) or STAGING_WORKFLOW_FILE
-    status, payload, _error = _run_gh_json(
-        [
-            "run",
-            "list",
-            "--repo",
-            repo_full_name,
-            "--workflow",
-            workflow_file,
-            "--event",
-            "workflow_dispatch",
-            "--limit",
-            "20",
-            "--json",
-            "databaseId,status,conclusion,createdAt,updatedAt,url,headSha,displayTitle",
-        ],
-        timeout=30,
-    )
-    if status != "ok" or not isinstance(payload, list):
-        return None
-    started_at = _as_utc(record.started_at) or datetime.now(timezone.utc)
-    # GitHub creates workflow_dispatch runs after the dispatch request. Keep a
-    # small clock-skew window, but never attach an older failed run from a
-    # previous release task to a brand-new DeploymentRecord.
-    earliest = started_at - timedelta(seconds=30)
-    branch = _clean(record.branch_name)
-    record_token = f"record {int(record.id)}"
-    plausible_items: list[dict[str, Any]] = []
-    for item in payload:
-        if not isinstance(item, dict):
-            continue
-        created_at = _parse_github_timestamp(item.get("createdAt"))
-        if created_at is not None and created_at < earliest:
-            continue
-        plausible_items.append(item)
-        title = _clean(item.get("displayTitle")).lower()
-        if record_token in title and item.get("databaseId") is not None:
-            return str(item.get("databaseId"))
-    for item in plausible_items:
-        run_id = item.get("databaseId")
-        if run_id is None:
-            continue
-        # If several release tasks are dispatched close together, prefer a log
-        # match on the branch/service inputs. If logs are unavailable, use the
-        # newest plausible workflow_dispatch run and reconcile again later.
-        log_status, log_payload, _ = _run_gh_text(
-            ["run", "view", str(run_id), "--repo", repo_full_name, "--log"],
-            timeout=30,
-        )
-        if log_status == "ok" and isinstance(log_payload, str):
-            service_key = _clean(metadata.get("service_key") or metadata.get("deployScope"))
-            has_branch = not branch or branch in log_payload
-            has_service = not service_key or service_key in log_payload
-            if has_branch and has_service:
-                return str(run_id)
-            continue
-        return str(run_id)
-    return None
-
-
-def _github_actions_run_view(repo_full_name: str, run_id: str) -> tuple[dict[str, Any] | None, str | None]:
-    status, payload, error = _run_gh_json(
-        [
-            "run",
-            "view",
-            str(run_id),
-            "--repo",
-            repo_full_name,
-            "--json",
-            "databaseId,status,conclusion,createdAt,updatedAt,url,headSha",
-        ],
-        timeout=30,
-    )
-    if status == "ok" and isinstance(payload, dict):
-        return payload, None
-    return None, error or "Unable to read GitHub Actions run."
-
-
-def _as_aware_utc(value: datetime | None) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
-
-
-def _deployment_age_seconds(record: DeploymentRecordRow, *, now: datetime) -> float:
-    started_at = _as_aware_utc(getattr(record, "started_at", None))
-    created_at = _as_aware_utc(getattr(record, "created_at", None))
-    anchor = started_at or created_at
-    if anchor is None:
-        return 0.0
-    return max(0.0, (now - anchor).total_seconds())
-
-
-def _task_for_deployment(db: Session, record: DeploymentRecordRow) -> ReleaseTaskRow | None:
-    return (
-        db.query(ReleaseTaskRow)
-        .filter(ReleaseTaskRow.deployment_record_id == int(record.id))
-        .order_by(ReleaseTaskRow.id.desc())
-        .first()
-    )
-
-
-def _release_task_is_terminal(task: ReleaseTaskRow | None) -> bool:
-    return task is not None and (_clean(task.status).lower() in TERMINAL_STATUSES)
-
-
-def _deployment_is_terminal(record: DeploymentRecordRow) -> bool:
-    return _clean(record.status).lower() in DEPLOYMENT_TERMINAL_STATUSES
-
-
-def _mark_deployment_sync_failed(
-    db: Session,
-    record: DeploymentRecordRow,
-    *,
-    notes: str,
-    failure_kind: str,
-    now: datetime | None = None,
-) -> str:
-    now = now or utcnow()
-    record.status = "failed"
-    record.health_status = "failed"
-    record.notes = notes
-    record.finished_at = now
-    _merge_metadata(
-        record,
-        {
-            "lastDeploymentStatusSyncedAt": now.isoformat(),
-            "deploymentSyncFailureKind": failure_kind,
-        },
-    )
-    task = _task_for_deployment(db, record)
-    if not _release_task_is_terminal(task) and task is not None:
-        task.status = "failed"
-        task.operator = task.operator or "github_actions_sync"
-        task.note = task.note or notes
-        task.updated_at = now
-    return "failed"
-
-
-def _is_github_run_not_found_error(error: str | None) -> bool:
-    lowered = str(error or "").lower()
-    return any(marker in lowered for marker in ("not found", "http 404", "could not resolve", "no run found"))
-
-
-def _apply_github_run_to_deployment(
-    db: Session,
-    record: DeploymentRecordRow,
-    *,
-    run_payload: dict[str, Any],
-    run_id: str,
-) -> str:
-    now = utcnow()
-    status = _clean(run_payload.get("status")).lower()
-    conclusion = _clean(run_payload.get("conclusion")).lower()
-    is_rerun_success_reconciliation = _clean(record.status).lower() == "failed" and status == "completed" and conclusion == "success"
-    if _deployment_is_terminal(record) and not is_rerun_success_reconciliation:
-        return _clean(record.status).lower()
-    run_url = _clean(run_payload.get("url")) or record.external_url
-    head_sha = _clean(run_payload.get("headSha")) or None
-    record.external_run_id = str(run_id)
-    record.external_url = run_url
-    _merge_metadata(
-        record,
-        {
-            "githubRunId": str(run_id),
-            "githubRunUrl": run_url,
-            "githubRunStatus": status,
-            "githubRunConclusion": conclusion or None,
-            "githubHeadSha": head_sha,
-            "lastDeploymentStatusSyncedAt": now.isoformat(),
-        },
-    )
-    task = _task_for_deployment(db, record)
-    if status and status != "completed":
-        if _deployment_age_seconds(record, now=now) >= int(config.RELEASE_DEPLOYMENT_RUNNING_TIMEOUT_SECONDS):
-            return _mark_deployment_sync_failed(
-                db,
-                record,
-                notes=f"GitHub Actions deploy still running after {int(config.RELEASE_DEPLOYMENT_RUNNING_TIMEOUT_SECONDS // 60)}m.",
-                failure_kind="running_timeout",
-                now=now,
-            )
-        record.status = "running"
-        record.health_status = record.health_status or "checking"
-        record.notes = f"GitHub Actions run {status}."
-        if task is not None and not _release_task_is_terminal(task):
-            task.status = "deploying"
-            task.operator = task.operator or "github_actions_sync"
-            task.updated_at = now
-        return "running"
-    if conclusion == "success":
-        _apply_deployment_success_state(record, task, head_sha=head_sha, now=now)
-        return "succeeded"
-    if conclusion in {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}:
-        record.status = "failed"
-        record.health_status = "failed"
-        metadata = _json_load(getattr(record, "metadata_json", None), {})
-        repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
-        failure_note = f"GitHub Actions staging deploy {conclusion}."
-        if repo_full_name:
-            failure_log = github_failure_log_result(
-                repo_full_name,
-                str(run_id),
-                conclusion=conclusion,
-                run_gh_text=lambda args: _run_gh_text(args, timeout=45),
-            )
-            _merge_metadata(
-                record,
-                {
-                    **failure_log.metadata,
-                    "githubFailureLogSyncedAt": now.isoformat(),
-                },
-            )
-            failure_note = failure_log.note
-        record.notes = failure_note
-        record.finished_at = now
-        if not _release_task_is_terminal(task) and task is not None:
-            task.status = "failed"
-            task.operator = task.operator or "github_actions_sync"
-            task.note = task.note or record.notes
-            task.updated_at = now
-        return "failed"
-    record.health_status = record.health_status or "checking"
-    record.notes = "GitHub Actions run result is not terminal yet."
-    if task is not None and not _release_task_is_terminal(task):
-        task.status = "deploying"
-        task.operator = task.operator or "github_actions_sync"
-        task.updated_at = now
-    return "pending"
-
-
 def sync_release_task_deployment_statuses(db: Session, *, max_records: int = 50) -> ServiceObjectResult:
     bounded_limit = max(1, min(int(max_records or 50), 50))
+    rows = (
+        db.query(DeploymentRecordRow)
+        .filter(DeploymentRecordRow.trigger_source == "local_deploy_runner")
+        .order_by(DeploymentRecordRow.updated_at.desc(), DeploymentRecordRow.id.desc())
+        .limit(bounded_limit)
+        .all()
+    )
     result: dict[str, Any] = {
-        "processed_count": 0,
-        "succeeded_ids": [],
-        "failed_ids": [],
-        "running_ids": [],
-        "pending_ids": [],
+        "processed_count": len(rows),
+        "succeeded_ids": [
+            int(row.id) for row in rows if _clean(row.status).lower() == "succeeded"
+        ],
+        "failed_ids": [
+            int(row.id) for row in rows if _clean(row.status).lower() == "failed"
+        ],
+        "running_ids": [
+            int(row.id) for row in rows if _clean(row.status).lower() == "running"
+        ],
+        "pending_ids": [
+            int(row.id) for row in rows if _clean(row.status).lower() == "requested"
+        ],
         "error_ids": [],
         "skipped_terminal_ids": [],
         "timeout_ids": [],
         "removed_run_ids": [],
+        "local_runner_only": True,
     }
-    from server.services.releases.production_dispatch import append_pending_production_dispatches
-
-    append_pending_production_dispatches(db, result, max_records=min(5, bounded_limit))
-    sync_cutoff = utcnow() - timedelta(days=7)
-    active_status_rank = case(
-        (DeploymentRecordRow.status.in_(["requested", "running", "pending"]), 0),
-        else_=1,
-    )
-    rows = (
-        db.query(DeploymentRecordRow)
-        .filter(
-            DeploymentRecordRow.trigger_source == "release_task",
-            or_(
-                DeploymentRecordRow.status.in_(["requested", "running", "pending"]),
-                and_(
-                    DeploymentRecordRow.status == "failed",
-                    DeploymentRecordRow.external_run_id.isnot(None),
-                    DeploymentRecordRow.updated_at >= sync_cutoff,
-                ),
-                and_(
-                    DeploymentRecordRow.status == "succeeded",
-                    DeploymentRecordRow.external_run_id.isnot(None),
-                    DeploymentRecordRow.updated_at >= sync_cutoff,
-                ),
-            ),
-        )
-        .order_by(active_status_rank.asc(), DeploymentRecordRow.updated_at.desc(), DeploymentRecordRow.id.desc())
-        .limit(bounded_limit)
-        .all()
-    )
-    for record in rows:
-        record = db.get(DeploymentRecordRow, int(record.id))
-        if record is None:
-            continue
-        if _deployment_is_terminal(record):
-            if _clean(record.status).lower() == "succeeded" and _deployment_has_failure_metadata(record):
-                task = _task_for_deployment(db, record)
-                _apply_deployment_success_state(record, task, head_sha=None, now=utcnow())
-                result["processed_count"] += 1
-                result["succeeded_ids"].append(int(record.id))
-                continue
-            metadata = _json_load(record.metadata_json, {})
-            repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
-            run_id = _clean(record.external_run_id) or _github_actions_run_id_from_url(record.external_url)
-            if _clean(record.status).lower() == "failed" and repo_full_name and run_id and _task_for_deployment(db, record):
-                run_payload, error = _github_actions_run_view(repo_full_name, run_id)
-                if run_payload is not None:
-                    state = _apply_github_run_to_deployment(db, record, run_payload=run_payload, run_id=run_id)
-                    if state == "succeeded":
-                        result["processed_count"] += 1
-                        result["succeeded_ids"].append(int(record.id))
-                        continue
-                elif error:
-                    _merge_metadata(record, {"lastDeploymentStatusSyncedAt": utcnow().isoformat(), "deploymentSyncError": error})
-            if _deployment_needs_failure_log_enrichment(record):
-                if repo_full_name and run_id:
-                    _enrich_deployment_failure_log(
-                        record,
-                        repo_full_name=repo_full_name,
-                        run_id=run_id,
-                        conclusion=_clean(metadata.get("githubRunConclusion")).lower() or "failure",
-                    )
-                    result.setdefault("enriched_failed_log_ids", []).append(int(record.id))
-            result["skipped_terminal_ids"].append(int(record.id))
-            continue
-        task = _task_for_deployment(db, record)
-        if _release_task_is_terminal(task):
-            result["skipped_terminal_ids"].append(int(record.id))
-            continue
-        if _clean(record.status).lower() not in DEPLOYMENT_ACTIVE_STATUSES:
-            result["skipped_terminal_ids"].append(int(record.id))
-            continue
-        result["processed_count"] += 1
-        metadata = _json_load(record.metadata_json, {})
-        repo_full_name = _clean(metadata.get("deploy_repo_full_name"))
-        if not repo_full_name:
-            result["error_ids"].append(int(record.id))
-            record.notes = "Deployment sync skipped: missing deploy_repo_full_name."
-            continue
-        run_id = _clean(record.external_run_id) or _github_actions_run_id_from_url(record.external_url)
-        if not run_id:
-            run_id = _find_recent_actions_run_id(repo_full_name, record, metadata)
-        if not run_id:
-            now = utcnow()
-            if _deployment_age_seconds(record, now=now) >= int(config.RELEASE_DEPLOYMENT_PENDING_RUN_ID_TIMEOUT_SECONDS):
-                _mark_deployment_sync_failed(
-                    db,
-                    record,
-                    notes=f"GitHub Actions run id not found after {int(config.RELEASE_DEPLOYMENT_PENDING_RUN_ID_TIMEOUT_SECONDS // 60)}m.",
-                    failure_kind="pending_run_id_timeout",
-                    now=now,
-                )
-                result["failed_ids"].append(int(record.id))
-                result["timeout_ids"].append(int(record.id))
-                continue
-            result["pending_ids"].append(int(record.id))
-            record.health_status = record.health_status or "checking"
-            if task is not None and not _release_task_is_terminal(task):
-                task.status = "deploying"
-                task.operator = task.operator or "github_actions_sync"
-                task.updated_at = now
-            _merge_metadata(record, {"lastDeploymentStatusSyncedAt": utcnow().isoformat(), "deploymentSyncPendingReason": "GitHub Actions run id not found yet"})
-            continue
-        run_payload, error = _github_actions_run_view(repo_full_name, run_id)
-        if run_payload is None:
-            if _is_github_run_not_found_error(error):
-                _mark_deployment_sync_failed(
-                    db,
-                    record,
-                    notes="GitHub Actions run removed from source; manual deletion detected or run is no longer accessible.",
-                    failure_kind="run_removed_from_source",
-                )
-                result["failed_ids"].append(int(record.id))
-                result["removed_run_ids"].append(int(record.id))
-                continue
-            result["error_ids"].append(int(record.id))
-            record.notes = f"Deployment sync failed: {error}"
-            _merge_metadata(record, {"lastDeploymentStatusSyncedAt": utcnow().isoformat(), "deploymentSyncError": error})
-            continue
-        state = _apply_github_run_to_deployment(db, record, run_payload=run_payload, run_id=run_id)
-        key = {
-            "succeeded": "succeeded_ids",
-            "failed": "failed_ids",
-            "running": "running_ids",
-            "pending": "pending_ids",
-        }.get(state, "pending_ids")
-        result[key].append(int(record.id))
-    db.commit()
     return ServiceObjectResult(result)
 
 
 def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
-    row = db.get(ReleaseTaskRow, int(task_id))
-    if row is None:
-        raise ValueError("Release task not found.")
-    if _clean(row.status).lower() != "requested":
-        raise ValueError("Only requested release tasks can be deployed to staging.")
-    if _clean(row.environment).lower() != "staging":
-        raise ValueError("Only staging release tasks can be deployed automatically.")
-    branch_name = _clean(row.branch_name)
-    if not branch_name:
-        raise ValueError("branch_name is required before staging deploy.")
-    service_key = _clean(getattr(row, "service_key", None)).lower()
-    project_key = _clean(row.project_key)
-    if service_key not in _valid_service_keys_for_project(project_key):
-        raise ValueError(_service_key_error_for_project(project_key))
-    if row.deployment_record_id is not None:
-        raise ValueError("Release task already has a deployment record.")
+    from server.services.releases.local_deploy_tasks import deploy_release_task_locally
 
-    policy = _policy_for_project(db, project_key)
-    repo_full_name = _release_task_deploy_repo(policy, project_key)
-    gate = _release_task_pr_gate_for(row, repo_full_name)
-    if not gate.can_deploy_staging:
-        raise ValueError(gate.blocked_reason or "PR checks must pass before staging deploy.")
-    missing_secrets, secret_error = _missing_required_staging_deploy_secrets(repo_full_name, project_key=project_key)
-    if missing_secrets:
-        detail = ", ".join(missing_secrets)
-        suffix = f" ({secret_error})" if secret_error else ""
-        raise ValueError(f"Staging deploy is blocked: missing GitHub secrets {detail}.{suffix}")
-    workflow_file = staging_workflow_file_for_service(
-        configured_workflow_file=getattr(policy, "staging_workflow_file", None),
-        project_key=project_key,
-        service_key=service_key,
-    )
-    actor = _clean(getattr(body, "actor", "operator")) or "operator"
-    note = _clean(getattr(body, "note", None)) or _clean(row.note) or None
-    deploy_strategy = _deploy_strategy_for_project(project_key)
-    controlled_steps = _controlled_steps_for_project(project_key)
-    prebuilt_plan = prebuilt_deploy_plan(row, service_key=service_key, workflow_file=workflow_file)
-    deployment_metadata = {
-        "release_task_id": int(row.id),
-        "service_key": service_key,
-        "deploy_repo_full_name": repo_full_name,
-        "deploy_strategy": deploy_strategy,
-        "sourceRefType": "commit" if prebuilt_plan.enabled else "branch",
-        "sourceRef": prebuilt_plan.commit if prebuilt_plan.enabled else branch_name,
-        "deployScope": service_key,
-        "controlledSteps": controlled_steps,
-    }
-    deployment_metadata.update(prebuilt_plan.metadata)
-    if deploy_strategy in {"github_actions_gcp_cloudrun", "github_actions_wif_cloudrun"}:
-        deployment_metadata.update({"gcpProject": "fabled-archive-494108-k5", "region": "us-central1"})
-    if deploy_strategy == "github_actions_wif_cloudrun":
-        deployment_metadata.update({"cloud_run_service": "synapse-staging-provider", "artifact_image": None, "health_status": "pending"})
-    record = DeploymentRecordRow(
-        requirement_id=int(row.requirement_id) if row.requirement_id is not None else None,
-        project_policy_id=int(policy.id) if policy is not None else None,
-        project_key=project_key,
-        environment="staging",
-        action="deploy",
-        status="requested",
-        health_status="checking",
-        branch_name=branch_name,
-        workflow_file=workflow_file,
-        actor=actor,
-        trigger_source="release_task",
-        notes=note,
-        metadata_json=_json_dump(deployment_metadata),
-        started_at=utcnow(),
-    )
-    db.add(record)
-    db.commit()
-    db.refresh(record)
-    row.deployment_record_id = int(record.id)
-    row.status = "deploying"
-    row.operator = actor
-    row.updated_at = utcnow()
-    db.commit()
-    db.refresh(row)
-    inputs = {
-        "requirement_id": f"release-task-{int(row.id)}",
-        "record_id": str(int(record.id)),
-        "commit_sha": "",
-        "source_ref_type": "branch",
-        "source_ref": branch_name,
-        "deploy_scope": service_key,
-        "actor": actor,
-        "trigger_source": "release_task",
-    }
-    inputs.update(prebuilt_plan.inputs)
-    if workflow_file == "deploy-staging-gateway.yml":
-        inputs.pop("deploy_scope", None)
-    callback_url = _callback_url(int(record.id))
-    if callback_url:
-        inputs["callback_url"] = callback_url
-    if config.DEPLOY_WEBHOOK_TOKEN:
-        inputs["callback_token"] = config.DEPLOY_WEBHOOK_TOKEN
-
-    try:
-        record.external_url = _dispatch_github_workflow(
-            repo_full_name=repo_full_name,
-            workflow_file=workflow_file,
-            ref="main",
-            inputs=inputs,
-        )
-        db.commit()
-        db.refresh(row)
-        return _release_task_to_out(row, db=db, pr_gate=gate)
-    except Exception as exc:  # noqa: BLE001
-        db.rollback()
-        record = db.get(DeploymentRecordRow, int(row.deployment_record_id)) if row.deployment_record_id else None
-        if record is None:
-            record = DeploymentRecordRow(
-                requirement_id=int(row.requirement_id) if row.requirement_id is not None else None,
-                project_policy_id=int(policy.id) if policy is not None else None,
-                project_key=project_key,
-                environment="staging",
-                action="deploy",
-                status="failed",
-                branch_name=branch_name,
-                workflow_file=workflow_file,
-                actor=actor,
-                trigger_source="release_task",
-                notes=str(exc)[:1000],
-                metadata_json=_json_dump(
-                    {
-                        "release_task_id": int(row.id),
-                        "service_key": service_key,
-                        "deploy_repo_full_name": repo_full_name,
-                        "deploy_strategy": deploy_strategy,
-                        "dispatch_failed_before_record_commit": True,
-                    }
-                ),
-                started_at=utcnow(),
-            )
-            db.add(record)
-            db.flush()
-            row.deployment_record_id = int(record.id)
-        record.status = "failed"
-        record.health_status = "failed"
-        record.notes = str(exc)[:1000]
-        record.finished_at = utcnow()
-        row.status = "failed"
-        row.operator = actor
-        row.note = str(exc)[:1000]
-        row.updated_at = utcnow()
-        db.commit()
-        db.refresh(row)
-        return _release_task_to_out(row, db=db, pr_gate=gate)
+    return deploy_release_task_locally(db, task_id, body)

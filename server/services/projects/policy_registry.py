@@ -24,7 +24,7 @@ from server.services.projects.policy_defaults import (
 )
 
 
-LEGACY_DEPLOY_STRATEGIES = {"github_actions_ssh", "github_actions_ssh_gce"}
+LEGACY_DEPLOY_STRATEGIES: set[str] = set()
 
 
 def _default_policy_by_key(project_key: str | None) -> dict[str, Any] | None:
@@ -129,8 +129,8 @@ def ensure_default_project_policies(db: Session) -> None:
                 deploy_trigger_enabled=bool(policy.get("deploy_trigger_enabled", False)),
                 staging_host_label=str(policy.get("staging_host_label") or "").strip() or None,
                 production_host_label=str(policy.get("production_host_label") or "").strip() or None,
-                staging_workflow_file=str(policy.get("staging_workflow_file") or "deploy-staging.yml").strip() or "deploy-staging.yml",
-                production_workflow_file=str(policy.get("production_workflow_file") or "deploy-production.yml").strip() or "deploy-production.yml",
+                staging_workflow_file=str(policy.get("staging_workflow_file") or "local_deploy_runner").strip() or "local_deploy_runner",
+                production_workflow_file=str(policy.get("production_workflow_file") or "local_deploy_runner").strip() or "local_deploy_runner",
                 notes=policy["notes"],
             )
         )
@@ -172,12 +172,12 @@ def serialize_project_policy(row: ProjectPolicyRow) -> dict[str, Any]:
         "max_parallel_requirements": int(row.max_parallel_requirements or 1),
         "portfolio_budget_points": max(20, int(getattr(row, "portfolio_budget_points", 100) or 100)),
         "deploy_repo_full_name": str(getattr(row, "deploy_repo_full_name", "") or "").strip() or None,
-        "deploy_strategy": str(getattr(row, "deploy_strategy", None) or "github_actions_ssh"),
+        "deploy_strategy": str(getattr(row, "deploy_strategy", None) or "local_deploy_runner"),
         "deploy_trigger_enabled": bool(getattr(row, "deploy_trigger_enabled", False)),
         "staging_host_label": str(getattr(row, "staging_host_label", "") or "").strip() or None,
         "production_host_label": str(getattr(row, "production_host_label", "") or "").strip() or None,
-        "staging_workflow_file": str(getattr(row, "staging_workflow_file", None) or "deploy-staging.yml"),
-        "production_workflow_file": str(getattr(row, "production_workflow_file", None) or "deploy-production.yml"),
+        "staging_workflow_file": str(getattr(row, "staging_workflow_file", None) or "local_deploy_runner"),
+        "production_workflow_file": str(getattr(row, "production_workflow_file", None) or "local_deploy_runner"),
         "notes": row.notes,
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
@@ -260,8 +260,8 @@ def create_project_policy(
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=(staging_host_label or "").strip() or None,
         production_host_label=(production_host_label or "").strip() or None,
-        staging_workflow_file=(staging_workflow_file or "deploy-staging.yml").strip() or "deploy-staging.yml",
-        production_workflow_file=(production_workflow_file or "deploy-production.yml").strip() or "deploy-production.yml",
+        staging_workflow_file=(staging_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
+        production_workflow_file=(production_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
         notes=(notes or "").strip() or None,
     )
     db.add(row)
@@ -354,9 +354,9 @@ def update_project_policy(
     if production_host_label is not None:
         row.production_host_label = production_host_label.strip() or None
     if staging_workflow_file is not None:
-        row.staging_workflow_file = staging_workflow_file.strip() or "deploy-staging.yml"
+        row.staging_workflow_file = staging_workflow_file.strip() or "local_deploy_runner"
     if production_workflow_file is not None:
-        row.production_workflow_file = production_workflow_file.strip() or "deploy-production.yml"
+        row.production_workflow_file = production_workflow_file.strip() or "local_deploy_runner"
     if notes is not None:
         row.notes = notes.strip() or None
     db.commit()

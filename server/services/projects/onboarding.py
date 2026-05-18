@@ -11,8 +11,6 @@ from server import config
 from server.database import ProjectOnboardingRow, ProjectPolicyRow
 from server.services.projects.policy import (
     create_project_policy,
-    list_project_policies,
-    project_policy_to_dict,
 )
 
 
@@ -218,12 +216,12 @@ def create_project_onboarding(
             max_parallel_requirements=1,
             portfolio_budget_points=100,
             deploy_repo_full_name=None,
-            deploy_strategy="github_actions_ssh",
+            deploy_strategy="local_deploy_runner",
             deploy_trigger_enabled=False,
             staging_host_label=None,
             production_host_label=None,
-            staging_workflow_file="deploy-staging.yml",
-            production_workflow_file="deploy-production.yml",
+            staging_workflow_file="local_deploy_runner",
+            production_workflow_file="local_deploy_runner",
             notes=notes,
         )
 

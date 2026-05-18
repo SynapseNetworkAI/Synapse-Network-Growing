@@ -65,7 +65,7 @@ elif [[ "$BACKEND_CHECK_MODE" == "full" ]]; then
   echo "[ci:backend] full mode pytest with diff coverage"
   if ! command -v uvx >/dev/null 2>&1; then
     echo "FATAL DIFF-COVERAGE-TOOL-001: uvx is required to run diff-cover." >&2
-    echo "Install uv/uvx locally or use GitHub Actions, which installs uv before backend_checks." >&2
+    echo "Install uv/uvx locally before running backend_checks." >&2
     exit 1
   fi
   PYTHONPATH=. "${PYTEST_CMD[@]}" -q \

@@ -20,7 +20,7 @@ def test_project_policies_list_includes_default_managed_projects(synced_client):
     assert synapse_policy["deploy_repo_full_name"] == "SynapseNetworkAI/Synapse-Network"
     assert synapse_policy["deploy_trigger_enabled"] is True
     assert synapse_policy["staging_host_label"] == "cloud-run-staging"
-    assert synapse_policy["production_workflow_file"] == "deploy-production.yml"
+    assert synapse_policy["production_workflow_file"] == "local_deploy_runner"
     assert all(not key.startswith("sng-validation") for key in project_keys)
 
 
@@ -77,12 +77,12 @@ def test_project_policy_can_be_updated(synced_client):
             "max_parallel_requirements": 2,
             "portfolio_budget_points": 160,
             "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network",
-            "deploy_strategy": "github_actions_ssh",
+            "deploy_strategy": "local_deploy_runner",
             "deploy_trigger_enabled": True,
             "staging_host_label": "staging-vm",
             "production_host_label": "prod-vm",
-            "staging_workflow_file": "deploy-staging.yml",
-            "production_workflow_file": "deploy-production.yml",
+            "staging_workflow_file": "local_deploy_runner",
+            "production_workflow_file": "local_deploy_runner",
             "notes": "Tightened during validation.",
         },
     )

@@ -1,4 +1,4 @@
-"""Prebuilt release image policy for staging frontend tasks."""
+"""Prebuilt release image policy for frontend release tasks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from server.database import ReleaseTaskRow, utcnow
 from server.services.delivery.deployment_governance import _json_dump
 
 PREBUILT_FRONTEND_SERVICES = {"admin-front", "user-front", "docs-front"}
+PREBUILT_FRONTEND_WORKFLOWS = {"local_deploy_runner"}
 PREBUILT_IMAGE_SOURCE = "ephemeral_worktree_local_build"
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 
@@ -57,9 +58,9 @@ def prebuilt_deploy_plan(
     if not digest:
         return PrebuiltDeployPlan()
     commit = _clean(metadata.get("sourceCommitSha")).lower()
-    if workflow_file != "deploy-staging-frontends.yml":
+    if workflow_file not in PREBUILT_FRONTEND_WORKFLOWS:
         raise ValueError(
-            "Prebuilt image deploy is only supported by the staging frontend workflow."
+            "Prebuilt image deploy is only supported by the local frontend deploy runner."
         )
     validate_prebuilt_image_for_task(
         row,
@@ -89,12 +90,11 @@ def prebuilt_deploy_plan(
     )
 
 
-def _validate_task_scope(
-    row: ReleaseTaskRow, row_service: str, service_key: str
-) -> None:
-    if _clean(row.environment).lower() != "staging":
+def _validate_task_scope(row: ReleaseTaskRow, row_service: str, service_key: str) -> None:
+    environment = _clean(row.environment).lower()
+    if environment not in {"staging", "production"}:
         raise ValueError(
-            "Prebuilt image attach is only allowed for staging release tasks."
+            "Prebuilt image attach is only allowed for staging or production release tasks."
         )
     if _clean(row.project_key) != SYNAPSE_NETWORK_PROJECT_KEY:
         raise ValueError(
@@ -102,7 +102,7 @@ def _validate_task_scope(
         )
     if row_service not in PREBUILT_FRONTEND_SERVICES:
         raise ValueError(
-            "Prebuilt image attach is only allowed for admin-front/user-front/docs-front staging tasks."
+            "Prebuilt image attach is only allowed for admin-front/user-front/docs-front release tasks."
         )
     if service_key != row_service:
         raise ValueError(

@@ -3,21 +3,21 @@ id: synapse-gce-deployment-governance
 title: "Synapse Deployment Governance"
 status: ready
 created_at: 2026-04-13
-updated_at: 2026-05-15
+updated_at: 2026-05-17
 author: engineering-ops
 ---
 
 # Synapse Deployment Governance
 
-本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。两者 staging / production 默认使用 GitHub Actions + GCP Workload Identity Federation + Cloud Build + Cloud Run，由 Growing 统一记录 Release Task、DeploymentRecord 和上线记录。Staging GCP project 固定为 `fabled-archive-494108-k5`；production GCP project 固定为 `synapse-network-prod`。
+本文件固定 `Synapse-Network` 与 `Synapse-Network-Provider` 的发布控制面规则。两者 staging / production 默认使用 Growing 本地 Deploy Runner + GCP service account impersonation + Cloud Build/Docker build + Cloud Run，由 Growing 统一记录 Release Task、DeploymentRecord、append-only deploy events 和上线记录。Staging GCP project 固定为 `fabled-archive-494108-k5`；production GCP project 固定为 `synapse-network-prod`。
 
 ## 1. 固定部署策略
 
 1. 不使用 Jenkins
-2. 使用 GitHub Actions 执行部署
-3. `Synapse-Network-Growing` 只做 deploy control plane，不直接持有 GCP 部署权限
-4. Staging 支持按 branch 部署，但 workflow 必须冻结为 resolved commit SHA
-5. Production 不允许直接部署 feature branch，只能 promote verified main/tag/staging manifest
+2. 不使用远端 Actions 执行 CI/CD；GitHub 只保留代码托管和 review
+3. `Synapse-Network-Growing` 是 deploy control plane；真实写 GCP 的动作由本机 local runner 子进程执行
+4. Staging 支持按 branch 部署，但 runner 必须冻结为 resolved commit SHA
+5. Production 不允许直接部署 feature branch，只能 promote verified main staging manifest / immutable digest
 
 ## 2. 责任边界
 
@@ -32,94 +32,76 @@ author: engineering-ops
 
 ### 目标仓库负责
 
-1. `pr-ci.yml`
-2. Staging family workflows: `deploy-staging-gateway.yml`, `deploy-staging-admin.yml`, `deploy-staging-frontends.yml`, plus reusable core `deploy-staging.yml`
-3. `deploy-production.yml`
-4. Cloud Build image build scripts
-5. Cloud Run migration/deploy/smoke scripts
-6. rollback manifest and image-digest recovery commands
+1. Dockerfiles and build scripts
+2. Cloud Run migration/deploy/smoke scripts
+3. rollback manifest and image-digest recovery commands
+4. service-owned schema migration scripts
 
 当前目标仓库策略：
 
-| Project | Service key | Staging runner | Required GitHub secrets |
+| Project | Service key | Staging runner | GCP execution |
 |---|---|---|---|
-| `Synapse-Network` | `gateway` | `deploy-staging-gateway.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network` | `gateway-admin` | `deploy-staging-admin.yml` -> reusable `deploy-staging.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `deploy-staging-frontends.yml` | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT` |
-| `Synapse-Network-Provider` | `provider-service` | GitHub Actions + WIF + Cloud Build + Cloud Run | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOY_SERVICE_ACCOUNT`, `STAGING_GCP_PROJECT_ID`, `STAGING_GCP_REGION`, `STAGING_ARTIFACT_REGISTRY_REPOSITORY`, `STAGING_EVIDENCE_BUCKET` |
+| `Synapse-Network` | `gateway` | `scripts/local/deploy_synapse_staging.sh` | local runner + staging deploy service account |
+| `Synapse-Network` | `gateway-admin` | `scripts/local/deploy_synapse_staging.sh` | local runner + staging deploy service account |
+| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `scripts/local/deploy_synapse_staging.sh` | local runner + staging deploy service account |
+| `Synapse-Network-Provider` | `provider-service` | `scripts/local/deploy_synapse_provider_staging.sh` | local runner + staging deploy service account |
 
-Production 使用和 staging 对齐的模块化 runner。`Synapse-Network` 的业务服务按 family dispatch 到清晰命名的 wrapper workflow，wrapper 再调用 reusable core `deploy-production.yml`；`Synapse-Network-Provider` 使用独立 provider workflow。所有 production workflow 都必须使用 GitHub Environment `production`，并通过独立 production secrets 访问 `synapse-network-prod`：
+Production 使用统一的 local promote runner。所有 production deploy 都必须从同 service / same commit 的 successful staging DeploymentRecord 读取 immutable digest；production 阶段不重新 build。
 
 | Project | Service key | Production runner |
 |---|---|---|
-| `Synapse-Network` | `gateway` | `deploy-production-gateway.yml` -> reusable `deploy-production.yml` |
-| `Synapse-Network` | `gateway-admin` | `deploy-production-admin.yml` -> reusable `deploy-production.yml` |
-| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `deploy-production-frontends.yml` -> reusable `deploy-production.yml` |
-| `Synapse-Network-Provider` | `provider-service` | `deploy-production-provider.yml` |
+| `Synapse-Network` | `gateway` | `scripts/local/promote_synapse_production.sh` |
+| `Synapse-Network` | `gateway-admin` | `scripts/local/promote_synapse_production.sh` |
+| `Synapse-Network` | `admin-front`, `user-front`, `docs-front` | `scripts/local/promote_synapse_production.sh` |
+| `Synapse-Network-Provider` | `provider-service` | `scripts/local/promote_synapse_production.sh` |
 
-| Secret | Purpose |
+| Local runner env | Purpose |
 |---|---|
-| `PROD_GCP_WORKLOAD_IDENTITY_PROVIDER` | Production-only Workload Identity Provider |
-| `PROD_GCP_DEPLOY_SERVICE_ACCOUNT` | Production deploy service account |
-| `PROD_GCP_PROJECT_ID` | Must be `synapse-network-prod` |
-| `PROD_GCP_REGION` | Production Cloud Run region |
-| `PROD_ARTIFACT_REGISTRY_REPOSITORY` | Production Artifact Registry repo |
-| `PROD_EVIDENCE_BUCKET` | Production deploy manifest / evidence bucket |
+| `LOCAL_DEPLOY_IMPERSONATE_SERVICE_ACCOUNT` | Optional production/staging deploy service account impersonation, applied only to subprocess env / command flags |
+| `SYNAPSE_PROD_GCP_PROJECT_ID` | Must be `synapse-network-prod` |
+| `SYNAPSE_PROD_GCP_REGION` | Production Cloud Run region |
+| `SYNAPSE_PROD_ARTIFACT_REPOSITORY` | Production Artifact Registry repo |
 
 Growing 的 `/releases` 仍然是一个统一发布入口，但后端会按 `service_key`
-选择对应 staging / production family workflow。不要让 operator 手工维护这张映射，也不要把所有
-服务继续塞进一个只靠条件分支区分的 mega workflow。
+选择对应 local runner command。不要让 operator 手工维护这张映射，也不要把所有
+服务继续塞进一个不可诊断的 mega script。
 
 ## 3. Promotion Rule
 
 `production` promotion 前，必须已经存在同一 project / service / commit SHA 的 `staging success` 记录。Production Release Task 必须绑定一个确定的 `target_commit_sha`；如果是旧任务没有该字段，Growing 只能用最近一次同服务 `main` staging success 作为兼容 evidence，并在 dispatch 前把该 commit 写回任务。Production gate 不允许每次刷新时无声追随最新 moving `main`。
 
-这条规则由 Growing 在 dispatch GitHub Actions 前先阻断。
+这条规则由 Growing 在创建 local production deployment record 前先阻断。
 
-Production 只允许 `main`。Growing 的 Release Task production deploy endpoint 会在 dispatch 前验证：
+Production 只允许 `main`。Growing 的 Release Task production deploy endpoint 会在创建 local deploy record 前验证：
 
 1. task environment 是 `production`。
 2. branch 是 `main`。
 3. operator 输入 `YES`。
 4. 同一 `project_key + service_key + target_commit_sha` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
-5. 目标仓库具备 production WIF secrets。
+5. staging DeploymentRecord metadata 中有 `imageDigest` / manifest digest；缺失则 fail closed。
 
 Production DeploymentRecord metadata 必须写入 `gcpProject=synapse-network-prod`、`sourceStagingDeploymentRecordId`、`deployScope`、`environmentIsolationVersion=v1`、`deploy_repo_full_name` 和 `service_key`。
 
 ## 4. Branch-Based Staging Deploy
 
-Growing 可以让操作者选择 PR/feature branch 并点击 `Deploy Branch to Staging`。提交给 GitHub Actions 的关键输入是：
-
-```json
-{
-  "source_ref_type": "branch",
-  "source_ref": "codex/example-feature",
-  "deploy_scope": "auto"
-}
-```
-
-GitHub Actions 必须在执行开始时将 branch HEAD 解析成不可变 commit SHA，并在 deployment record metadata 中保存：
+Growing 可以让操作者选择 branch 并点击 `Deploy Branch to Staging`。Local runner 必须在执行开始时将 branch HEAD 解析成不可变 commit SHA，并在 deployment record metadata 中保存：
 
 - `sourceRefType`
 - `sourceRef`
 - `resolvedCommitSha`
-- `deployScope`
 - `imageDigest`
 - `cloudRunRevision`
-- `evidenceUri`
+- `manifest`
 
-`Synapse-Network` staging 的服务到 workflow 映射固定为：
+`Synapse-Network` staging 的服务到 local runner 映射固定为：
 
-| Service key | Workflow file |
+| Service key | Runner script |
 |---|---|
-| `gateway` | `deploy-staging-gateway.yml` |
-| `gateway-admin` | `deploy-staging-admin.yml` |
-| `admin-front` | `deploy-staging-frontends.yml` |
-| `user-front` | `deploy-staging-frontends.yml` |
-| `docs-front` | `deploy-staging-frontends.yml` |
-
-目标仓库的 `deploy-staging.yml` 保留为 reusable core / compatibility runner；
-新 dispatch 默认进入 family workflow，减少错误 migration guard 和不必要的服务条件分支。
+| `gateway` | `scripts/local/deploy_synapse_staging.sh` |
+| `gateway-admin` | `scripts/local/deploy_synapse_staging.sh` |
+| `admin-front` | `scripts/local/deploy_synapse_staging.sh` |
+| `user-front` | `scripts/local/deploy_synapse_staging.sh` |
+| `docs-front` | `scripts/local/deploy_synapse_staging.sh` |
 
 部署记录不能只保存分支名。分支后续继续 push 时，必须形成新的 deployment record。
 
@@ -143,14 +125,14 @@ Growing 当前会展示：
 Staging 发布链路保持“任务意图”和“真实上线”分离：
 
 1. 在 `/releases` 创建 Release Task。
-2. 选择目标项目 / 服务和 GitHub 远端分支。
-3. 如果选择 `main` 分支，可以直接由 Operator 点击 `发布到 staging`；`main` 已经是主干事实，不需要再提交 PR 或等待 PR Checks。
+2. 选择目标项目 / 服务和分支。
+3. 如果选择 `main` 分支，可以直接由 Operator 点击 `发布到 staging`；`main` 已经是主干事实。
 4. 如果选择非 `main` 分支且没有 PR，点击 `提交 PR`。
 5. 等待 PR Checks 通过。非 `main` 分支 Checks pending / failed 时不得发布 staging。
 6. Checks 通过后，由 Operator 点击 `发布到 staging`。
-7. 如果 GitHub Actions 没有 callback 到 Ops Console，全局 `release_deployment_status_sweep` 会自动只读拉取 Actions run 结果并更新 DeploymentRecord / Release Task；也可以点击 `/releases` 的 `同步状态` 立即触发同一幂等同步函数。
-8. 查看 `/releases` 的 `上线记录`，确认 GitHub Actions、目标 runner、revision / image / manifest 或 GCE script evidence，以及 health check 成功。
-9. Production 不使用 staging 快捷按钮。Production 默认从 `main` 的 verified staging commit promote，并必须经过 Growing Human Gate 与 GitHub Environment `production` required reviewers 双门禁。
+7. Local deploy runner 从 Postgres 抢占 `DeploymentRecord(trigger_source=local_deploy_runner)` 并执行真实 GCP 部署。
+8. 查看 `/releases` 的 `上线记录`，确认 target runner、revision / image digest / manifest，以及 health check 成功。
+9. Production 不使用 staging 快捷按钮。Production 默认从 `main` 的 verified staging commit/digest promote，并必须经过 Growing Human Gate。
 
 Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production v1 的来源必须收敛到 `main` 且同 commit 已经在 staging 成功。
 
@@ -164,12 +146,12 @@ Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接�
 1. 哪个 project / service 上线了。
 2. 发布到哪个 environment。
 3. 使用哪个 branch 和 commit SHA。
-4. 触发了哪个 GitHub Actions run。
+4. 由哪个 local runner / command 执行。
 5. Cloud Run revision、image tag / digest、manifest / evidence URI 是什么。
 6. health check 是否通过。
 7. 该记录是否来自某个 Release Task。
 
-上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注直接伪造成真实上线结果。没有 webhook callback 的部署应通过全局 `release_deployment_status_sweep` 或手动 `同步状态` 拉取 GitHub Actions run 结果后再更新账本。同步只处理未终态 DeploymentRecord，不会为每个发布任务动态创建定时任务，也不会回滚人工 completed / failed / cancelled 终态；GitHub run 被手动删除时必须以 `manual deletion detected` / `run removed from source` 形式收敛为可诊断失败。
+上线记录不得混入 `requested`、`failed`、`cancelled` Release Task，也不得把人工备注直接伪造成真实上线结果。Local runner 必须把 stdout/stderr 写入 append-only deployment events，并在成功时写回 manifest / revision / image digest。同步只读取 Postgres 中的 local runner 状态，不调用外部 CI/CD 系统。
 
 ## 8. 回滚说明
 

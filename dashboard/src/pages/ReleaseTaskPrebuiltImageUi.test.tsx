@@ -89,8 +89,9 @@ describe('frontend prebuilt image release UI', () => {
     )
 
     expect(screen.getByText('Local worktree build command')).toBeTruthy()
-    expect(screen.getByText(/scripts\/deploy\/local_build_staging_image\.sh/)).toBeTruthy()
+    expect(screen.getByText(/scripts\/deploy\/local_build_frontend_image\.sh/)).toBeTruthy()
     expect(screen.getByText(/--service docs-front/)).toBeTruthy()
+    expect(screen.getByText(/--environment staging/)).toBeTruthy()
     expect(screen.getByText(/--release-task-id 42/)).toBeTruthy()
   })
 

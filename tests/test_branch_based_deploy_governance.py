@@ -17,12 +17,12 @@ def _seed_release(db_session, *, commit_sha: str | None = None):
         release_mode="manual",
         requires_manual_approval=True,
         deploy_repo_full_name="SynapseNetworkAI/Synapse-Network",
-        deploy_strategy="github_actions_gcp_cloudrun",
+        deploy_strategy="local_deploy_runner",
         deploy_trigger_enabled=True,
         staging_host_label="cloud-run-staging",
         production_host_label="cloud-run-prod",
-        staging_workflow_file="deploy-staging.yml",
-        production_workflow_file="deploy-production.yml",
+        staging_workflow_file="local_deploy_runner",
+        production_workflow_file="local_deploy_runner",
     )
     requirement = RequirementRow(
         title="Branch deploy release",
@@ -59,15 +59,8 @@ def _seed_release(db_session, *, commit_sha: str | None = None):
     return requirement
 
 
-def test_staging_branch_deploy_freezes_source_ref_and_scope(synced_client, db_session, monkeypatch):
+def test_staging_branch_deploy_freezes_source_ref_and_scope(synced_client, db_session):
     requirement = _seed_release(db_session)
-    dispatched = {}
-
-    def fake_dispatch(**kwargs):
-        dispatched.update(kwargs)
-        return "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml"
-
-    monkeypatch.setattr("server.services.delivery.deployment_governance._dispatch_github_workflow", fake_dispatch)
 
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/staging",
@@ -85,23 +78,16 @@ def test_staging_branch_deploy_freezes_source_ref_and_scope(synced_client, db_se
     assert record.environment == "staging"
     assert record.action == "deploy"
     assert record.branch_name == "codex/branch-deploy-test"
-    assert record.workflow_file == "deploy-staging.yml"
+    assert record.workflow_file == "local_deploy_runner"
+    assert record.trigger_source == "local_deploy_runner"
     assert metadata["sourceRefType"] == "branch"
     assert metadata["sourceRef"] == "codex/branch-deploy-test"
     assert metadata["deployScope"] == "gateway"
     assert metadata["host_label"] == "cloud-run-staging"
-    assert dispatched["ref"] == "main"
-    assert dispatched["inputs"]["source_ref_type"] == "branch"
-    assert dispatched["inputs"]["source_ref"] == "codex/branch-deploy-test"
-    assert dispatched["inputs"]["deploy_scope"] == "gateway"
 
 
-def test_production_rejects_feature_branch_deploy(synced_client, db_session, monkeypatch):
+def test_production_rejects_feature_branch_deploy(synced_client, db_session):
     requirement = _seed_release(db_session, commit_sha="abc123")
-    monkeypatch.setattr(
-        "server.services.delivery.deployment_governance._dispatch_github_workflow",
-        lambda **_: "should-not-dispatch",
-    )
 
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/production",
@@ -148,12 +134,8 @@ def test_no_deploy_records_release_decision_and_metadata(synced_client, db_sessi
     assert release.delivery_state == "no_deploy"
 
 
-def test_deployment_report_merges_release_manifest_metadata(synced_client, db_session, monkeypatch):
+def test_deployment_report_merges_release_manifest_metadata(synced_client, db_session):
     requirement = _seed_release(db_session)
-    monkeypatch.setattr(
-        "server.services.delivery.deployment_governance._dispatch_github_workflow",
-        lambda **_: "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml",
-    )
     deploy_response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/staging",
         json={"actor": "operator", "source_ref_type": "branch", "deploy_scope": "user-front"},
@@ -189,12 +171,8 @@ def test_deployment_report_merges_release_manifest_metadata(synced_client, db_se
     assert payload["metadata"]["cloudRunRevisions"]["user-front"] == "synapse-user-front-0001"
 
 
-def test_staging_commit_ref_resolves_commit_sha(synced_client, db_session, monkeypatch):
+def test_staging_commit_ref_resolves_commit_sha(synced_client, db_session):
     requirement = _seed_release(db_session)
-    monkeypatch.setattr(
-        "server.services.delivery.deployment_governance._dispatch_github_workflow",
-        lambda **_: "https://github.com/SynapseNetworkAI/Synapse-Network/actions/workflows/deploy-staging.yml",
-    )
 
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/staging",
@@ -242,7 +220,7 @@ def test_deploy_and_no_deploy_require_prepared_release(synced_client, db_session
             forbidden_globs_json="[]",
             required_checks_json="[]",
             deploy_repo_full_name="SynapseNetworkAI/Synapse-Network",
-            deploy_strategy="github_actions_gcp_cloudrun",
+            deploy_strategy="local_deploy_runner",
             deploy_trigger_enabled=True,
         )
     )

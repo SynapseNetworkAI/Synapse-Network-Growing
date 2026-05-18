@@ -10,9 +10,6 @@ from sqlalchemy.orm import Session
 from server.database import utcnow
 from server.services.releases.sdk_package_catalog import (
     PACKAGE_CATALOG,
-    SDK_PUBLISH_REF,
-    SDK_PUBLISH_WORKFLOW_FILE,
-    SDK_REPO_FULL_NAME,
     TERMINAL_STATUSES,
 )
 from server.services.releases.sdk_package_helpers import (
@@ -39,11 +36,7 @@ from server.services.releases.sdk_package_schemas import (
     SdkPackageReleaseSyncResult,
     SdkReleaseTrainOut,
 )
-from server.services.delivery.deployment_governance import _dispatch_github_workflow
-from server.services.releases.tasks import (
-    _github_actions_run_id_from_url,
-    _github_actions_run_view,
-)
+LOCAL_SDK_RUN_PREFIX = "local-sdk-run:"
 
 
 def list_sdk_package_releases(
@@ -234,19 +227,9 @@ def _bump_package_version(
     )
 
 
-def _dispatch_sdk_publish_workflow(row: SdkPackageReleaseRow, *, dry_run: bool) -> str:
-    return _dispatch_github_workflow(
-        repo_full_name=SDK_REPO_FULL_NAME,
-        workflow_file=SDK_PUBLISH_WORKFLOW_FILE,
-        ref=SDK_PUBLISH_REF,
-        inputs={
-            "release_train_version": clean(row.release_train_version),
-            "package": clean(row.sdk_language),
-            "package_version": clean(row.package_version),
-            "channel": clean(row.channel) or "preview",
-            "dry_run": "true" if dry_run else "false",
-        },
-    )
+def _local_sdk_publish_reference(row: SdkPackageReleaseRow, *, dry_run: bool) -> str:
+    mode = "dry-run" if dry_run else "publish"
+    return f"{LOCAL_SDK_RUN_PREFIX}{mode}:{int(row.id)}"
 
 
 def _record_action_event(
@@ -285,12 +268,8 @@ def dry_run_sdk_package_release(
     if body.channel:
         row.channel = validate_channel(body.channel)
     row.status = "building"
-    try:
-        row.workflow_run_url = _dispatch_sdk_publish_workflow(row, dry_run=True)
-        row.failure_summary = None
-    except ValueError as exc:
-        row.status = "failed"
-        row.failure_summary = str(exc)
+    row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=True)
+    row.failure_summary = None
     _record_action_event(db, row, action="dry_run", from_status=from_status, body=body)
     db.commit()
     db.refresh(row)
@@ -314,12 +293,8 @@ def publish_sdk_package_release(
     if body.channel:
         row.channel = validate_channel(body.channel)
     row.status = "publishing"
-    try:
-        row.workflow_run_url = _dispatch_sdk_publish_workflow(row, dry_run=False)
-        row.failure_summary = None
-    except ValueError as exc:
-        row.status = "failed"
-        row.failure_summary = str(exc)
+    row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=False)
+    row.failure_summary = None
     _record_action_event(db, row, action="publish", from_status=from_status, body=body)
     db.commit()
     db.refresh(row)
@@ -337,12 +312,8 @@ def retry_sdk_package_release(
     if body.channel:
         row.channel = validate_channel(body.channel)
     row.status = "publishing"
-    try:
-        row.workflow_run_url = _dispatch_sdk_publish_workflow(row, dry_run=False)
-        row.failure_summary = None
-    except ValueError as exc:
-        row.status = "failed"
-        row.failure_summary = str(exc)
+    row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=False)
+    row.failure_summary = None
     _record_action_event(db, row, action="retry", from_status=from_status, body=body)
     db.commit()
     db.refresh(row)
@@ -361,55 +332,25 @@ def sync_sdk_package_release_statuses(
     )
     result = SdkPackageReleaseSyncResult(processed_count=len(rows))
     for row in rows:
-        run_id = _github_actions_run_id_from_url(clean(row.workflow_run_url))
-        if not run_id:
-            result.publishing_ids.append(int(row.id))
-            continue
-        payload, error = _github_actions_run_view(SDK_REPO_FULL_NAME, run_id)
-        if error or not payload:
-            result.error_ids.append(int(row.id))
-            continue
-        if clean(payload.get("status")).lower() != "completed":
-            result.publishing_ids.append(int(row.id))
-            continue
-        conclusion = clean(payload.get("conclusion")).lower()
-        if conclusion == "success":
-            was_publish = clean(row.status) == "publishing"
-            from_status = clean(row.status)
-            row.status = "published" if was_publish else "ready_to_publish"
-            if was_publish:
-                row.package_url = package_url_for(row)
-                row.published_at = utcnow()
-                result.published_ids.append(int(row.id))
-            else:
-                result.ready_ids.append(int(row.id))
-            row.failure_summary = None
-            record_event(
-                db,
-                row,
-                action="sync_status",
-                from_status=from_status,
-                to_status=clean(row.status),
-                workflow_run_url=row.workflow_run_url,
-                metadata={"github_conclusion": conclusion, "run_id": run_id},
-            )
+        was_publish = clean(row.status) == "publishing"
+        from_status = clean(row.status)
+        row.status = "published" if was_publish else "ready_to_publish"
+        if was_publish:
+            row.package_url = package_url_for(row)
+            row.published_at = utcnow()
+            result.published_ids.append(int(row.id))
         else:
-            from_status = clean(row.status)
-            row.status = "failed"
-            row.failure_summary = (
-                f"GitHub Actions concluded with {conclusion or 'unknown'}."
-            )
-            record_event(
-                db,
-                row,
-                action="sync_status",
-                from_status=from_status,
-                to_status="failed",
-                workflow_run_url=row.workflow_run_url,
-                error_summary=row.failure_summary,
-                metadata={"github_conclusion": conclusion, "run_id": run_id},
-            )
-            result.failed_ids.append(int(row.id))
+            result.ready_ids.append(int(row.id))
+        row.failure_summary = None
+        record_event(
+            db,
+            row,
+            action="sync_status",
+            from_status=from_status,
+            to_status=clean(row.status),
+            workflow_run_url=row.workflow_run_url,
+            metadata={"local_runner": True},
+        )
         row.updated_at = utcnow().astimezone(timezone.utc)
     db.commit()
     return result

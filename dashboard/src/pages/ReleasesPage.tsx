@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { OnlineReleaseRecord, ProjectPolicy, ReleaseBranchOption, ReleaseCandidate, ReleaseTask, api } from '../api'
-import { attachReleaseTaskPrebuiltImage, deployReleaseTask, getReleaseTaskGateStatus, getReleaseTasksPage } from '../apiReleaseTasks'
+import { attachReleaseTaskPrebuiltImage, deployReleaseTask, getReleaseTaskGateStatus, getReleaseTasksPage, resetReleaseTaskRunning } from '../apiReleaseTasks'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { ReleaseTaskDetailModal } from './ReleaseTaskDetailPanel'
 import { ReleaseTasksTable, type GateRequestState } from './ReleaseTasksTable'
@@ -463,6 +463,20 @@ export default function ReleasesPage() {
     toast.success('Prebuilt image 已绑定到发布任务')
   }
 
+  const resetRunningDeployment = async (
+    task: ReleaseTask,
+    payload: { confirm_phrase: string; reason: string },
+  ) => {
+    const updated = await resetReleaseTaskRunning(task.id, {
+      confirm_phrase: payload.confirm_phrase,
+      operator: 'operator',
+      reason: payload.reason,
+    })
+    setTasks((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    setTaskDetail(updated)
+    toast.success('发布任务已重置为待执行，旧 DeploymentRecord 日志已保留')
+  }
+
   const deployTaskToProduction = async () => {
     if (!productionDeployTask || busyAction) return
     const busyKey = `release-task-${productionDeployTask.id}-deploy-production`
@@ -820,6 +834,7 @@ export default function ReleasesPage() {
         onClose={() => setTaskDetail(null)}
         onRefresh={() => load().catch(() => {})}
         onAttachPrebuiltImage={attachPrebuiltImage}
+        onResetRunningDeployment={resetRunningDeployment}
       />
       <OnlineRecordDetailModal record={onlineDetail} onClose={() => setOnlineDetail(null)} />
     </div>
@@ -983,7 +998,7 @@ function OnlineRecordsTable({
               <th className="px-4 py-4 font-medium">环境</th>
               <th className="px-4 py-4 font-medium">分支 / Commit</th>
               <th className="px-4 py-4 font-medium">操作 / 健康</th>
-              <th className="px-4 py-4 font-medium">GitHub Actions</th>
+              <th className="px-4 py-4 font-medium">Runner</th>
               <th className="px-4 py-4 font-medium">上线时间</th>
               <th className="px-5 py-4 text-right font-medium">操作</th>
             </tr>
@@ -1067,7 +1082,7 @@ function OnlineRecordDetailModal({
       open={Boolean(record)}
       eyebrow="Online Record"
       title={`上线记录 #${record.id}`}
-      description="成功部署账本：用于确认 GitHub Actions、Cloud Run revision、镜像 / manifest 和健康检查结果。"
+      description="成功部署账本：用于确认本地 runner、Cloud Run revision、镜像 / manifest 和健康检查结果。"
       onClose={onClose}
     >
       <div className="space-y-5">
@@ -1100,11 +1115,11 @@ function OnlineRecordDetailModal({
           <div className="mt-4 flex flex-wrap gap-2">
             {actionsUrl ? (
               <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(actionsUrl)}>
-                打开 GitHub Actions 日志
+                打开外部日志
               </button>
             ) : (
               <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm text-[color:var(--ops-text-caption)] opacity-70" disabled>
-                无 Actions 链接
+                无外部链接
               </button>
             )}
             {prUrl ? (

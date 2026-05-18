@@ -77,8 +77,8 @@ def serialize_project(row: ProjectRow, *, policy: ProjectPolicyRow | None = None
         "deploy_trigger_enabled": bool(getattr(row, "deploy_trigger_enabled", False)),
         "staging_host_label": _clean(getattr(row, "staging_host_label", None)),
         "production_host_label": _clean(getattr(row, "production_host_label", None)),
-        "staging_workflow_file": str(getattr(row, "staging_workflow_file", None) or "deploy-staging.yml"),
-        "production_workflow_file": str(getattr(row, "production_workflow_file", None) or "deploy-production.yml"),
+        "staging_workflow_file": str(getattr(row, "staging_workflow_file", None) or "local_deploy_runner"),
+        "production_workflow_file": str(getattr(row, "production_workflow_file", None) or "local_deploy_runner"),
         "notes": _clean(getattr(row, "notes", None)),
         "policy_id": int(current_policy.id) if current_policy is not None else None,
         "created_at": row.created_at.isoformat() if row.created_at else None,
@@ -157,8 +157,8 @@ def ensure_projects_materialized(db: Session) -> None:
                 deploy_trigger_enabled=bool(getattr(policy, "deploy_trigger_enabled", False)),
                 staging_host_label=_clean(getattr(policy, "staging_host_label", None)),
                 production_host_label=_clean(getattr(policy, "production_host_label", None)),
-                staging_workflow_file=str(getattr(policy, "staging_workflow_file", None) or "deploy-staging.yml"),
-                production_workflow_file=str(getattr(policy, "production_workflow_file", None) or "deploy-production.yml"),
+                staging_workflow_file=str(getattr(policy, "staging_workflow_file", None) or "local_deploy_runner"),
+                production_workflow_file=str(getattr(policy, "production_workflow_file", None) or "local_deploy_runner"),
                 notes=_clean(getattr(policy, "notes", None)),
             )
             db.add(project)
@@ -182,8 +182,8 @@ def ensure_projects_materialized(db: Session) -> None:
             project.deploy_trigger_enabled = bool(getattr(policy, "deploy_trigger_enabled", False))
             project.staging_host_label = _clean(getattr(policy, "staging_host_label", None))
             project.production_host_label = _clean(getattr(policy, "production_host_label", None))
-            project.staging_workflow_file = str(getattr(policy, "staging_workflow_file", None) or "deploy-staging.yml")
-            project.production_workflow_file = str(getattr(policy, "production_workflow_file", None) or "deploy-production.yml")
+            project.staging_workflow_file = str(getattr(policy, "staging_workflow_file", None) or "local_deploy_runner")
+            project.production_workflow_file = str(getattr(policy, "production_workflow_file", None) or "local_deploy_runner")
             project.notes = _clean(getattr(policy, "notes", None))
             changed = True
         if policy.project_id != project.id:
@@ -262,8 +262,8 @@ def create_project(
     deploy_trigger_enabled: bool = False,
     staging_host_label: str | None = None,
     production_host_label: str | None = None,
-    staging_workflow_file: str = "deploy-staging.yml",
-    production_workflow_file: str = "deploy-production.yml",
+    staging_workflow_file: str = "local_deploy_runner",
+    production_workflow_file: str = "local_deploy_runner",
     notes: str | None = None,
 ) -> ProjectRow:
     ensure_projects_materialized(db)
@@ -287,8 +287,8 @@ def create_project(
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=_clean(staging_host_label),
         production_host_label=_clean(production_host_label),
-        staging_workflow_file=str(staging_workflow_file or "deploy-staging.yml").strip() or "deploy-staging.yml",
-        production_workflow_file=str(production_workflow_file or "deploy-production.yml").strip() or "deploy-production.yml",
+        staging_workflow_file=str(staging_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
+        production_workflow_file=str(production_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
         notes=_clean(notes),
     )
     db.add(row)
@@ -317,8 +317,8 @@ def create_project(
         deploy_trigger_enabled=bool(deploy_trigger_enabled),
         staging_host_label=_clean(staging_host_label),
         production_host_label=_clean(production_host_label),
-        staging_workflow_file=str(staging_workflow_file or "deploy-staging.yml").strip() or "deploy-staging.yml",
-        production_workflow_file=str(production_workflow_file or "deploy-production.yml").strip() or "deploy-production.yml",
+        staging_workflow_file=str(staging_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
+        production_workflow_file=str(production_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner",
         notes=_clean(notes),
     )
     db.add(policy)
@@ -377,9 +377,9 @@ def update_project(
     if production_host_label is not None:
         row.production_host_label = _clean(production_host_label)
     if staging_workflow_file is not None:
-        row.staging_workflow_file = str(staging_workflow_file or "deploy-staging.yml").strip() or "deploy-staging.yml"
+        row.staging_workflow_file = str(staging_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner"
     if production_workflow_file is not None:
-        row.production_workflow_file = str(production_workflow_file or "deploy-production.yml").strip() or "deploy-production.yml"
+        row.production_workflow_file = str(production_workflow_file or "local_deploy_runner").strip() or "local_deploy_runner"
     if notes is not None:
         row.notes = _clean(notes)
 
@@ -467,8 +467,8 @@ def update_project_policy_for_project(db: Session, project_id: int, **patch: Any
         project.deploy_trigger_enabled = bool(getattr(updated, "deploy_trigger_enabled", False))
         project.staging_host_label = _clean(getattr(updated, "staging_host_label", None))
         project.production_host_label = _clean(getattr(updated, "production_host_label", None))
-        project.staging_workflow_file = str(getattr(updated, "staging_workflow_file", None) or "deploy-staging.yml")
-        project.production_workflow_file = str(getattr(updated, "production_workflow_file", None) or "deploy-production.yml")
+        project.staging_workflow_file = str(getattr(updated, "staging_workflow_file", None) or "local_deploy_runner")
+        project.production_workflow_file = str(getattr(updated, "production_workflow_file", None) or "local_deploy_runner")
         project.notes = _clean(getattr(updated, "notes", None))
         db.commit()
     return updated
