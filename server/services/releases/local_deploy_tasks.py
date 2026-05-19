@@ -102,12 +102,13 @@ def _production_promote_command(
     service_key: str,
     metadata_override: dict[str, Any] | None = None,
 ) -> list[str]:
+    metadata = dict(_release_task_metadata(row))
+    metadata.update(metadata_override or {})
     image_digest = _production_promote_digest(row, metadata_override)
     if not image_digest:
         return _unsupported_command(
             "staging_digest_missing: production local deploy requires a successful staging image digest."
         )
-    metadata = _release_task_metadata(row)
     return [
         "bash",
         "scripts/local/promote_synapse_production.sh",

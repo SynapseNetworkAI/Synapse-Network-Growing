@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from server.database import DeploymentEventRow, DeploymentRecordRow
@@ -46,6 +46,12 @@ def append_deployment_event(
     record = db.get(DeploymentRecordRow, int(deployment_record_id))
     if record is None:
         raise ValueError("Deployment record not found.")
+    # stdout/stderr buffers flush from different threads. Serialize sequence
+    # assignment per deployment record so chunked logs remain append-only.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:namespace, :record_id)"),
+        {"namespace": 42_100, "record_id": int(deployment_record_id)},
+    )
     next_sequence = (
         db.query(func.coalesce(func.max(DeploymentEventRow.sequence), 0))
         .filter(DeploymentEventRow.deployment_record_id == int(deployment_record_id))

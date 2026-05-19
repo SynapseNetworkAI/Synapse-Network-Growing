@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from server.database import LocalCiEventRow, LocalCiRunRow, utcnow
@@ -136,6 +136,12 @@ def append_local_ci_event(
     step_key: str | None = None,
 ) -> LocalCiEventRow:
     row = get_local_ci_run(db, ci_run_id)
+    # stdout/stderr buffers flush from different threads. Serialize sequence
+    # assignment per CI run so chunked logs remain append-only.
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:namespace, :run_id)"),
+        {"namespace": 42_101, "run_id": int(row.id)},
+    )
     next_sequence = (
         db.query(func.coalesce(func.max(LocalCiEventRow.sequence), 0))
         .filter(LocalCiEventRow.ci_run_id == int(row.id))
