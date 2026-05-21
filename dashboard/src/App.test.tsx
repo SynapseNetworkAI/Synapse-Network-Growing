@@ -49,7 +49,7 @@ describe('App top navigation shell', () => {
     vi.unstubAllGlobals()
   })
 
-  it('renders only the four primary workflow entries and no persistent secondary navigation rail', async () => {
+  it('renders the primary workflow entries and no persistent secondary navigation rail', async () => {
     const { container } = renderApp('/command-center')
 
     const primaryNav = screen.getByRole('navigation', { name: 'Primary navigation' })
@@ -57,6 +57,7 @@ describe('App top navigation shell', () => {
     expect(within(primaryNav).getByRole('link', { name: 'Planning' })).toHaveAttribute('href', '/planning')
     expect(within(primaryNav).getByRole('link', { name: 'Publishing' })).toHaveAttribute('href', '/publishing')
     expect(within(primaryNav).getByRole('link', { name: 'Releases' })).toHaveAttribute('href', '/releases')
+    expect(within(primaryNav).getByRole('link', { name: 'Schedule' })).toHaveAttribute('href', '/schedules')
     expect(within(primaryNav).queryByRole('link', { name: 'Requirements' })).not.toBeInTheDocument()
     expect(within(primaryNav).queryByRole('link', { name: 'Workflows' })).not.toBeInTheDocument()
     expect(container.querySelector('aside')).toBeNull()
@@ -72,7 +73,8 @@ describe('App top navigation shell', () => {
     const dialog = screen.getByRole('dialog', { name: 'Command search' })
     expect(within(dialog).getByRole('link', { name: /Requirements/ })).toHaveAttribute('href', '/requirements')
     expect(within(dialog).getByRole('link', { name: /Workflows/ })).toHaveAttribute('href', '/workflows')
-    expect(within(dialog).getByRole('link', { name: /Schedules/ })).toHaveAttribute('href', '/schedules')
+    expect(within(dialog).queryByRole('link', { name: /Schedules/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Schedule' })).toHaveAttribute('href', '/schedules')
     await waitFor(() => expect(screen.getByText('Needs Human 3')).toBeInTheDocument())
   })
 })

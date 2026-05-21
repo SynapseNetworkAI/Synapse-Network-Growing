@@ -49,9 +49,11 @@ def create_content_task(
     body: dist_schema.SocialContentTaskCreateRequest,
 ) -> dist_schema.SocialContentAssetDetailOut:
     from server.services.social.distribution import get_content_asset
-
     if not body.title.strip():
         raise ValueError("content task title is required.")
+    planned_publish_at = (
+        body.planned_publish_at.isoformat() if body.planned_publish_at else None
+    )
     asset = SocialContentAssetRow(
         asset_type="article",
         source_type="manual_task",
@@ -69,6 +71,9 @@ def create_content_task(
                 "target_audience": _clean_optional(body.target_audience),
                 "target_platforms": clean_platform_list(body.target_platforms),
                 "source_doc_path": _clean_optional(body.source_doc_path),
+                "campaign_key": _clean_optional(body.campaign_key),
+                "post_intent": _clean_optional(body.post_intent),
+                "planned_publish_at": planned_publish_at,
             },
             ensure_ascii=False,
             sort_keys=True,

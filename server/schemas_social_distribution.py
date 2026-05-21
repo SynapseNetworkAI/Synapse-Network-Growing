@@ -31,6 +31,28 @@ class SocialDistributionAccountOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class SocialDistributionAccountAuthStatusOut(BaseModel):
+    account_id: int
+    platform: str
+    channel_key: str
+    display_name: str
+    login_url: str | None = None
+    publish_path: str
+    api_status: str
+    browser_status: str
+    api_supported: bool = False
+    can_publish_via_api: bool = False
+    can_use_browser_assist: bool = False
+    private_web_adapter_enabled: bool = False
+    blockers: list[str] = Field(default_factory=list)
+    next_action: str
+
+
+class SocialDistributionAccountAuthStatusListOut(BaseModel):
+    items: list[SocialDistributionAccountAuthStatusOut] = Field(default_factory=list)
+    generated_at: datetime | None = None
+
+
 class SocialDistributionAccountPatchRequest(BaseModel):
     profile_url: str | None = None
     status: str | None = None
@@ -63,6 +85,9 @@ class SocialContentTaskCreateRequest(BaseModel):
     canonical_url: str | None = None
     source_doc_path: str | None = None
     goal_key: str | None = None
+    campaign_key: str | None = None
+    post_intent: str | None = None
+    planned_publish_at: datetime | None = None
     created_by: str = "operator"
 
 
@@ -110,6 +135,13 @@ class SocialDistributionTaskOut(BaseModel):
     metadata: dict[str, object] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class SocialDistributionAuditPublishedPageRequest(BaseModel):
+    visibility_status: str
+    layout_status: str = "unknown"
+    audit_note: str | None = None
+    actor: str = "operator"
 
 
 class SocialDistributionDocumentOut(BaseModel):
@@ -178,6 +210,7 @@ class SocialDistributionBoardCardOut(BaseModel):
     failed_count: int = 0
     ready_to_publish_count: int = 0
     live_count: int = 0
+    visibility_issue_count: int = 0
     status_counts: dict[str, int] = Field(default_factory=dict)
     document_status_counts: dict[str, int] = Field(default_factory=dict)
     next_action: str
@@ -258,6 +291,13 @@ class SocialAssetPlannerRunOut(BaseModel):
     created_asset_id: int | None = None
     asset: SocialContentAssetDetailOut | None = None
     signals: list[SocialAssetPlannerSignalOut] = Field(default_factory=list)
+
+
+class SocialDistributionCampaignTemplateOut(BaseModel):
+    campaign_key: str
+    created_count: int = 0
+    existing_count: int = 0
+    assets: list[SocialContentAssetDetailOut] = Field(default_factory=list)
 
 
 class SocialDistributionTaskPatchRequest(BaseModel):

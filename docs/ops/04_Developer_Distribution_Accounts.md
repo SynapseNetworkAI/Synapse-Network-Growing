@@ -4,7 +4,7 @@ title: Developer Distribution Account Registry
 role: growth_lead
 status: ready
 created_at: 2026-05-01
-updated_at: 2026-05-12
+updated_at: 2026-05-21
 author: operator
 target_repo: Synapse-Network-Growing
 ---
@@ -71,6 +71,74 @@ target_repo: Synapse-Network-Growing
 3. Agent may not create accounts, bypass CAPTCHA, scrape private pages, post publicly, comment, vote, upvote, or submit Product Hunt without explicit operator action.
 4. All external posting actions are representational communication and require Human Gate.
 5. If a platform blocks a post, rate limits an account, or flags content as spam, record the root cause and pause that channel instead of retrying automatically.
+6. Official APIs are preferred when a platform provides a stable write API and the account has an explicit credential reference.
+7. Platforms without stable write APIs use browser-assisted publishing: the system may open the page and copy the reviewed draft, but the operator performs the final submit.
+8. Private page endpoints captured from browser network traffic are experimental-only and disabled by default. They are not a supported publish path.
+
+## 5.1 Login And Publish Preflight
+
+Before distributing a reviewed draft, `/publishing` can run:
+
+```text
+GET /api/social/distribution/accounts/auth-status
+```
+
+The response classifies each account:
+
+| Path | Meaning |
+|---|---|
+| `official_api` | API publish can proceed after task-level Human Gate and token preflight. |
+| `browser_assisted` | Browser session can be used to open or prefill the draft; operator clicks final submit. |
+| `manual_only` | No reliable API/session automation. Copy manually and mark live after posting. |
+| `blocked` | Account setup, permission, balance, or platform policy blocks posting. |
+
+`auth-status` is a computed preflight. It returns login/open URLs, API capability markers, blockers, and next action guidance, but it is not persisted as `is_logged_in` because browser sessions and tokens are external, expiring state.
+
+The helper CLI for manual channels is:
+
+```bash
+python scripts/social/browser_publish_task.py --task-id <id> --platform hn|v2ex|hashnode|producthunt|reddit
+```
+
+It copies the reviewed draft to the clipboard and opens the platform. It does not save passwords, auto-login, bypass CAPTCHA/2FA, or click final submit.
+
+## 5.2 X OAuth Token Storage
+
+X API publishing uses a short-lived access token created in request memory. The access token must never be written to Postgres, logs, screenshots, API responses, or frontend state.
+
+Current storage split:
+
+1. `x-official-oauth2-client-id` remains in GCP Secret Manager.
+2. `x-official-oauth2-client-secret` remains in GCP Secret Manager.
+3. `x-official-oauth2-refresh-token` is stored in local Postgres table `local_secret_versions` using application-level encryption from `OPS_LOCAL_SECRET_ENCRYPTION_KEY`.
+
+The local refresh-token store is versioned. X OAuth refresh rotation writes a new encrypted row and retires older active versions so only the latest 3 active versions remain. This avoids creating a new Secret Manager version on every X refresh.
+
+One-time migration:
+
+```bash
+PYTHONPATH=. python scripts/ops/migrate_x_refresh_token_to_local_db.py
+```
+
+The script reads Secret Manager latest once, writes the encrypted local version, and verifies a token refresh without printing the token.
+
+Secret Manager still needs version hygiene for the remaining platform and runtime secrets. The observable recurring workflow is:
+
+```text
+secret_manager_version_cleanup_sweep
+schedule: daily 12:00, OPS_OPERATOR_TIMEZONE default Asia/Kuala_Lumpur
+projects: fabled-archive-494108-k5, synapse-network-prod
+policy: keep newest 3 ENABLED/DISABLED versions per secret, destroy older active versions
+```
+
+Use `/schedules` Dry Run before applying, or run locally:
+
+```bash
+PYTHONPATH=. python scripts/ops/cleanup_secret_manager_versions.py --dry-run --keep 3
+PYTHONPATH=. python scripts/ops/cleanup_secret_manager_versions.py --apply --keep 3
+```
+
+The cleanup only lists secret metadata and destroys selected old versions. It never reads secret payloads.
 
 ## 6. Channel Account Tracking
 
@@ -102,7 +170,7 @@ target_repo: Synapse-Network-Growing
 7. Asset Planner 只创建 `status=proposed` 的源资产，不自动生成平台 task，也不自动公开发布。
 8. Operator 审核内容计划方案后点击生成按钮。后端先确保存在 `social_distribution_documents(document_kind=canonical_article)` 长文母稿，再把 Asset 标记为 `approved`，并按固定平台顺序串行生成 `social_distribution_tasks` 和对应 `social_distribution_documents(document_kind=platform_draft)`。某个平台生成失败只标记该 task failed，不回滚已经成功的平台。
 9. 生成完成后，前端会在当前 Asset 卡片 / 详情 Modal 中展开已生成 Platform Tasks，operator 不需要跳转到 `Tasks` Tab 刷新才能看到结果。
-10. Operator 在外部平台人工登录、粘贴、发布；完成后回到系统手动 `标记已发布` 并填写 `published_url`。系统会同步把对应 platform document 标为 `published`。
+10. Operator 在外部平台人工登录、粘贴、发布；完成后回到系统手动 `标记为已发布` 并填写 `published_url`。系统会同步把对应 platform document 标为 `published`，并在详情页显示 `查看帖子`。
 11. 如果帖子被管理员删除、shadowban、不可见或链接失效，operator 手动 `标记 removed` 并填写原因；v1 不自动探活，避免误判和额外平台请求。`removed` 在简化看板中进入 `异常`，但不会自动重发。
 12. 旧 X 主流程表只允许通过一次性迁移脚本转换为 `social_content_assets + social_distribution_tasks + social_distribution_events`；迁移后不做双写同步。
 
@@ -176,8 +244,8 @@ DEV 和 Hashnode 对镜像文章提供 Canonical URL 设置。为了避免重复
 | `draft_ready` | 平台标题、正文和 checklist 已生成 | System |
 | `needs_review` | X 或敏感平台草稿等待 Human Gate | System |
 | `approved` | Operator 已审核平台草稿，等待提交 | Operator |
-| `submitted` | Operator 已提交但还没有确认公开链接 | Operator |
-| `live` | Operator 已回填公开 `published_url` | Operator |
+| `submitted` | API / operator 已提交，但还没有确认公开链接 | System / Operator |
+| `live` | API 成功返回公开 URL，或 Operator 已回填公开 `published_url` | System / Operator |
 | `removed` | 帖子被删、不可见、shadowban 或链接失效 | Operator |
 | `rejected` | Operator 判断不适合该平台 | Operator |
 | `skipped` | 本轮跳过该 target | Operator |

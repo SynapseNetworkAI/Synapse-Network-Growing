@@ -44,6 +44,7 @@ Synapse Agent Ops | Command Center | Planning | Publishing | Releases | Needs Hu
 | `/planning` | Planning | Operating Manifest, goals, candidates |
 | `/publishing` | Growth | Social Ops Center for X / future channels |
 | `/releases` | Delivery | Release tasks, deployments, online records |
+| `/schedules` | Schedule | Schedule Center for recurring ops, cleanup, run history and templates |
 | `/gates` | Needs Human | Pending human gates and failed/blocked runs |
 | `/intake` | Low-frequency Signals | Error, forum, watcher, planner signal entry |
 | `/requirements` | Low-frequency Execution | Requirement pool and workflow readiness |
@@ -52,7 +53,6 @@ Synapse Agent Ops | Command Center | Planning | Publishing | Releases | Needs Hu
 | `/factory/workflows` | Low-frequency Factory | Read-only workflow definitions |
 | `/factory/atoms` | Low-frequency Factory | Read-only atom registry |
 | `/knowledge` | Low-frequency Knowledge | Artifacts and SOP Ledger entry point |
-| `/schedules` | Low-frequency System Ops | Scheduled jobs and background task health |
 | `/system/notifications` | Low-frequency System Ops | Notification queue and suppression health |
 | `/projects` | Low-frequency System Ops | Project governance and policies |
 | `/errors` | Low-frequency Intake | Error fingerprints and requirement intake gate |

@@ -124,24 +124,26 @@
 3. `Tasks` 默认是简化的 Symphony / Linear 风格内容任务看板，列为 `待计划 / 待审核 / 待发布 / 已发布 / 异常`。一张卡代表一个 Content Asset，卡内聚合平台 task、document、event 和发布证据；列位置由后端 `/api/social/distribution/board` 投影，不允许拖拽直接改状态，内部细状态只在详情 Modal 展示。
 4. `Tasks` 支持 `创建内容任务`：operator 输入主题、来源材料、目标受众、目标平台、source doc path 和 canonical URL 后，系统创建 `social_content_assets(source_type=manual_task)` 并同步写入 `social_distribution_documents(document_kind=source_plan)`。正式平台任务必须先经过 `source_plan -> canonical_article 母稿扩写 -> 人工审核母稿`，缺少已审核母稿时生成任务会 fail closed 为 `canonical_article_required`。
 5. 源内容资产由 `social_content_assets` 承载，但不再作为顶层 `Assets` Tab 暴露给 operator。文章、demo、X post、reply、quote、launch asset 都通过 `Tasks` 看板卡片和详情 Modal 进入操作流；Operator 创建内容资产后先点击 `扩写母稿`，后端调用 Asset Expansion Agent 生成 `social_distribution_documents(document_kind=canonical_article,status=needs_review,generated_by=asset_expansion_agent_v1)`；母稿审核通过后，后端才按固定平台顺序串行生成 task draft：`x -> hacker_news -> reddit -> v2ex -> devto -> hashnode -> product_hunt`。平台间加入小 jitter，单个平台失败只标记该 task `failed` 并记录 event，不回滚已成功平台。
-6. 平台草稿是一等文档：每次成功生成 `social_distribution_tasks` 时，同步写入 / 更新 `social_distribution_documents(document_kind=platform_draft)`；`platform_title/platform_body` 继续作为最新文档投影，保证列表和旧调用方兼容。历史 task 若已有 `platform_title/platform_body` 但缺少 `platform_draft`，board/detail 读取会幂等 backfill。
-7. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
-8. 平台适配使用信息密度驱动 prompt：X Official Account 默认生成 `x_long_post`，Premium 长帖软上限 4000 字符且无下限；简单更新或显式要求 thread 时才使用 `single/thread`。Reddit / V2EX 软上限 2000 字符且只提取 1-2 个最适合讨论的技术决策，DEV / Hashnode 基于完整母稿做 Markdown/canonical URL 适配，不额外拉长，HN 保持克制的提交标题 / URL / 首评提示。所有平台禁止为了凑字数重复观点、写空话或编造细节。
-9. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required。`docs/ops/04_Developer_Distribution_Accounts.md` 是账号注册和治理 source of truth。
-10. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。
-11. 非 X 平台 v1 只支持人工发布闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；operator 在外部平台手动发布后回填 `published_url` 和 `status=live | removed | skipped`。X 仍是唯一 API publish 平台，且所有 X 发布必须 Human Gate；`x_long_post` 若被 X API 拒绝，会 fail-closed 并保留人工复制到 X Web 发布和回填 URL 的路径。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
-12. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
-13. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
-14. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
-15. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
-16. Social Content / Distribution Agent 当前支持矩阵：
+6. `Tasks` 新增 Campaign Template：`X Brand Week - Technical Builders` 可一键创建 12 张 X 品牌周任务卡，包含 7 个原创内容任务和 5 个 reply-block 互动任务，统一写入 `goal_key=campaign_key=x_brand_awareness_week_1`，并在 metadata 中记录 `post_intent` 与计划发布时间。互动任务只生成 value-add reply drafts，不自动评论、不自动点赞、不自动关注。
+7. 平台草稿是一等文档：每次成功生成 `social_distribution_tasks` 时，同步写入 / 更新 `social_distribution_documents(document_kind=platform_draft)`；`platform_title/platform_body` 继续作为最新文档投影，保证列表和旧调用方兼容。历史 task 若已有 `platform_title/platform_body` 但缺少 `platform_draft`，board/detail 读取会幂等 backfill。
+8. `social_asset_planner_sweep` 自动生成候选 Assets，但每次只采样一种核心信号类型，最多传 5 条 public-safe signals，每天 active Asset 库存达到 3 个就不再生成。它只创建 `social_content_assets(status=proposed)`，不自动生成 task、不自动发布。
+9. 平台适配使用信息密度驱动 prompt：X Official Account 默认生成 `x_long_post`，Premium 长帖软上限 4000 字符且无下限；简单更新或显式要求 thread 时才使用 `single/thread`。Reddit / V2EX 软上限 2000 字符且只提取 1-2 个最适合讨论的技术决策，DEV / Hashnode 基于完整母稿做 Markdown/canonical URL 适配，不额外拉长，HN 保持克制的提交标题 / URL / 首评提示。所有平台禁止为了凑字数重复观点、写空话或编造细节。
+10. `Settings` 管理 `social_distribution_accounts`：平台、channel、注册入口、profile URL、账号状态、2FA 状态、备注、read automation mode、human publish required，并可实时调用 `auth-status` 展示 `official_api / browser_assisted / manual_only / blocked`、blockers、next action 和登录/打开平台入口。登录状态是 computed preflight，不落库为永久事实。
+11. `Signals & Metrics` 只读展示本地信号与效果：`social_trend_items`、`social_watchlist_accounts`、`social_post_metrics` / 后续 `social_distribution_metrics`。页面切换、分页、详情查看不得触发额外外部平台 read。发布后的 X views、profile visits、replies、bookmarks、followers delta、posted time 与 format kind 允许 operator 手动录入，用于品牌周复盘；这些指标是人工证据，不是自动抓取。
+12. 非 X 平台 v1 采用 API-first / browser-assisted 闭环：系统生成平台适配标题、正文、checklist、打开平台链接和复制按钮；`/api/social/distribution/accounts/auth-status` 实时计算每个账号的 `official_api | browser_assisted | manual_only | blocked` 发布路径。DEV / Reddit / Hashnode 只有在 credential 和平台权限明确配置后才允许官方 API；HN / V2EX / Product Hunt 默认浏览器辅助或人工发布，不逆向私有页面接口。operator 在外部平台发布后回填 `published_url` 并 `标记为已发布`，live 任务显示 `查看帖子`；`removed | skipped` 仍由 operator 手动记录。X API publish 成功会直接写 `status=live`、`external_post_id`、`published_url` 和 `task_published_*` event；失败会 fail-closed 并保留人工复制到 X Web 发布和回填 URL 的路径。不要求人工维护 votes/comments/views 等 metrics，避免把 operator 变成爬虫。
+13. X 仍可以保留 OAuth/API 发布能力，但在新模型中表现为 `social_distribution_tasks(platform=x, action=post|reply|quote|repost_link)`。公开 X 发布、回复、引用转发仍必须 Human Gate，不允许自动点赞、关注、删除、私信或绕过平台限制。
+14. X Official Account 的 OAuth2 `access_token` 不落库；`x-official-oauth2-client-id` / `x-official-oauth2-client-secret` 暂留 Secret Manager，`x-official-oauth2-refresh-token` 改由本地 Postgres `local_secret_versions` 加密版本表保存。refresh token 轮换只新增本地加密版本，并自动保留最近 3 个 active versions，避免 Secret Manager version storage 暴涨。
+14. DEV / Hashnode task 必须在 `operator_checklist` 中提示填写 Canonical URL；缺少 `canonical_url` 时 task metadata 写入 `canonical_url_missing` warning，UI 明确提示不建议发布。
+15. Agent Content Pack 的结构化输出使用 `parse_agent_json_output`：只剥离 Markdown fence / `json` 外包装并提取第一段完整 JSON object，解析失败以 `agent_json_parse_failed` fail closed，不保存假 Asset。
+16. 高可信教程依赖 `@synapse-context:*` 标签契约：`synapse-network-sdk:quickstart`、`synapse-network-mcp-server:spring_boot_mcp`、`synapse-network-provider:onboarding` 必须由白名单文件解析；缺失时返回 `insufficient_source_context`，不得靠模型猜 API 或代码。
+17. Social Content / Distribution Agent 当前支持矩阵：
    - `codex + gpt-5.4`：当前本机已验证，可作为默认 Social Content / Distribution 生成模型。
    - `codex + gpt-5-codex`：当前 ChatGPT Codex account 不支持，不作为默认。
    - `openai + gpt-4o`：代码路径支持，但本机当前 quota 不足时必须 fail closed。
    - `claude + claude-3-7-sonnet-latest`：代码路径支持，但本机 key 无效时必须 fail closed。
    - `copilot + gpt-4o`：代码支持 direct API；不能使用 GitHub PAT，必须使用 Copilot OAuth token。
-21. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
-22. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
+18. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
+19. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
 
 ## 5. Error Discovery And Intake Gate
 
@@ -179,6 +181,9 @@
    - release
 12. Cooldown、suppression、rollup、retry、dead letter。
 13. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
+14. `secret_manager_version_cleanup_sweep` 是可观测 recurring workflow：每天 12:00（`OPS_OPERATOR_TIMEZONE`，默认 `Asia/Kuala_Lumpur`）扫描 staging `fabled-archive-494108-k5` 与 production `synapse-network-prod` 的 Secret Manager metadata，只保留每个 secret 最新 3 个 `ENABLED` / `DISABLED` active versions，其余 destroy；它不读取 secret payload，并在 `/schedules` 记录 dry-run / apply 结果。
+15. `artifact_registry_cleanup_sweep` 是可观测 recurring workflow：默认每天 12:20 扫描 staging / production Artifact Registry Docker image metadata，保留最新版本和 promoted / production / release tags，dry-run 展示候选，apply 只删除候选镜像并记录 kept / deleted / skipped / error 明细。
+16. `/api/schedules` 是 Schedule Center v1 统一 API，保留 `/api/recurring-workflows` 兼容路径；自定义 schedule 只能从 allowlisted template 创建，不支持任意 shell cron。
 
 ## 7. Project And Policy
 
@@ -228,8 +233,8 @@
 当前已具备：
 
 1. `/command-center` 作为 Human-Agent Control Plane 首页。
-2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面持久次级导航。主导航只保留 `Command Center`、`Planning`、`Publishing`、`Releases` 四个高频业务入口。
-3. 顶栏右侧保留 `Needs Human` badge、`Cmd+K / Search` 低频入口和 `Alerts` 通知入口；`/gates`、`/requirements`、`/workflows`、`/schedules`、`/projects`、`/errors` 等路由继续存在，但不占用主导航。
+2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面持久次级导航。主导航保留 `Command Center`、`Planning`、`Publishing`、`Releases`、`Schedule` 五个高频控制面入口。
+3. 顶栏右侧保留 `Needs Human` badge、`Cmd+K / Search` 低频入口和 `Alerts` 通知入口；`/gates`、`/requirements`、`/workflows`、`/projects`、`/errors` 等路由继续存在，但不占用主导航。
 4. `/gates` 集中展示 pending human gates、failed / blocked workflow。
 5. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。
 6. `/factory/atoms` 从 workflow definitions 反推 agent / deterministic / terminal atom registry。

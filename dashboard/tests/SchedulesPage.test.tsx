@@ -40,39 +40,48 @@ const run = {
 }
 
 const mockApi = {
-  getRecurringWorkflows: vi.fn(),
+  getSchedules: vi.fn(),
+  getScheduleTemplates: vi.fn(),
   getRecurringWorkflowHealth: vi.fn(),
-  getRecurringWorkflowRuns: vi.fn(),
-  runRecurringWorkflow: vi.fn(),
+  getScheduleRuns: vi.fn(),
+  runSchedule: vi.fn(),
+  createSchedule: vi.fn(),
+  updateSchedule: vi.fn(),
+  deleteSchedule: vi.fn(),
 }
 
 vi.mock('../src/api', () => ({
   api: {
-    getRecurringWorkflows: (...args: unknown[]) => mockApi.getRecurringWorkflows(...args),
+    getSchedules: (...args: unknown[]) => mockApi.getSchedules(...args),
+    getScheduleTemplates: (...args: unknown[]) => mockApi.getScheduleTemplates(...args),
     getRecurringWorkflowHealth: (...args: unknown[]) => mockApi.getRecurringWorkflowHealth(...args),
-    getRecurringWorkflowRuns: (...args: unknown[]) => mockApi.getRecurringWorkflowRuns(...args),
-    runRecurringWorkflow: (...args: unknown[]) => mockApi.runRecurringWorkflow(...args),
+    getScheduleRuns: (...args: unknown[]) => mockApi.getScheduleRuns(...args),
+    runSchedule: (...args: unknown[]) => mockApi.runSchedule(...args),
+    createSchedule: (...args: unknown[]) => mockApi.createSchedule(...args),
+    updateSchedule: (...args: unknown[]) => mockApi.updateSchedule(...args),
+    deleteSchedule: (...args: unknown[]) => mockApi.deleteSchedule(...args),
   },
 }))
 
 describe('SchedulesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockApi.getRecurringWorkflows.mockResolvedValue([workflow])
+    mockApi.getSchedules.mockResolvedValue([workflow])
+    mockApi.getScheduleTemplates.mockResolvedValue([])
     mockApi.getRecurringWorkflowHealth.mockResolvedValue({
       bug_log_scheduler: { enabled: true, running: true, last_tick_at: '2026-04-19T00:00:00Z' },
       notification_dispatcher: { enabled: true, running: true, queued_count: 0, dead_letter_count: 0 },
       recurring_registry: { enabled: true, running: true, workflow_count: 1 },
     })
-    mockApi.getRecurringWorkflowRuns.mockResolvedValue([run])
-    mockApi.runRecurringWorkflow.mockResolvedValue({ workflow_key: 'bug_log_sweep', status: 'succeeded', result: { created: 0 } })
+    mockApi.getScheduleRuns.mockResolvedValue([run])
+    mockApi.runSchedule.mockResolvedValue({ workflow_key: 'bug_log_sweep', status: 'succeeded', result: { created: 0 } })
   })
 
   it('shows scheduler health, run history, dry run and guarded run now actions', async () => {
     render(<SchedulesPage />)
 
-    await waitFor(() => expect(mockApi.getRecurringWorkflows).toHaveBeenCalled())
-    expect(screen.getByTestId('schedules-page')).toHaveTextContent('定时任务')
+    await waitFor(() => expect(mockApi.getSchedules).toHaveBeenCalled())
+    expect(screen.getByTestId('schedules-page')).toHaveTextContent('定时任务控制台')
     expect(screen.getByTestId('schedule-health-overview')).toHaveTextContent('notification dispatcher backlog')
     expect(screen.getByText(/Attention Required/)).toBeTruthy()
     expect(screen.getByText(/System Health & Reliability/)).toBeTruthy()
@@ -89,7 +98,7 @@ describe('SchedulesPage', () => {
     const inspector = screen.getByTestId('schedule-run-inspector')
     fireEvent.click(within(inspector).getByRole('button', { name: 'Dry Run' }))
     await waitFor(() =>
-      expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
+      expect(mockApi.runSchedule).toHaveBeenCalledWith('bug_log_sweep', {
         dry_run: true,
         auto_start: false,
         auto_dispatch_acceptance: false,
@@ -100,7 +109,7 @@ describe('SchedulesPage', () => {
     fireEvent.click(within(firstCard).getByText('Run Now'))
     expect(await screen.findByRole('dialog', { name: /确认运行高影响任务/i })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '确认运行' }))
-    expect(mockApi.runRecurringWorkflow).toHaveBeenCalledWith('bug_log_sweep', {
+    expect(mockApi.runSchedule).toHaveBeenCalledWith('bug_log_sweep', {
       dry_run: false,
       auto_start: false,
       auto_dispatch_acceptance: false,

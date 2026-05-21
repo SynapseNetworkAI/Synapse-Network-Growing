@@ -1,9 +1,5 @@
-import type {
-  SocialContentAssetDetail,
-  SocialDistributionAccount,
-  SocialDistributionTask,
-} from '../api'
-import type { SocialDistributionDocument } from '../apiSocialDistribution'
+import type { SocialContentAssetDetail, SocialDistributionAccount, SocialDistributionTask } from '../api'
+import type { SocialDistributionAccountAuthStatus, SocialDistributionDocument } from '../apiSocialDistribution'
 import { OverlayModal, type useToast } from './workbench'
 import {
   Field,
@@ -21,6 +17,7 @@ import {
   copyCombinedLabel,
   xPublishButtonLabel,
 } from './SocialDistributionXDraft'
+import { PublishAuditControls, PublishAuditSummary } from './SocialDistributionPublishAudit'
 
 export function TaskDetailModal({
   task,
@@ -29,13 +26,20 @@ export function TaskDetailModal({
   toast,
   onManualUrlChange,
   onManualNoteChange,
+  auditVisibility,
+  auditLayout,
+  onAuditVisibilityChange,
+  onAuditLayoutChange,
   onClose,
   onMarkLive,
   onMarkRemoved,
   onSkip,
+  onAuditPublishedPage,
   onPublishX,
   publishBusy = false,
   xAuthNotice,
+  authStatus,
+  onCheckAuth,
 }: {
   task: SocialDistributionTask | null
   manualUrl: string
@@ -43,15 +47,26 @@ export function TaskDetailModal({
   toast: ReturnType<typeof useToast>
   onManualUrlChange: (value: string) => void
   onManualNoteChange: (value: string) => void
+  auditVisibility: string
+  auditLayout: string
+  onAuditVisibilityChange: (value: string) => void
+  onAuditLayoutChange: (value: string) => void
   onClose: () => void
   onMarkLive: () => void
   onMarkRemoved: () => void
   onSkip: () => void
+  onAuditPublishedPage: () => void
   onPublishX: () => void
   publishBusy?: boolean
   xAuthNotice?: string | null
+  authStatus?: SocialDistributionAccountAuthStatus
+  onCheckAuth?: () => void
 }) {
   const { xFormat, xRows, xLimit, xHasOverLimit, combined, canPublishX } = buildXDraftView(task)
+  const browserCommand = task ? `python scripts/social/browser_publish_task.py --task-id ${task.id} --platform ${task.platform}` : ''
+  const taskIsLive = task?.status === 'live'
+  const publishedUrl = task?.published_url?.trim() ?? ''
+  const liveMissingUrl = taskIsLive && !publishedUrl
   return (
     <OverlayModal
       open={Boolean(task)}
@@ -64,6 +79,26 @@ export function TaskDetailModal({
         <div className="space-y-4">
           <InfoBlock title="平台规则提醒">
             {task.operator_checklist || 'Human Gate required.'}
+          </InfoBlock>
+          <section className="grid gap-3 md:grid-cols-3">
+            <InfoBlock title="当前状态">
+              {task.status}
+              {task.failure_summary ? ` · ${task.failure_summary}` : ''}
+            </InfoBlock>
+            <InfoBlock title="发布路径">
+              {authStatus
+                ? `${publishPathLabel(authStatus.publish_path)} · API: ${authStatus.api_status} · Browser: ${authStatus.browser_status}`
+                : '尚未检查登录/API 状态。'}
+            </InfoBlock>
+            <InfoBlock title="发布证据">
+              {publishedUrl ? publishedUrl : liveMissingUrl ? '已发布但缺少 URL，请补录。' : '尚未记录 published URL。'}
+            </InfoBlock>
+          </section>
+          <PublishAuditSummary task={task} />
+          <InfoBlock title="下一步">
+            {authStatus
+              ? authStatus.next_action
+              : '点击“检查发布状态”后，系统会给出 API / 浏览器辅助 / 人工发布建议。'}
           </InfoBlock>
           <PlatformFormatSummary task={task} xFormat={xFormat} xRows={xRows} />
           {task.platform === 'x' && xRows.length ? (
@@ -87,6 +122,16 @@ export function TaskDetailModal({
             </>
           )}
           <div className="flex flex-wrap gap-2">
+            {publishedUrl ? (
+              <a
+                className="rounded-xl border border-emerald-300/50 px-3 py-2 text-sm font-semibold text-emerald-100"
+                href={publishedUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                查看帖子
+              </a>
+            ) : null}
             {task.submission_url ? (
               <a
                 className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
@@ -100,6 +145,15 @@ export function TaskDetailModal({
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_title ?? '', toast)}>复制标题</button>
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_body ?? '', toast)}>复制正文</button>
             <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(combined, toast)}>{copyCombinedLabel(task.platform, xFormat, xRows.length)}</button>
+            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={onCheckAuth}>检查发布状态</button>
+            {publishedUrl ? (
+              <button type="button" className="rounded-xl border border-amber-300/40 px-3 py-2 text-sm text-amber-100" onClick={onAuditPublishedPage}>检查页面状态</button>
+            ) : null}
+            {task.platform !== 'x' ? (
+              <button type="button" className="rounded-xl border border-amber-300/40 px-3 py-2 text-sm text-amber-100" onClick={() => copyText(browserCommand, toast)}>
+                复制浏览器辅助 CLI
+              </button>
+            ) : null}
           </div>
           {xHasOverLimit ? (
             <InfoBlock title="X 超限">
@@ -109,20 +163,39 @@ export function TaskDetailModal({
           {xAuthNotice ? (
             <InfoBlock title="X 授权状态">{xAuthNotice}</InfoBlock>
           ) : null}
+          {liveMissingUrl ? (
+            <InfoBlock title="Published URL 缺失">
+              这个任务已经是 live，但没有帖子地址。请补录真实 published URL 后再次标记，后续指标和查看按钮才有证据来源。
+            </InfoBlock>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Published URL"><input className={inputClass} value={manualUrl} onChange={(event) => onManualUrlChange(event.target.value)} /></Field>
             <Field label="人工备注 / removed 原因"><input className={inputClass} value={manualNote} onChange={(event) => onManualNoteChange(event.target.value)} /></Field>
           </div>
+          <PublishAuditControls
+            visible={Boolean(publishedUrl)}
+            auditVisibility={auditVisibility}
+            auditLayout={auditLayout}
+            onAuditVisibilityChange={onAuditVisibilityChange}
+            onAuditLayoutChange={onAuditLayoutChange}
+          />
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={onSkip}>跳过</button>
             <button type="button" className="rounded-xl border border-rose-300/40 px-3 py-2 text-sm text-rose-100" onClick={onMarkRemoved}>标记 removed</button>
-            {task.platform === 'x' ? <button type="button" disabled={!canPublishX || publishBusy} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
-            <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={onMarkLive}>标记已发布</button>
+            {task.platform === 'x' && !taskIsLive ? <button type="button" disabled={!canPublishX || publishBusy} className="rounded-xl border border-emerald-300/50 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onPublishX}>{publishBusy ? '验证授权中…' : xPublishButtonLabel(xFormat)}</button> : null}
+            {!taskIsLive || liveMissingUrl ? <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={onMarkLive}>标记为已发布</button> : null}
           </div>
         </div>
       ) : null}
     </OverlayModal>
   )
+}
+
+function publishPathLabel(value: string): string {
+  if (value === 'official_api') return '官方 API'
+  if (value === 'browser_assisted') return '浏览器辅助'
+  if (value === 'blocked') return '已阻断'
+  return '人工发布'
 }
 
 export function ContentTaskDetailModal({
@@ -257,12 +330,28 @@ export function ContentTaskDetailModal({
                 {asset.tasks.map((task) => (
                   <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3">
                     <div>
-                      <b>{task.account_display_name ?? task.channel_key}</b>
-                      <div className="text-xs text-[color:var(--ops-text-caption)]">{task.platform} · {task.channel_key} · {task.status}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <b>{task.account_display_name ?? task.channel_key}</b>
+                        <StateBadge tone={statusTone(task.status)}>{task.status}</StateBadge>
+                      </div>
+                      <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">
+                        {task.platform} · {task.channel_key}
+                        {task.published_url ? ' · published URL recorded' : ''}
+                        {task.failure_summary ? ` · ${task.failure_summary}` : ''}
+                      </div>
                     </div>
-                    <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => onOpenTask(task)}>
-                      {task.platform === 'x' ? '发布到 X / 详情' : '复制并打开平台'}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      {task.published_url ? (
+                        <a className="rounded-xl border border-emerald-300/50 px-3 py-2 text-sm text-emerald-100" href={task.published_url} target="_blank" rel="noreferrer">查看帖子</a>
+                      ) : null}
+                      <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => onOpenTask(task)}>
+                        {task.status === 'live'
+                          ? '详情'
+                          : task.platform === 'x'
+                            ? '发布到 X / 详情'
+                            : '复制并打开平台'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -321,9 +410,7 @@ function DocumentRow({ doc, formatDateTime }: { doc: SocialDistributionDocument;
 }
 
 function numberArray(value: unknown): number[] {
-  return Array.isArray(value)
-    ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item))
-    : []
+  return Array.isArray(value) ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item)) : []
 }
 
 function stringValue(value: unknown): string {

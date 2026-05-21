@@ -6,7 +6,17 @@ import { SectionFrame, useToast } from './workbench'
 export function DistributionSignalsMetricsPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
   const [trends, setTrends] = useState<Array<{ id: number; topic: string; summary: string; source_url: string | null; author_handle: string | null; relevance_score: number; collected_at: string | null }>>([])
-  const [summary, setSummary] = useState<{ observed_post_count: number; total_impressions: number; total_likes: number; total_replies: number; total_reposts: number; total_link_clicks: number; last_observed_at: string | null; diagnostic?: string | null } | null>(null)
+  const [summary, setSummary] = useState<{ observed_post_count: number; total_impressions: number; total_likes: number; total_replies: number; total_reposts: number; total_link_clicks: number; total_profile_visits: number; total_bookmarks: number; last_observed_at: string | null; diagnostic?: string | null } | null>(null)
+  const [metricForm, setMetricForm] = useState({
+    external_post_id: '',
+    impressions: '0',
+    profile_visits: '0',
+    replies: '0',
+    bookmarks: '0',
+    follows: '0',
+    format_kind: 'x_long_post',
+    summary: '',
+  })
 
   async function load() {
     try {
@@ -22,12 +32,58 @@ export function DistributionSignalsMetricsPanel({ formatDateTime }: { formatDate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function createManualMetric() {
+    try {
+      await api.createManualSocialPostMetric({
+        external_post_id: metricForm.external_post_id.trim() || null,
+        impressions: Number(metricForm.impressions || 0),
+        profile_visits: Number(metricForm.profile_visits || 0),
+        replies: Number(metricForm.replies || 0),
+        bookmarks: Number(metricForm.bookmarks || 0),
+        follows: Number(metricForm.follows || 0),
+        format_kind: metricForm.format_kind,
+        summary: metricForm.summary || 'Manual X metrics entry.',
+      })
+      setMetricForm({ ...metricForm, external_post_id: '', impressions: '0', profile_visits: '0', replies: '0', bookmarks: '0', follows: '0', summary: '' })
+      await load()
+      toast.success('X 指标已记录')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '记录 X 指标失败')
+    }
+  }
+
   return (
     <SectionFrame eyebrow="Signals & Metrics" title="Signals & Metrics" description="这里只读本地 DB：趋势、watchlist 信号、已发布效果摘要，不在页面刷新时触发 X read。">
       <div className="grid gap-4 md:grid-cols-3">
         <MetricCard label="Observed posts" value={summary?.observed_post_count ?? 0} />
         <MetricCard label="Impressions" value={summary?.total_impressions ?? 0} />
-        <MetricCard label="Engagement" value={(summary?.total_likes ?? 0) + (summary?.total_replies ?? 0) + (summary?.total_reposts ?? 0)} />
+        <MetricCard label="Profile visits" value={summary?.total_profile_visits ?? 0} />
+        <MetricCard label="Bookmarks" value={summary?.total_bookmarks ?? 0} />
+        <MetricCard label="Engagement" value={(summary?.total_likes ?? 0) + (summary?.total_replies ?? 0) + (summary?.total_reposts ?? 0) + (summary?.total_bookmarks ?? 0)} />
+      </div>
+      <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold text-[color:var(--ops-text-title)]">手动记录 X 曝光指标</div>
+            <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">发布后从 X 页面抄 views / profile visits / replies / bookmarks / follows；这里不触发 X read。</div>
+          </div>
+          <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => void createManualMetric()}>记录指标</button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.external_post_id} onChange={(event) => setMetricForm({ ...metricForm, external_post_id: event.target.value })} placeholder="external post id" />
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.impressions} onChange={(event) => setMetricForm({ ...metricForm, impressions: event.target.value })} placeholder="views" />
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.profile_visits} onChange={(event) => setMetricForm({ ...metricForm, profile_visits: event.target.value })} placeholder="profile visits" />
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.bookmarks} onChange={(event) => setMetricForm({ ...metricForm, bookmarks: event.target.value })} placeholder="bookmarks" />
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.replies} onChange={(event) => setMetricForm({ ...metricForm, replies: event.target.value })} placeholder="replies" />
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.follows} onChange={(event) => setMetricForm({ ...metricForm, follows: event.target.value })} placeholder="follows" />
+          <select className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.format_kind} onChange={(event) => setMetricForm({ ...metricForm, format_kind: event.target.value })}>
+            <option value="x_long_post">x_long_post</option>
+            <option value="single_x_post">single_x_post</option>
+            <option value="x_reply">x_reply</option>
+            <option value="x_quote">x_quote</option>
+          </select>
+          <input className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-sm" value={metricForm.summary} onChange={(event) => setMetricForm({ ...metricForm, summary: event.target.value })} placeholder="note" />
+        </div>
       </div>
       {summary?.diagnostic ? <div className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4 text-sm text-[color:var(--ops-text-muted)]">{summary.diagnostic}</div> : null}
       <div className="mt-5 space-y-3">

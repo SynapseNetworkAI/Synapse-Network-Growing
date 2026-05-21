@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
-
-
 # ── Agent ─────────────────────────────────────────────────────
 
 class AgentOut(BaseModel):
@@ -2169,6 +2167,11 @@ class RecurringWorkflowOut(BaseModel):
     is_due: bool = False
     health_status: str = "unknown"
     last_result: dict[str, object] = {}
+    handler_key: Optional[str] = None
+    category: Optional[str] = None
+    risk_level: Optional[str] = None
+    editable: bool = False
+    deletable: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

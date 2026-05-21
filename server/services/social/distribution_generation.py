@@ -24,6 +24,12 @@ from server.services.social.distribution_documents import (
     approved_canonical_article_document,
     create_platform_draft_document,
 )
+from server.services.social.distribution_publish_lint import (
+    BLOCKED,
+    PublishLintResult,
+    lint_distribution_task,
+    lint_summary,
+)
 from server.services.social.agent_content_pack import generate_platform_task_draft
 
 
@@ -57,51 +63,16 @@ def generate_distribution_tasks(
             jitter_seconds = 0.1 + (time.monotonic_ns() % 151) / 1000
             time.sleep(jitter_seconds)
         try:
-            draft = generate_platform_task_draft(
-                asset_title=canonical_article.title or asset.title,
-                asset_summary=str(canonical_metadata.get("summary") or asset.summary or ""),
-                asset_body=canonical_body,
-                asset_metadata={
-                    **_asset_metadata(asset),
-                    "canonical_article_id": int(canonical_article.id),
-                    "canonical_article_version": int(canonical_article.version or 1),
-                    "canonical_article_status": canonical_article.status,
-                    "canonical_article_generated_by": canonical_metadata.get(
-                        "generated_by"
-                    ),
-                    "key_facts": canonical_metadata.get("key_facts", []),
-                    "density_driven_adaptation": True,
-                },
-                canonical_url=asset.canonical_url,
-                platform=account.platform,
-                channel_key=account.channel_key,
-                display_name=account.display_name,
-            )
-            task = _find_or_create_task(db, asset, account, body.action)
-            task.status = "needs_review" if account.platform == "x" else "draft_ready"
-            task.platform_title = draft.title
-            task.platform_body = draft.body
-            task.operator_checklist = draft.checklist
-            task.submission_url = account.signup_url
-            task.failure_summary = None
-            task.metadata_json = json.dumps(
-                {
-                    **draft.metadata,
-                    "source_document_id": int(canonical_article.id),
-                    "source_document_version": int(canonical_article.version or 1),
-                    "generation_order": index + 1,
-                    "serial_generation": True,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            create_platform_draft_document(
-                db,
+            task = _generate_and_apply_task(
+                db=db,
                 asset=asset,
-                task=task,
-                metadata={"generation_order": index + 1},
+                account=account,
+                action=body.action,
+                generation_order=index + 1,
+                canonical_article=canonical_article,
+                canonical_metadata=canonical_metadata,
+                canonical_body=canonical_body,
             )
-            task.updated_at = utcnow()
             generated_ids.append(int(task.id))
             results.append(_generation_result(account, "generated", int(task.id), None))
             _record_event(
@@ -178,6 +149,87 @@ def approve_and_generate_distribution_tasks(
             actor=body.actor,
         ),
     )
+
+
+def _generate_and_apply_task(
+    *,
+    db: Session,
+    asset: SocialContentAssetRow,
+    account: SocialDistributionAccountRow,
+    action: str,
+    generation_order: int,
+    canonical_article,
+    canonical_metadata: dict[str, object],
+    canonical_body: str,
+) -> SocialDistributionTaskRow:
+    draft = generate_platform_task_draft(
+        asset_title=canonical_article.title or asset.title,
+        asset_summary=str(canonical_metadata.get("summary") or asset.summary or ""),
+        asset_body=canonical_body,
+        asset_metadata=_platform_asset_metadata(asset, canonical_article, canonical_metadata),
+        canonical_url=asset.canonical_url,
+        platform=account.platform,
+        channel_key=account.channel_key,
+        display_name=account.display_name,
+    )
+    task = _find_or_create_task(db, asset, account, action)
+    metadata = _generated_task_metadata(draft.metadata, canonical_article, generation_order)
+    publish_lint = lint_distribution_task(
+        platform=account.platform,
+        channel_key=account.channel_key,
+        title=draft.title,
+        body=draft.body,
+        metadata=metadata,
+    )
+    task.status = "needs_review" if account.platform == "x" or publish_lint.status == BLOCKED else "draft_ready"
+    task.platform_title = draft.title
+    task.platform_body = draft.body
+    task.operator_checklist = _checklist_with_lint(draft.checklist, publish_lint)
+    task.submission_url = account.signup_url
+    task.failure_summary = None
+    task.metadata_json = json.dumps(
+        {**metadata, "platform_publish_lint": publish_lint.model_dump()},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    create_platform_draft_document(
+        db,
+        asset=asset,
+        task=task,
+        metadata={"generation_order": generation_order},
+    )
+    task.updated_at = utcnow()
+    return task
+
+
+def _platform_asset_metadata(
+    asset: SocialContentAssetRow,
+    canonical_article,
+    canonical_metadata: dict[str, object],
+) -> dict[str, object]:
+    return {
+        **_asset_metadata(asset),
+        "canonical_article_id": int(canonical_article.id),
+        "canonical_article_version": int(canonical_article.version or 1),
+        "canonical_article_status": canonical_article.status,
+        "canonical_article_generated_by": canonical_metadata.get("generated_by"),
+        "key_facts": canonical_metadata.get("key_facts", []),
+        "density_driven_adaptation": True,
+    }
+
+
+def _generated_task_metadata(
+    draft_metadata: dict[str, object],
+    canonical_article,
+    generation_order: int,
+) -> dict[str, object]:
+    return {
+        **draft_metadata,
+        "source_document_id": int(canonical_article.id),
+        "source_document_version": int(canonical_article.version or 1),
+        "generation_order": generation_order,
+        "serial_generation": True,
+    }
 
 
 def _ordered_accounts(
@@ -312,3 +364,11 @@ def _generation_result(
         task_id=task_id,
         error=error,
     )
+
+
+def _checklist_with_lint(checklist: str | None, lint: PublishLintResult) -> str:
+    base = str(checklist or "").strip()
+    if lint.status == "passed":
+        return base
+    lint_text = f"Platform publish lint: {lint.status} - {lint_summary(lint)}"
+    return f"{base}\n{lint_text}".strip() if base else lint_text

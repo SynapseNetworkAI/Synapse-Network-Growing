@@ -19,7 +19,7 @@ Load this when touching recurring workflows, background loops, `/schedules`, run
 13. High-frequency operations views are compact monitoring surfaces. Long descriptions and full I-P-O are folded.
 14. Overdue tasks show `OVERDUE`, debt time, and likely reason; more than 24 hours overdue is danger state.
 15. Items in `Attention Required` are not fully duplicated in their original lane.
-16. Configuration v1 is read-only config inspection plus safe run controls. Do not expose arbitrary execution logic, shell, prompt, cron edit, or high-risk auto switches.
+16. Schedule configuration can be edited only through allowlisted templates and bounded fields. Do not expose arbitrary execution logic, shell, prompt, raw cron edit, or high-risk auto switches.
 
 ## Runtime And Workspace Recovery
 

@@ -381,7 +381,10 @@ def test_x_platform_prompt_requires_english_official_account():
     assert "X Official Account" in user_prompt
     assert "x_format\":\"long_post" in user_prompt
     assert "post_text" in user_prompt
-    assert "2200-3200" in user_prompt
+    assert "MAX_LENGTH=4000" in user_prompt
+    assert "no minimum length" in user_prompt
+    assert "Do not pad" in user_prompt
+    assert "2200-3200" not in user_prompt
     assert "rewrite it shorter" in user_prompt
 
 
