@@ -34,6 +34,14 @@ export interface SdkPackageReleaseEvent {
   created_at: string | null
 }
 
+export interface SdkPackageReleasePage {
+  items: SdkPackageRelease[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
 export interface SdkReleaseTrain {
   release_train_version: string
   channel: string
@@ -77,13 +85,17 @@ export const sdkPackagesApi = {
   getSdkPackagePlatforms: () => request<SdkPackagePlatform[]>('/releases/sdk-packages/platforms'),
   updateSdkPackagePlatform: (platformKey: string, data: Partial<Pick<SdkPackagePlatform, 'enabled' | 'registry_url' | 'package_name' | 'package_url_template' | 'credential_env_var' | 'notes'>>) =>
     request<SdkPackagePlatform>(`/releases/sdk-packages/platforms/${encodeURIComponent(platformKey)}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  getSdkPackageReleases: (filters?: { release_train_version?: string; sdk_language?: string; status?: string }) => {
+  getSdkPackageReleases: (filters?: { release_train_version?: string; sdk_language?: string; registry?: string; status?: string; search?: string; page?: number; page_size?: number }) => {
     const params = new URLSearchParams()
     if (filters?.release_train_version) params.set('release_train_version', filters.release_train_version)
     if (filters?.sdk_language) params.set('sdk_language', filters.sdk_language)
+    if (filters?.registry) params.set('registry', filters.registry)
     if (filters?.status) params.set('status', filters.status)
+    if (filters?.search) params.set('search', filters.search)
+    if (filters?.page) params.set('page', String(filters.page))
+    if (filters?.page_size) params.set('page_size', String(filters.page_size))
     const q = params.toString() ? `?${params.toString()}` : ''
-    return request<SdkPackageRelease[]>(`/releases/sdk-packages${q}`)
+    return request<SdkPackageReleasePage>(`/releases/sdk-packages${q}`)
   },
   getSdkPackageRelease: (id: number) => request<SdkPackageRelease>(`/releases/sdk-packages/${id}`),
   getSdkPackageReleaseEvents: (id: number) => request<SdkPackageReleaseEvent[]>(`/releases/sdk-packages/${id}/events`),

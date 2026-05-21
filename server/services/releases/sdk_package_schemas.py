@@ -26,6 +26,14 @@ class SdkPackageReleaseOut(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+class SdkPackageReleasePageOut(BaseModel):
+    items: list[SdkPackageReleaseOut] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 10
+    total_pages: int = 0
+
+
 class SdkPackageReleaseEventOut(BaseModel):
     id: int
     sdk_package_release_id: int

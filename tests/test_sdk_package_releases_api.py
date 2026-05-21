@@ -142,11 +142,34 @@ def test_sdk_package_list_filters_and_missing_resources(synced_client):
         "/api/releases/sdk-packages?sdk_language=python"
     )
     assert language_response.status_code == 200
-    assert [item["sdk_language"] for item in language_response.json()] == ["python"]
+    language_payload = language_response.json()
+    assert language_payload["total"] == 1
+    assert language_payload["page"] == 1
+    assert language_payload["page_size"] == 10
+    assert [item["sdk_language"] for item in language_payload["items"]] == ["python"]
 
     status_response = synced_client.get("/api/releases/sdk-packages?status=planned")
     assert status_response.status_code == 200
-    assert len(status_response.json()) == 2
+    assert status_response.json()["total"] == 2
+
+    registry_response = synced_client.get("/api/releases/sdk-packages?registry=npm")
+    assert registry_response.status_code == 200
+    assert [item["registry"] for item in registry_response.json()["items"]] == ["npm"]
+
+    search_response = synced_client.get(
+        "/api/releases/sdk-packages?search=synapse-network-ai-sdk"
+    )
+    assert search_response.status_code == 200
+    assert [item["sdk_language"] for item in search_response.json()["items"]] == [
+        "python"
+    ]
+
+    page_response = synced_client.get("/api/releases/sdk-packages?page=2&page_size=1")
+    assert page_response.status_code == 200
+    assert page_response.json()["total"] == 2
+    assert page_response.json()["page"] == 2
+    assert page_response.json()["total_pages"] == 2
+    assert len(page_response.json()["items"]) == 1
 
     assert synced_client.get("/api/releases/sdk-trains/9.9.9").status_code == 404
     assert synced_client.get("/api/releases/sdk-trains/not-semver").status_code == 400

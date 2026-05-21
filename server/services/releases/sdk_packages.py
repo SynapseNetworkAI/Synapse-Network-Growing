@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timezone
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server.database import utcnow
@@ -34,6 +35,7 @@ from server.services.releases.sdk_package_schemas import (
     SdkPackageReleaseEventOut,
     SdkPackageReleaseInitializeRequest,
     SdkPackageReleaseOut,
+    SdkPackageReleasePageOut,
     SdkPackageReleaseSyncResult,
     SdkReleaseTrainOut,
 )
@@ -46,8 +48,12 @@ def list_sdk_package_releases(
     *,
     release_train_version: str | None = None,
     sdk_language: str | None = None,
+    registry: str | None = None,
     status: str | None = None,
-) -> list[SdkPackageReleaseOut]:
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
+) -> SdkPackageReleasePageOut:
     query = db.query(SdkPackageReleaseRow)
     if clean(release_train_version):
         query = query.filter(
@@ -59,10 +65,44 @@ def list_sdk_package_releases(
         )
     if clean(status):
         query = query.filter(SdkPackageReleaseRow.status == clean(status).lower())
-    rows = query.order_by(
-        SdkPackageReleaseRow.release_train_version.desc(), SdkPackageReleaseRow.id.asc()
-    ).all()
-    return [package_release_to_out(row) for row in rows]
+    if clean(registry):
+        query = query.filter(SdkPackageReleaseRow.registry == clean(registry).lower())
+    if clean(search):
+        needle = f"%{clean(search).lower()}%"
+        query = query.filter(
+            or_(
+                SdkPackageReleaseRow.release_train_version.ilike(needle),
+                SdkPackageReleaseRow.sdk_language.ilike(needle),
+                SdkPackageReleaseRow.package_name.ilike(needle),
+                SdkPackageReleaseRow.registry.ilike(needle),
+                SdkPackageReleaseRow.channel.ilike(needle),
+                SdkPackageReleaseRow.package_version.ilike(needle),
+                SdkPackageReleaseRow.git_tag.ilike(needle),
+                SdkPackageReleaseRow.status.ilike(needle),
+                SdkPackageReleaseRow.failure_summary.ilike(needle),
+            )
+        )
+    safe_page = max(1, page)
+    safe_page_size = max(1, min(page_size, 100))
+    total = query.count()
+    rows = (
+        query.order_by(
+            SdkPackageReleaseRow.updated_at.desc(),
+            SdkPackageReleaseRow.created_at.desc(),
+            SdkPackageReleaseRow.id.desc(),
+        )
+        .offset((safe_page - 1) * safe_page_size)
+        .limit(safe_page_size)
+        .all()
+    )
+    total_pages = (total + safe_page_size - 1) // safe_page_size if total else 0
+    return SdkPackageReleasePageOut(
+        items=[package_release_to_out(row) for row in rows],
+        total=total,
+        page=safe_page,
+        page_size=safe_page_size,
+        total_pages=total_pages,
+    )
 
 
 def get_sdk_package_release(db: Session, release_id: int) -> SdkPackageReleaseOut:
