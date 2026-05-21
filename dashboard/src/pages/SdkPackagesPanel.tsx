@@ -1,21 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { SdkPackageRelease, sdkPackagesApi } from '../sdkPackagesApi'
+import { SdkPackagePlatform, SdkPackageRelease, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { SDK_STATUS_LABEL, isSemVer, openExternalUrl, sdkReleaseTone } from './sdkPackageUi'
 
-const STATUS_OPTIONS = ['', 'planned', 'building', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
+const STATUS_OPTIONS = ['', 'planned', 'dry_running', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
 const LANGUAGE_OPTIONS = ['', 'python', 'typescript', 'go', 'java', 'dotnet']
 const PACKAGE_OPTIONS = [
-  { key: 'python', label: 'Python · synapse-client · PyPI' },
-  { key: 'typescript', label: 'TypeScript · @synapse-network/sdk · npm' },
+  { key: 'python', label: 'Python · synapse-network-ai-sdk · PyPI' },
+  { key: 'typescript', label: 'TypeScript · @synapse-network-ai/sdk · npm' },
   { key: 'go', label: 'Go · module /go · GitHub tag' },
   { key: 'java', label: 'Java · Maven Central / GitHub Packages' },
   { key: 'dotnet', label: '.NET · SynapseNetwork.Sdk · NuGet' },
 ]
 
 function defaultTrainDraft() {
-  return { release_train_version: '', channel: 'preview', release_notes: '', packages: PACKAGE_OPTIONS.map((item) => item.key) }
+  return { release_train_version: '1.0.0', channel: 'latest', release_notes: '', packages: PACKAGE_OPTIONS.map((item) => item.key) }
 }
 
 function disableReason(draft: ReturnType<typeof defaultTrainDraft>, busy: boolean) {
@@ -36,11 +36,18 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
   const [draft, setDraft] = useState(defaultTrainDraft())
   const [statusFilter, setStatusFilter] = useState('')
   const [languageFilter, setLanguageFilter] = useState('')
+  const [platforms, setPlatforms] = useState<SdkPackagePlatform[]>([])
+  const [platformModalOpen, setPlatformModalOpen] = useState(false)
 
   const load = async () => {
     setLoading(true)
     try {
-      setPackages(await sdkPackagesApi.getSdkPackageReleases())
+      const [nextPackages, nextPlatforms] = await Promise.all([
+        sdkPackagesApi.getSdkPackageReleases(),
+        sdkPackagesApi.getSdkPackagePlatforms(),
+      ])
+      setPackages(nextPackages)
+      setPlatforms(nextPlatforms)
     } finally {
       setLoading(false)
     }
@@ -137,6 +144,9 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
         <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" onClick={() => setModalOpen(true)}>
           Initialize Release Train
         </button>
+        <button type="button" className="rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ops-state-running-text)]" onClick={() => setPlatformModalOpen(true)}>
+          Platform Settings
+        </button>
       </div>
 
       <section className="overflow-hidden rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)]">
@@ -186,11 +196,11 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
                         <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => navigate(`/releases/sdk-packages/${item.id}`)}>
                           发布页
                         </button>
-                        {item.workflow_run_url ? <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => openExternalUrl(item.workflow_run_url)}>Workflow</button> : null}
+                        {item.workflow_run_url ? <span className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm">Local Run</span> : null}
                         {item.package_url ? <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(item.package_url)}>Package</button> : null}
                         {item.status !== 'published' && item.status !== 'cancelled' ? <button type="button" className="rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => runAction(item, 'dry-run')}>{busyAction === `${busyPrefix}dry-run` ? '验证中…' : 'Dry Run'}</button> : null}
                         {item.status === 'failed' ? <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)] disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => runAction(item, 'retry')}>{busyAction === `${busyPrefix}retry` ? '重试中…' : 'Retry'}</button> : null}
-                        {item.status === 'ready_to_publish' ? <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => runAction(item, 'publish')}>{busyAction === `${busyPrefix}publish` ? '发布中…' : 'Publish'}</button> : null}
+                        {item.status === 'ready_to_publish' ? <button type="button" className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white" onClick={() => navigate(`/releases/sdk-packages/${item.id}`)}>Human Gate Publish</button> : null}
                       </div>
                       {item.failure_summary ? <div className="mt-3 line-clamp-2 text-xs text-[color:var(--ops-state-blocked-text)]">{item.failure_summary}</div> : null}
                     </article>
@@ -204,7 +214,75 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
       </section>
 
       <InitializeTrainModal open={modalOpen} draft={draft} busy={busyAction === 'initialize'} onClose={() => setModalOpen(false)} onDraftChange={setDraft} onSubmit={initializeTrain} />
+      <PlatformSettingsModal
+        open={platformModalOpen}
+        platforms={platforms}
+        busy={busyAction}
+        onClose={() => setPlatformModalOpen(false)}
+        onUpdate={async (platformKey, enabled) => {
+          setBusyAction(`platform-${platformKey}`)
+          try {
+            await sdkPackagesApi.updateSdkPackagePlatform(platformKey, { enabled })
+            toast.success('SDK platform 配置已更新')
+            await load()
+          } catch (error) {
+            toast.error(error instanceof Error ? error.message : '更新 SDK platform 失败')
+          } finally {
+            setBusyAction(null)
+          }
+        }}
+      />
     </div>
+  )
+}
+
+function PlatformSettingsModal({
+  open,
+  platforms,
+  busy,
+  onClose,
+  onUpdate,
+}: Readonly<{
+  open: boolean
+  platforms: SdkPackagePlatform[]
+  busy: string | null
+  onClose: () => void
+  onUpdate: (platformKey: string, enabled: boolean) => Promise<void>
+}>) {
+  return (
+    <OverlayModal open={open} eyebrow="SDK Platform Settings" title="SDK 发布平台配置" description="这里只启用 allowlisted registry template；凭据来自本地 runner env，不进入数据库。" onClose={onClose}>
+      <div className="space-y-3">
+        {platforms.map((platform) => (
+          <article key={platform.platform_key} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold text-[color:var(--ops-text-title)]">{platform.package_name}</div>
+                <div className="mt-1 text-xs text-[color:var(--ops-text-caption)]">{platform.sdk_language} · {platform.platform_key} · {platform.registry_url}</div>
+              </div>
+              <StateBadge tone={platform.enabled ? (platform.credential_present ? 'delivered' : 'ready') : 'blocked'}>
+                {platform.enabled ? (platform.credential_present ? 'enabled + credential' : 'enabled · missing credential') : 'disabled'}
+              </StateBadge>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-[color:var(--ops-text-muted)]">
+              <div>Credential env: <span className="font-mono">{platform.credential_env_var}</span></div>
+              <div>Dry run: <span className="font-mono">{platform.dry_run_template}</span></div>
+              <div>Publish: <span className="font-mono">{platform.publish_template}</span></div>
+              <div>Verify: <span className="font-mono">{platform.verify_template}</span></div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-60"
+                disabled={busy === `platform-${platform.platform_key}`}
+                onClick={() => onUpdate(platform.platform_key, !platform.enabled)}
+              >
+                {platform.enabled ? 'Disable' : 'Enable'}
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </OverlayModal>
   )
 }
 

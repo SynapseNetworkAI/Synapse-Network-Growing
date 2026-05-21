@@ -9,7 +9,7 @@ export interface SdkPackageRelease {
   channel: 'preview' | 'latest' | 'beta' | 'next' | string
   package_version: string
   git_tag: string | null
-  status: 'planned' | 'building' | 'ready_to_publish' | 'publishing' | 'published' | 'failed' | 'cancelled' | string
+  status: 'planned' | 'dry_running' | 'building' | 'ready_to_publish' | 'publishing' | 'published' | 'failed' | 'cancelled' | string
   package_url: string | null
   workflow_run_url: string | null
   failure_summary: string | null
@@ -53,7 +53,30 @@ export interface SdkPackageReleaseSyncResult {
   error_ids: number[]
 }
 
+export interface SdkPackagePlatform {
+  platform_key: string
+  sdk_language: string
+  registry: string
+  package_name: string
+  registry_url: string
+  package_url_template: string
+  credential_env_var: string
+  enabled: boolean
+  configured: boolean
+  credential_present: boolean
+  dry_run_template: string
+  publish_template: string
+  verify_template: string
+  install_command: string
+  notes: string | null
+  metadata: Record<string, unknown>
+  updated_at: string | null
+}
+
 export const sdkPackagesApi = {
+  getSdkPackagePlatforms: () => request<SdkPackagePlatform[]>('/releases/sdk-packages/platforms'),
+  updateSdkPackagePlatform: (platformKey: string, data: Partial<Pick<SdkPackagePlatform, 'enabled' | 'registry_url' | 'package_name' | 'package_url_template' | 'credential_env_var' | 'notes'>>) =>
+    request<SdkPackagePlatform>(`/releases/sdk-packages/platforms/${encodeURIComponent(platformKey)}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getSdkPackageReleases: (filters?: { release_train_version?: string; sdk_language?: string; status?: string }) => {
     const params = new URLSearchParams()
     if (filters?.release_train_version) params.set('release_train_version', filters.release_train_version)
@@ -74,7 +97,7 @@ export const sdkPackagesApi = {
   }) => request<SdkPackageRelease[]>('/releases/sdk-packages/initialize-train', { method: 'POST', body: JSON.stringify(data) }),
   dryRunSdkPackageRelease: (id: number, data?: { actor?: string; package_version?: string | null; channel?: string | null; note?: string | null }) =>
     request<SdkPackageRelease>(`/releases/sdk-packages/${id}/dry-run`, { method: 'POST', body: JSON.stringify(data || {}) }),
-  publishSdkPackageRelease: (id: number, data?: { actor?: string; package_version?: string | null; channel?: string | null; note?: string | null }) =>
+  publishSdkPackageRelease: (id: number, data?: { actor?: string; package_version?: string | null; channel?: string | null; note?: string | null; confirm_phrase?: string | null }) =>
     request<SdkPackageRelease>(`/releases/sdk-packages/${id}/publish`, { method: 'POST', body: JSON.stringify(data || {}) }),
   retrySdkPackageRelease: (id: number, data?: { actor?: string; package_version?: string | null; channel?: string | null; note?: string | null }) =>
     request<SdkPackageRelease>(`/releases/sdk-packages/${id}/retry`, { method: 'POST', body: JSON.stringify(data || {}) }),

@@ -62,6 +62,7 @@ class SdkPackageReleaseActionRequest(BaseModel):
     package_version: Optional[str] = None
     channel: Optional[str] = None
     note: Optional[str] = None
+    confirm_phrase: Optional[str] = None
 
 
 class SdkPackageReleaseSyncResult(BaseModel):
@@ -71,3 +72,32 @@ class SdkPackageReleaseSyncResult(BaseModel):
     published_ids: list[int] = Field(default_factory=list)
     failed_ids: list[int] = Field(default_factory=list)
     error_ids: list[int] = Field(default_factory=list)
+
+
+class SdkPackagePlatformOut(BaseModel):
+    platform_key: str
+    sdk_language: str
+    registry: str
+    package_name: str
+    registry_url: str
+    package_url_template: str
+    credential_env_var: str
+    enabled: bool = False
+    configured: bool = False
+    credential_present: bool = False
+    dry_run_template: str
+    publish_template: str
+    verify_template: str
+    install_command: str
+    notes: Optional[str] = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+    updated_at: Optional[datetime] = None
+
+
+class SdkPackagePlatformPatchRequest(BaseModel):
+    enabled: Optional[bool] = None
+    registry_url: Optional[str] = None
+    package_name: Optional[str] = None
+    package_url_template: Optional[str] = None
+    credential_env_var: Optional[str] = None
+    notes: Optional[str] = None

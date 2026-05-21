@@ -71,3 +71,25 @@ class SdkPackageReleaseEventRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
     sdk_package_release = relationship("SdkPackageReleaseRow")
+
+
+class SdkPackagePlatformRow(Base):
+    __tablename__ = "sdk_package_platforms"
+    __table_args__ = (
+        Index("sdk_package_platforms_platform_idx", "platform_key", unique=True),
+        Index("sdk_package_platforms_enabled_idx", "enabled"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    platform_key = Column(Text, nullable=False)
+    sdk_language = Column(Text, nullable=False)
+    registry = Column(Text, nullable=False)
+    package_name = Column(Text, nullable=False)
+    registry_url = Column(Text, nullable=False)
+    package_url_template = Column(Text, nullable=False)
+    credential_env_var = Column(Text, nullable=False)
+    enabled = Column(Integer, nullable=False, default=0)
+    notes = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from server.database import utcnow
 from server.services.releases.sdk_package_catalog import (
     PACKAGE_CATALOG,
+    SDK_PACKAGE_STATUSES,
     TERMINAL_STATUSES,
 )
 from server.services.releases.sdk_package_helpers import (
@@ -19,7 +20,6 @@ from server.services.releases.sdk_package_helpers import (
     package_languages,
     package_release_event_to_out,
     package_release_to_out,
-    package_url_for,
     record_event,
     validate_channel,
     validate_version,
@@ -28,6 +28,7 @@ from server.services.releases.sdk_package_models import (
     SdkPackageReleaseEventRow,
     SdkPackageReleaseRow,
 )
+from server.services.releases.sdk_package_platforms import require_enabled_platform
 from server.services.releases.sdk_package_schemas import (
     SdkPackageReleaseActionRequest,
     SdkPackageReleaseEventOut,
@@ -37,6 +38,7 @@ from server.services.releases.sdk_package_schemas import (
     SdkReleaseTrainOut,
 )
 LOCAL_SDK_RUN_PREFIX = "local-sdk-run:"
+SDK_PUBLISH_CONFIRM_PREFIX = "PUBLISH_SDK_"
 
 
 def list_sdk_package_releases(
@@ -232,6 +234,19 @@ def _local_sdk_publish_reference(row: SdkPackageReleaseRow, *, dry_run: bool) ->
     return f"{LOCAL_SDK_RUN_PREFIX}{mode}:{int(row.id)}"
 
 
+def _merge_metadata(row: SdkPackageReleaseRow, patch: dict[str, object]) -> None:
+    import json
+
+    try:
+        current = json.loads(row.metadata_json or "{}")
+    except json.JSONDecodeError:
+        current = {}
+    if not isinstance(current, dict):
+        current = {}
+    current.update(patch)
+    row.metadata_json = json_dump(current)
+
+
 def _record_action_event(
     db: Session,
     row: SdkPackageReleaseRow,
@@ -263,13 +278,23 @@ def dry_run_sdk_package_release(
     row = _require_sdk_package_release(db, release_id)
     if clean(row.status) in TERMINAL_STATUSES:
         raise ValueError("Terminal SDK package releases cannot be dry-run.")
+    platform = require_enabled_platform(db, clean(row.sdk_language))
     from_status = clean(row.status) or "planned"
     _bump_package_version(row, body.package_version)
     if body.channel:
         row.channel = validate_channel(body.channel)
-    row.status = "building"
+    row.status = "dry_running"
     row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=True)
     row.failure_summary = None
+    _merge_metadata(
+        row,
+        {
+            "platform_key": platform.platform_key,
+            "registry_url": platform.registry_url,
+            "package_url_template": platform.package_url_template,
+            "local_runner_mode": "dry_run",
+        },
+    )
     _record_action_event(db, row, action="dry_run", from_status=from_status, body=body)
     db.commit()
     db.refresh(row)
@@ -288,6 +313,12 @@ def publish_sdk_package_release(
         raise ValueError("Cancelled SDK package releases cannot be published.")
     if clean(row.status) != "ready_to_publish":
         raise ValueError("SDK package release must pass dry-run before publish.")
+    expected_phrase = f"{SDK_PUBLISH_CONFIRM_PREFIX}{clean(row.package_version)}"
+    if clean(body.confirm_phrase) != expected_phrase:
+        raise ValueError(f"confirm_phrase must be {expected_phrase} to publish immutable SDK packages.")
+    platform = require_enabled_platform(db, clean(row.sdk_language))
+    if not platform.credential_present:
+        raise ValueError(f"credential_missing: runner env {platform.credential_env_var} is required for {platform.platform_key}.")
     from_status = clean(row.status) or "planned"
     _bump_package_version(row, body.package_version)
     if body.channel:
@@ -295,6 +326,15 @@ def publish_sdk_package_release(
     row.status = "publishing"
     row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=False)
     row.failure_summary = None
+    _merge_metadata(
+        row,
+        {
+            "platform_key": platform.platform_key,
+            "registry_url": platform.registry_url,
+            "package_url_template": platform.package_url_template,
+            "local_runner_mode": "publish",
+        },
+    )
     _record_action_event(db, row, action="publish", from_status=from_status, body=body)
     db.commit()
     db.refresh(row)
@@ -311,8 +351,9 @@ def retry_sdk_package_release(
     _bump_package_version(row, body.package_version)
     if body.channel:
         row.channel = validate_channel(body.channel)
-    row.status = "publishing"
-    row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=False)
+    target_status = "ready_to_publish" if clean(row.package_url) else "dry_running"
+    row.status = target_status
+    row.workflow_run_url = _local_sdk_publish_reference(row, dry_run=target_status == "dry_running")
     row.failure_summary = None
     _record_action_event(db, row, action="retry", from_status=from_status, body=body)
     db.commit()
@@ -325,31 +366,29 @@ def sync_sdk_package_release_statuses(
 ) -> SdkPackageReleaseSyncResult:
     rows = (
         db.query(SdkPackageReleaseRow)
-        .filter(SdkPackageReleaseRow.status.in_(["building", "publishing"]))
+        .filter(SdkPackageReleaseRow.status.in_(["dry_running", "building", "publishing"]))
         .order_by(SdkPackageReleaseRow.updated_at.asc())
         .limit(max(1, min(max_records, 200)))
         .all()
     )
     result = SdkPackageReleaseSyncResult(processed_count=len(rows))
     for row in rows:
-        was_publish = clean(row.status) == "publishing"
-        from_status = clean(row.status)
-        row.status = "published" if was_publish else "ready_to_publish"
-        if was_publish:
-            row.package_url = package_url_for(row)
-            row.published_at = utcnow()
-            result.published_ids.append(int(row.id))
-        else:
+        status = clean(row.status)
+        if status not in SDK_PACKAGE_STATUSES and status != "building":
+            result.error_ids.append(int(row.id))
+            continue
+        if status in {"dry_running", "building"}:
             result.ready_ids.append(int(row.id))
-        row.failure_summary = None
+        elif status == "publishing":
+            result.publishing_ids.append(int(row.id))
         record_event(
             db,
             row,
             action="sync_status",
-            from_status=from_status,
+            from_status=status,
             to_status=clean(row.status),
             workflow_run_url=row.workflow_run_url,
-            metadata={"local_runner": True},
+            metadata={"local_runner": True, "message": "Status is owned by local SDK publish worker."},
         )
         row.updated_at = utcnow().astimezone(timezone.utc)
     db.commit()

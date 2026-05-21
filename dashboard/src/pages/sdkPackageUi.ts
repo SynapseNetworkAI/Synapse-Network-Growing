@@ -1,5 +1,6 @@
 export const SDK_STATUS_LABEL: Record<string, string> = {
   planned: '已计划',
+  dry_running: 'Dry Run 中',
   building: 'Dry Run 中',
   ready_to_publish: '可发布',
   publishing: '发布中',
@@ -13,9 +14,18 @@ export const SDK_CHANNEL_OPTIONS = ['preview', 'next', 'beta', 'latest']
 export function sdkReleaseTone(state: string | null | undefined) {
   if (state === 'published') return 'delivered'
   if (state === 'planned' || state === 'ready_to_publish') return 'ready'
-  if (state === 'building' || state === 'publishing') return 'running'
+  if (state === 'dry_running' || state === 'building' || state === 'publishing') return 'running'
   if (state === 'failed' || state === 'cancelled') return 'blocked'
   return 'muted'
+}
+
+export function sdkInstallCommand(language: string, packageName: string, version: string) {
+  if (language === 'python') return `pip install ${packageName}==${version}`
+  if (language === 'typescript') return `npm install ${packageName}@${version}`
+  if (language === 'go') return `go get ${packageName}@v${version}`
+  if (language === 'java') return `mvn dependency:get -Dartifact=${packageName}:${version}`
+  if (language === 'dotnet') return `dotnet add package ${packageName} --version ${version}`
+  return `${packageName}@${version}`
 }
 
 export function formatSdkTime(value: string | null) {
