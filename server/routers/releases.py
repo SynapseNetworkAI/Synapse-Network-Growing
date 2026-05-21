@@ -40,11 +40,18 @@ from server.services.releases.sdk_packages import (
     retry_sdk_package_release,
     sync_sdk_package_release_statuses,
 )
+from server.services.releases.sdk_package_platforms import (
+    list_sdk_package_platforms,
+    update_sdk_package_platform,
+)
 from server.services.releases.sdk_package_schemas import (
+    SdkPackagePlatformOut,
+    SdkPackagePlatformPatchRequest,
     SdkPackageReleaseActionRequest,
     SdkPackageReleaseEventOut,
     SdkPackageReleaseInitializeRequest,
     SdkPackageReleaseOut,
+    SdkPackageReleasePageOut,
     SdkPackageReleaseSyncResult,
     SdkReleaseTrainOut,
 )
@@ -243,19 +250,42 @@ def publish_scheduled_jobs_endpoint(_body: ScheduledCloudRunJobsPublishRequest, 
 def sync_scheduled_job_publish_statuses_endpoint(max_records: int = 50, db: Session = Depends(get_db)):
     return sync_scheduled_job_publish_statuses(db, max_records=max_records)
 
-@router.get("/sdk-packages", response_model=list[SdkPackageReleaseOut])
+@router.get("/sdk-packages", response_model=SdkPackageReleasePageOut)
 def list_sdk_package_releases_endpoint(
     release_train_version: str | None = None,
     sdk_language: str | None = None,
+    registry: str | None = None,
     status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 10,
     db: Session = Depends(get_db),
 ):
     return list_sdk_package_releases(
         db,
         release_train_version=release_train_version,
         sdk_language=sdk_language,
+        registry=registry,
         status=status,
+        search=search,
+        page=page,
+        page_size=page_size,
     )
+
+@router.get("/sdk-packages/platforms", response_model=list[SdkPackagePlatformOut])
+def list_sdk_package_platforms_endpoint(db: Session = Depends(get_db)):
+    return list_sdk_package_platforms(db)
+
+@router.patch("/sdk-packages/platforms/{platform_key}", response_model=SdkPackagePlatformOut)
+def update_sdk_package_platform_endpoint(
+    platform_key: str,
+    body: SdkPackagePlatformPatchRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return update_sdk_package_platform(db, platform_key, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @router.post("/sdk-packages/initialize-train", response_model=list[SdkPackageReleaseOut])
 def initialize_sdk_release_train_endpoint(body: SdkPackageReleaseInitializeRequest, db: Session = Depends(get_db)):
