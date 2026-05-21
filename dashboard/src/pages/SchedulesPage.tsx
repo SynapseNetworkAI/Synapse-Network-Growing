@@ -1,29 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { api, RecurringWorkflow, RecurringWorkflowHealth, RecurringWorkflowRun } from '../api'
+import { api, RecurringWorkflow, RecurringWorkflowHealth, RecurringWorkflowRun, ScheduleTemplate } from '../api'
 import { ActionButton, CockpitPanel, MetricTile } from '../components/controlPlane'
-import { ConfirmDialog, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { ConfirmDialog, StateBadge, useToast } from '../components/workbench'
 import { hasPresentation, LaneKey, laneDefinitions, presentationFor } from './schedulesPresentation'
+import { CreateScheduleModal, EditScheduleModal, ScheduleDraft, ScheduleEditDraft, ScheduleTaskTable, TemplatesPanel } from './SchedulesPageTaskPanels'
+import { chooseAnchoredRun, InspectorAnchor, InspectorRun, InspectorTab, RunInspectorModal } from './SchedulesPageRunInspector'
+import { recordFrom, ScheduleJsonObject, scheduleLabel, tone } from './SchedulesPageShared'
 
-type InspectorRun = RecurringWorkflowRun & {
-  optimistic?: boolean
-}
-
-type InspectorAnchor = {
-  runId?: number | null
-  completedAt?: string | null
-  optimisticRun?: InspectorRun | null
-}
-
-type InspectorTab = 'history' | 'configuration'
+type ScheduleCenterTab = 'overview' | 'tasks' | 'history' | 'templates'
 
 type PendingRunConfirmation = {
   workflow: RecurringWorkflow
   dryRun: boolean
 } | null
-
-function _record(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
-}
 
 function formatTime(value: string | null | undefined) {
   if (!value) return '-'
@@ -49,71 +38,8 @@ function delayLabel(from: string | null | undefined, now = new Date()) {
   return `${Math.max(1, minutes)}m`
 }
 
-function tone(value: string) {
-  if (['healthy', 'succeeded', 'completed', 'active'].includes(value)) return 'ready'
-  if (['due', 'running'].includes(value)) return 'running'
-  if (['failed', 'error', 'dead_letter'].includes(value)) return 'blocked'
-  return 'muted'
-}
-
-function runTone(run: InspectorRun | null, fallbackStatus: string) {
-  if (run?.optimistic) return 'running'
-  if (run?.dry_run) return 'muted'
-  return tone(run?.status || fallbackStatus)
-}
-
-function chooseAnchoredRun(runs: InspectorRun[], anchor?: InspectorAnchor | null) {
-  if (anchor?.runId !== undefined && anchor.runId !== null) {
-    const byId = runs.find((run) => run.id === anchor.runId)
-    if (byId) return byId
-  }
-  if (anchor?.completedAt) {
-    const byTime = runs.find((run) => run.completed_at === anchor.completedAt || run.started_at === anchor.completedAt)
-    if (byTime) return byTime
-  }
-  return runs[0] || null
-}
-
-function JsonBlock({ value }: Readonly<{ value: unknown }>) {
-  const text = JSON.stringify(value ?? {}, null, 2)
-  return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
-        <span className="machine-label text-slate-400">JSON</span>
-        <button
-          type="button"
-          className="rounded-lg border border-white/12 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white/10"
-          onClick={() => copyJson(value)}
-        >
-          Copy JSON
-        </button>
-      </div>
-      <pre className="max-h-[360px] overflow-auto p-4 text-xs leading-relaxed text-slate-100">
-        {text}
-      </pre>
-    </div>
-  )
-}
-
-function copyJson(value: unknown) {
-  const text = JSON.stringify(value ?? {}, null, 2)
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(text)
-  }
-}
-
-function scheduleLabel(workflow: RecurringWorkflow) {
-  const schedule = workflow.schedule || {}
-  const cadence = String(schedule.cadence || '-')
-  if (cadence === 'interval') return `Every ${String(schedule.interval_minutes || '?')} min`
-  if (cadence === 'hourly') return `Every ${String(schedule.interval_hours || '?')} h`
-  if (cadence === 'daily') return `Daily ${String(schedule.suggested_local_time || '')}`.trim()
-  if (cadence === 'weekly') return `Weekly ${String(schedule.day || '')} ${String(schedule.suggested_local_time || '')}`.trim()
-  return cadence
-}
-
 function lastResultStatus(workflow: RecurringWorkflow) {
-  return String(_record(workflow.last_result).status || '').toLowerCase()
+  return String(recordFrom(workflow.last_result).status || '').toLowerCase()
 }
 
 function needsAttention(workflow: RecurringWorkflow) {
@@ -124,7 +50,7 @@ function needsAttention(workflow: RecurringWorkflow) {
 function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
   const next = workflow.next_run_at ? new Date(workflow.next_run_at) : null
   const isOverdue = Boolean(workflow.is_due && next && !Number.isNaN(next.getTime()) && next.getTime() < now.getTime())
-  const result = _record(workflow.last_result)
+  const result = recordFrom(workflow.last_result)
   const lastStatus = String(result.status || '').toLowerCase()
   const rawReason = result.reason || result.error || (workflow.health_status === 'failed' ? 'Recent run failed' : '')
   const reason = lastStatus === 'skipped_locked'
@@ -138,8 +64,8 @@ function overdueInfo(workflow: RecurringWorkflow, now = new Date()) {
   }
 }
 
-function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: Record<string, unknown>) {
-  const result = run ? _record(run.result) : _record(fallbackResult)
+function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: ScheduleJsonObject) {
+  const result = run ? recordFrom(run.result) : recordFrom(fallbackResult)
   if (!run && !Object.keys(result).length) return ['No run result recorded yet.']
   const lines: string[] = []
   const knownKeys = [
@@ -176,8 +102,8 @@ function summarizeRun(run: RecurringWorkflowRun | null, fallbackResult?: Record<
 }
 
 function HealthStrip({ health, stats }: Readonly<{ health: RecurringWorkflowHealth | null; stats: Record<string, number> }>) {
-  const dispatcher = _record(health?.notification_dispatcher)
-  const registry = _record(health?.recurring_registry)
+  const dispatcher = recordFrom(health?.notification_dispatcher)
+  const registry = recordFrom(health?.recurring_registry)
   return (
     <section className="grid gap-3 md:grid-cols-5" data-testid="schedule-health-overview">
       <MetricTile label="Total Jobs" value={stats.total} detail="registered recurring workflows" tone="info" />
@@ -385,208 +311,84 @@ function ScheduleLane({
   )
 }
 
-function RunInspectorModal({
-  open,
-  workflow,
-  run,
-  runs,
-  loading,
-  error,
-  activeTab,
-  onClose,
-  onSelectRun,
-  onRefresh,
-  onSelectTab,
-  onRunWorkflow,
-}: Readonly<{
-  open: boolean
-  workflow: RecurringWorkflow | null
-  run: InspectorRun | null
-  runs: InspectorRun[]
-  loading: boolean
-  error: string | null
-  activeTab: InspectorTab
-  onClose: () => void
-  onSelectRun: (run: InspectorRun) => void
-  onRefresh: () => void
-  onSelectTab: (tab: InspectorTab) => void
-  onRunWorkflow: (workflow: RecurringWorkflow, dryRun: boolean) => void
-}>) {
-  const summaryLines = summarizeRun(run, workflow?.last_result)
-  const tabClass = (tab: InspectorTab) => [
-    'rounded-xl px-4 py-2 text-sm font-semibold transition',
-    activeTab === tab ? 'bg-cyan-300/15 text-cyan-50' : 'text-[color:var(--ops-text-muted)] hover:bg-white/[0.06] hover:text-[color:var(--ops-text-body)]',
-  ].join(' ')
+function ScheduleTabs({ active, onChange }: Readonly<{ active: ScheduleCenterTab; onChange: (tab: ScheduleCenterTab) => void }>) {
+  const tabs: Array<{ key: ScheduleCenterTab; label: string }> = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'tasks', label: 'Tasks' },
+    { key: 'history', label: 'Run History' },
+    { key: 'templates', label: 'Templates' },
+  ]
   return (
-    <OverlayModal
-      open={open}
-      eyebrow="Run Inspector"
-      title={workflow?.display_name || 'Run Inspector'}
-      description="最近 50 次运行的可读战报。Raw params / result 保留在 Debug details。"
-      actions={workflow ? (
+    <div className="flex flex-wrap gap-2">
+      {tabs.map((tab) => (
         <button
+          key={tab.key}
           type="button"
-          disabled={loading}
-          onClick={onRefresh}
-          className="rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-2 text-sm font-semibold text-[color:var(--ops-text-body)] hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-50"
+          className={[
+            'rounded-2xl border px-4 py-2 text-sm font-semibold transition',
+            active === tab.key
+              ? 'border-cyan-300/35 bg-cyan-300/[0.12] text-cyan-50'
+              : 'border-white/10 text-[color:var(--ops-text-muted)] hover:bg-white/[0.055]',
+          ].join(' ')}
+          onClick={() => onChange(tab.key)}
         >
-          {loading ? 'Refreshing...' : 'Refresh'}
+          {tab.label}
         </button>
-      ) : null}
-      onClose={onClose}
-    >
-      {workflow ? (
-        <div className="space-y-5" data-testid="schedule-run-inspector">
-          <div className="flex flex-wrap gap-2 rounded-2xl border border-white/8 bg-white/[0.03] p-1">
-            <button type="button" className={tabClass('history')} onClick={() => onSelectTab('history')}>Run History</button>
-            <button type="button" className={tabClass('configuration')} onClick={() => onSelectTab('configuration')}>Configuration</button>
-          </div>
-          {loading ? <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] px-4 py-3 text-sm text-cyan-100">Loading run history...</div> : null}
-          {error ? (
-            <div className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-100">
-              <div>{error}</div>
-              <button type="button" className="mt-3 rounded-xl border border-rose-200/30 px-3 py-2 text-xs font-semibold" onClick={onRefresh}>Retry Load History</button>
-            </div>
-          ) : null}
-          {activeTab === 'history' ? (
-            <>
-          <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <StateBadge tone={runTone(run, workflow.health_status)}>{run?.optimistic ? 'running' : run?.status || workflow.health_status}</StateBadge>
-              {run?.dry_run ? <StateBadge tone="validating">DRY RUN</StateBadge> : run ? <StateBadge tone="ready">REAL RUN</StateBadge> : null}
-              <StateBadge tone="muted">{workflow.workflow_key}</StateBadge>
-            </div>
-            {run?.optimistic ? (
-              <div className="mt-4 rounded-2xl border border-cyan-300/20 bg-cyan-300/[0.08] p-4 text-sm leading-6 text-cyan-100">
-                Running... this optimistic entry will be replaced by the recorded run when the request completes.
-              </div>
-            ) : null}
-            {run?.dry_run ? (
-              <div className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.08] p-4 text-sm leading-6 text-amber-100">
-                Sandbox preview only. No auto-start or acceptance dispatch.
-              </div>
-            ) : null}
-            <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-              <div><span className="text-[color:var(--ops-text-caption)]">Started:</span> <LocalTime value={run?.started_at || workflow.last_run_at} /></div>
-              <div><span className="text-[color:var(--ops-text-caption)]">Completed:</span> <LocalTime value={run?.completed_at || null} /></div>
-              <div><span className="text-[color:var(--ops-text-caption)]">Triggered by:</span> {run?.triggered_by || 'last result'}</div>
-              <div><span className="text-[color:var(--ops-text-caption)]">Duration:</span> {run?.duration_ms ?? 0}ms</div>
-            </div>
-            <div className="mt-5 rounded-2xl border border-white/8 bg-white/[0.03] p-4">
-              <div className="machine-label text-[color:var(--ops-text-caption)]">Summary</div>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-[color:var(--ops-text-body)]">
-                {summaryLines.map((line) => <li key={line}>{line}</li>)}
-              </ul>
-            </div>
-            {run?.error_excerpt ? <div className="mt-4 rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] p-4 text-sm text-rose-100">{run.error_excerpt}</div> : null}
-            {run && !run.optimistic ? (
-              <div className="mt-4 flex justify-end">
-                <button
-                  type="button"
-                  className="rounded-xl border border-cyan-300/30 bg-cyan-300/[0.08] px-4 py-2 text-sm font-semibold text-cyan-50 hover:bg-cyan-300/[0.14]"
-                  onClick={() => onRunWorkflow(workflow, Boolean(run.dry_run))}
-                >
-                  Re-run with this context
-                </button>
-              </div>
-            ) : null}
-          </div>
+      ))}
+    </div>
+  )
+}
 
-          <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="machine-label text-[color:var(--ops-text-caption)]">Run History</div>
-              <div className="text-xs text-[color:var(--ops-text-muted)]">Showing latest 50 runs</div>
-            </div>
-            <div className="mt-4 space-y-2">
-              {runs.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={[
-                    'flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left hover:bg-white/[0.06]',
-                    item.id === run?.id ? 'border-cyan-300/35 bg-cyan-300/[0.08]' : item.dry_run ? 'border-amber-300/20 bg-amber-300/[0.05]' : 'border-white/8 bg-white/[0.03]',
-                  ].join(' ')}
-                  onClick={() => onSelectRun(item)}
-                >
-                  <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-[color:var(--ops-text-body)]">
-                    <span>#{item.optimistic ? 'pending' : item.id}</span>
-                    <span>·</span>
-                    {item.optimistic ? <StateBadge tone="running">Running...</StateBadge> : null}
-                    {item.dry_run ? <StateBadge tone="validating">DRY RUN</StateBadge> : <StateBadge tone="ready">REAL RUN</StateBadge>}
-                    <span className="truncate">{item.dry_run ? 'safe preview' : item.triggered_by}</span>
-                  </span>
-                  <span className="shrink-0 text-xs text-[color:var(--ops-text-muted)]"><LocalTime value={item.started_at} /></span>
-                </button>
-              ))}
-              {!runs.length && !loading ? <div className="rounded-2xl border border-dashed border-white/14 px-4 py-6 text-sm text-[color:var(--ops-text-muted)]">No runs recorded yet. Use Dry Run to create a safe history entry.</div> : null}
-            </div>
-          </div>
-
-          <details className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
-            <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">Debug params / result JSON</summary>
-            <div className="mt-4 grid gap-4 xl:grid-cols-2">
-              <JsonBlock value={run?.params || {}} />
-              <JsonBlock value={run?.result || workflow.last_result || {}} />
-            </div>
-          </details>
-            </>
-          ) : (
-            <div className="space-y-5" data-testid="schedule-configuration-panel">
-              <div className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <StateBadge tone={tone(workflow.health_status)}>{workflow.health_status}</StateBadge>
-                  <StateBadge tone="muted">{scheduleLabel(workflow)}</StateBadge>
-                  <StateBadge tone="muted">{workflow.owner_role}</StateBadge>
-                </div>
-                <p className="mt-4 text-sm leading-6 text-[color:var(--ops-text-muted)]">{workflow.description}</p>
-                <div className="mt-5"><IpoFlow workflow={workflow} /></div>
-              </div>
-
-              <div className="rounded-3xl border border-cyan-300/20 bg-cyan-300/[0.06] p-5">
-                <div className="machine-label text-cyan-100">Run Controls</div>
-                <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  <button
-                    type="button"
-                    aria-label="Dry Run"
-                    title="Safe preview. Records history. Does not auto-start requirement or dispatch acceptance."
-                    onClick={() => onRunWorkflow(workflow, true)}
-                    className="rounded-2xl border border-white/12 bg-white/[0.04] p-4 text-left hover:bg-white/[0.08]"
-                  >
-                    <div className="font-semibold text-[color:var(--ops-text-title)]">Dry Run</div>
-                    <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">安全预演：记录历史，不 auto-start requirement，不 dispatch acceptance。</div>
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Run Now"
-                    title="Execute now with safety defaults. Human gates and production/funds/auth constraints still apply."
-                    onClick={() => onRunWorkflow(workflow, false)}
-                    className="rounded-2xl border border-cyan-300/35 bg-cyan-300/[0.12] p-4 text-left hover:bg-cyan-300/[0.18]"
-                  >
-                    <div className="font-semibold text-cyan-50">Run Now</div>
-                    <div className="mt-2 text-sm leading-6 text-cyan-100/80">立即执行：仍使用安全默认值，Human Gate 和高风险约束仍生效。</div>
-                  </button>
-                </div>
-              </div>
-
-              <details className="rounded-3xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-5">
-                <summary className="cursor-pointer text-sm font-semibold text-[color:var(--ops-text-title)]">Read-only configuration JSON</summary>
-                <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                  <JsonBlock value={{ schedule: workflow.schedule, input_query: workflow.input_query, output_action: workflow.output_action }} />
-                  <JsonBlock value={{ escalation_rule: workflow.escalation_rule, validation_signal: workflow.validation_signal, status: workflow.status }} />
-                </div>
-              </details>
-            </div>
-          )}
-        </div>
-      ) : <div className="text-sm text-[color:var(--ops-text-muted)]">选择一个任务查看运行战报。</div>}
-    </OverlayModal>
+function ScheduleFilters({
+  category,
+  status,
+  risk,
+  onCategory,
+  onStatus,
+  onRisk,
+}: Readonly<{
+  category: string
+  status: string
+  risk: string
+  onCategory: (value: string) => void
+  onStatus: (value: string) => void
+  onRisk: (value: string) => void
+}>) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      <select value={category} onChange={(event) => onCategory(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm">
+        <option value="all">All categories</option>
+        <option value="infra_cleanup">Infra Cleanup</option>
+        <option value="release_runner">Release / Runner</option>
+        <option value="system_health">System Health</option>
+        <option value="planning">Planning</option>
+        <option value="growth">Growth</option>
+      </select>
+      <select value={status} onChange={(event) => onStatus(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm">
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="paused">Paused</option>
+        <option value="disabled">Disabled</option>
+      </select>
+      <select value={risk} onChange={(event) => onRisk(event.target.value)} className="rounded-2xl border border-white/10 bg-white/[0.06] px-4 py-2 text-sm">
+        <option value="all">All risk</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
   )
 }
 
 export default function SchedulesPage() {
   const toast = useToast()
   const [items, setItems] = useState<RecurringWorkflow[]>([])
+  const [templates, setTemplates] = useState<ScheduleTemplate[]>([])
   const [health, setHealth] = useState<RecurringWorkflowHealth | null>(null)
+  const [activeTab, setActiveTab] = useState<ScheduleCenterTab>('overview')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [riskFilter, setRiskFilter] = useState('all')
   const [inspectorWorkflow, setInspectorWorkflow] = useState<RecurringWorkflow | null>(null)
   const [inspectorRun, setInspectorRun] = useState<InspectorRun | null>(null)
   const [inspectorRuns, setInspectorRuns] = useState<InspectorRun[]>([])
@@ -598,6 +400,11 @@ export default function SchedulesPage() {
   const [runningKey, setRunningKey] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pendingRunConfirmation, setPendingRunConfirmation] = useState<PendingRunConfirmation>(null)
+  const [createTemplate, setCreateTemplate] = useState<ScheduleTemplate | null>(null)
+  const [createDraft, setCreateDraft] = useState<ScheduleDraft | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
+  const [editDraft, setEditDraft] = useState<ScheduleEditDraft | null>(null)
+  const [editBusy, setEditBusy] = useState(false)
   const inspectorWorkflowKeyRef = useRef<string | null>(null)
 
   async function load() {
@@ -605,11 +412,12 @@ export default function SchedulesPage() {
     setError(null)
     try {
       const [nextItems, nextHealth] = await Promise.all([
-        api.getRecurringWorkflows(),
+        api.getSchedules(),
         api.getRecurringWorkflowHealth(),
       ])
       setItems(nextItems)
       setHealth(nextHealth)
+      api.getScheduleTemplates().then(setTemplates).catch(() => setTemplates([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载定时任务失败')
     } finally {
@@ -618,7 +426,7 @@ export default function SchedulesPage() {
   }
 
   async function loadRuns(workflowKey: string) {
-    return api.getRecurringWorkflowRuns(workflowKey, 50)
+    return api.getScheduleRuns(workflowKey, 50)
   }
 
   useEffect(() => {
@@ -727,7 +535,7 @@ export default function SchedulesPage() {
     setRunningKey(workflow.workflow_key)
     setError(null)
     try {
-      const result = await api.runRecurringWorkflow(workflow.workflow_key, {
+      const result = await api.runSchedule(workflow.workflow_key, {
         dry_run: dryRun,
         auto_start: false,
         auto_dispatch_acceptance: false,
@@ -757,6 +565,93 @@ export default function SchedulesPage() {
     }
   }
 
+  function openCreateFromTemplate(template: ScheduleTemplate) {
+    const suffix = Date.now().toString().slice(-5)
+    setCreateTemplate(template)
+    setCreateDraft({
+      template_key: template.template_key,
+      workflow_key: `custom_${template.template_key}_${suffix}`,
+      display_name: template.display_name,
+      owner_role: 'runtime_reliability_engineer',
+      suggested_local_time: String(recordFrom(template.schedule).suggested_local_time || '12:00'),
+    })
+  }
+
+  async function submitCreateSchedule() {
+    if (!createDraft) return
+    setCreateBusy(true)
+    try {
+      await api.createSchedule({
+        template_key: createDraft.template_key,
+        workflow_key: createDraft.workflow_key,
+        display_name: createDraft.display_name,
+        owner_role: createDraft.owner_role,
+        schedule: { cadence: 'daily', suggested_local_time: createDraft.suggested_local_time },
+      })
+      setCreateDraft(null)
+      setCreateTemplate(null)
+      toast.success('Schedule created.')
+      await load()
+      setActiveTab('tasks')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '创建定时任务失败')
+    } finally {
+      setCreateBusy(false)
+    }
+  }
+
+  function openEditSchedule(workflow: RecurringWorkflow) {
+    const schedule = recordFrom(workflow.schedule)
+    setEditDraft({
+      workflow_key: workflow.workflow_key,
+      display_name: workflow.display_name,
+      owner_role: workflow.owner_role,
+      suggested_local_time: String(schedule.suggested_local_time || '12:00'),
+      status: workflow.status,
+    })
+  }
+
+  async function submitEditSchedule() {
+    if (!editDraft) return
+    setEditBusy(true)
+    try {
+      await api.updateSchedule(editDraft.workflow_key, {
+        display_name: editDraft.display_name,
+        owner_role: editDraft.owner_role,
+        status: editDraft.status,
+        schedule: { cadence: 'daily', suggested_local_time: editDraft.suggested_local_time },
+      })
+      toast.success('Schedule updated.')
+      setEditDraft(null)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '修改定时任务失败')
+    } finally {
+      setEditBusy(false)
+    }
+  }
+
+  async function toggleScheduleStatus(workflow: RecurringWorkflow) {
+    try {
+      const nextStatus = workflow.status === 'active' ? 'disabled' : 'active'
+      await api.updateSchedule(workflow.workflow_key, { status: nextStatus })
+      toast.success(`${workflow.display_name} ${nextStatus}.`)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '更新定时任务失败')
+    }
+  }
+
+  async function deleteCustomSchedule(workflow: RecurringWorkflow) {
+    try {
+      await api.deleteSchedule(workflow.workflow_key)
+      toast.success(`${workflow.display_name} deleted.`)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除定时任务失败')
+    }
+  }
+
   const stats = {
     total: items.length,
     active: items.filter((item) => item.status === 'active').length,
@@ -776,33 +671,77 @@ export default function SchedulesPage() {
     grouped[presentation.lane].push(item)
   }
 
+  const filteredItems = items.filter((item) => {
+    if (categoryFilter !== 'all' && item.category !== categoryFilter) return false
+    if (statusFilter !== 'all' && item.status !== statusFilter) return false
+    if (riskFilter !== 'all' && item.risk_level !== riskFilter) return false
+    return true
+  })
+
   return (
     <div className="space-y-5" data-testid="schedules-page">
       <CockpitPanel
-        eyebrow="Scheduled Jobs Operations Center"
-        title="定时任务"
-        description="这里不是 crontab 列表，而是虚拟部门的自动化运转大屏：看输入、动作、产出、异常和最近战报。"
-        actions={<ActionButton onClick={() => load().catch(() => {})}>刷新</ActionButton>}
+        eyebrow="Schedule Center"
+        title="定时任务控制台"
+        description="这里不是 crontab 列表，而是可查询、可执行、可观测、可模板化维护的后台自动化控制台。"
+        actions={<div className="flex flex-wrap gap-2"><ActionButton onClick={() => setActiveTab('templates')}>新增定时任务</ActionButton><ActionButton onClick={() => load().catch(() => {})}>刷新</ActionButton></div>}
       >
+        <ScheduleTabs active={activeTab} onChange={setActiveTab} />
+        <div className="mt-4">
+          <ScheduleFilters
+            category={categoryFilter}
+            status={statusFilter}
+            risk={riskFilter}
+            onCategory={setCategoryFilter}
+            onStatus={setStatusFilter}
+            onRisk={setRiskFilter}
+          />
+        </div>
         <HealthStrip health={health} stats={stats} />
       </CockpitPanel>
 
       {error ? <div className="rounded-2xl border border-rose-300/25 bg-rose-400/[0.08] px-4 py-3 text-sm text-rose-100">{error}</div> : null}
       {loading ? <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-6 text-center text-sm text-[color:var(--ops-text-muted)]">加载中…</div> : null}
 
-      {laneDefinitions.map((lane) => (
-        <ScheduleLane
-          key={lane.key}
-          title={lane.title}
-          description={lane.description}
-          workflows={grouped[lane.key]}
-          attentionKeys={attentionKeys}
+      {activeTab === 'overview' ? laneDefinitions.map((lane) => (
+          <ScheduleLane
+            key={lane.key}
+            title={lane.title}
+            description={lane.description}
+            workflows={grouped[lane.key].filter((workflow) => filteredItems.some((item) => item.workflow_key === workflow.workflow_key))}
+            attentionKeys={attentionKeys}
+            runningKey={runningKey}
+            latestRuns={latestRuns}
+            onRun={runWorkflow}
+            onInspect={openInspector}
+          />
+        )) : null}
+
+      {activeTab === 'tasks' ? (
+        <ScheduleTaskTable
+          workflows={filteredItems}
           runningKey={runningKey}
-          latestRuns={latestRuns}
-          onRun={runWorkflow}
           onInspect={openInspector}
+          onRun={runWorkflow}
+          onEdit={openEditSchedule}
+          onToggleStatus={(workflow) => toggleScheduleStatus(workflow).catch(() => {})}
+          onDelete={(workflow) => deleteCustomSchedule(workflow).catch(() => {})}
         />
-      ))}
+      ) : null}
+
+      {activeTab === 'history' ? (
+        <ScheduleTaskTable
+          workflows={filteredItems}
+          runningKey={runningKey}
+          onInspect={openInspector}
+          onRun={runWorkflow}
+          onEdit={openEditSchedule}
+          onToggleStatus={(workflow) => toggleScheduleStatus(workflow).catch(() => {})}
+          onDelete={(workflow) => deleteCustomSchedule(workflow).catch(() => {})}
+        />
+      ) : null}
+
+      {activeTab === 'templates' ? <TemplatesPanel templates={templates} onCreate={openCreateFromTemplate} /> : null}
 
       {!loading && !items.length ? <CockpitPanel eyebrow="Empty State" title="暂无 recurring workflow" description="后台自动化 registry 还没有同步出任务定义。"><div /></CockpitPanel> : null}
 
@@ -832,6 +771,24 @@ export default function SchedulesPage() {
           setPendingRunConfirmation(null)
           if (next) executeWorkflow(next.workflow, next.dryRun).catch(() => {})
         }}
+      />
+      <CreateScheduleModal
+        draft={createDraft}
+        template={createTemplate}
+        busy={createBusy}
+        onChange={(patch) => setCreateDraft((current) => current ? { ...current, ...patch } : current)}
+        onClose={() => {
+          setCreateDraft(null)
+          setCreateTemplate(null)
+        }}
+        onSubmit={() => submitCreateSchedule().catch(() => {})}
+      />
+      <EditScheduleModal
+        draft={editDraft}
+        busy={editBusy}
+        onChange={(patch) => setEditDraft((current) => current ? { ...current, ...patch } : current)}
+        onClose={() => setEditDraft(null)}
+        onSubmit={() => submitEditSchedule().catch(() => {})}
       />
     </div>
   )

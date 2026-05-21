@@ -50,4 +50,4 @@ Legacy short update/thread shape:
 ```
 
 Use `single` only for simple short updates. Use `thread` only when the operator explicitly asks for a thread. Long posts must be density-driven, max 4000 chars, and must not pad, repeat, or invent details.
-For long posts, target 2200-3200 chars, set `platform_body` and `post_text` to the same final X text, and rewrite shorter before returning JSON if the draft is over 3900 chars.
+For long posts, do not enforce a minimum length. Set `platform_body` and `post_text` to the same final X text, stop as soon as the useful content is complete, and rewrite shorter before returning JSON if the draft is over 3900 chars.

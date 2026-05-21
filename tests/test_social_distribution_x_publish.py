@@ -423,6 +423,12 @@ def test_x_distribution_long_post_publish_uses_single_x_call(
         .count()
         == 1
     )
+    assert (
+        db_session.query(SocialDistributionEventRow)
+        .filter(SocialDistributionEventRow.event_type == "task_publish_submitted")
+        .count()
+        == 1
+    )
 
 
 def test_x_distribution_long_post_api_failure_records_bounded_failure(

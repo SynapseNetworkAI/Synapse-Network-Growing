@@ -661,6 +661,34 @@ def test_social_ops_center_projection_is_human_gated_and_read_only(
     assert summary.json()["top_posts"]
 
 
+def test_manual_social_post_metrics_capture_x_brand_signal_fields(synced_client):
+    response = synced_client.post(
+        "/api/social/post-metrics/manual",
+        json={
+            "external_post_id": "manual-x-week-1-day-1",
+            "impressions": 300,
+            "profile_visits": 12,
+            "replies": 2,
+            "bookmarks": 4,
+            "follows": 1,
+            "format_kind": "x_long_post",
+            "summary": "Manual Week 1 X metric entry.",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["external_post_id"] == "manual-x-week-1-day-1"
+    assert payload["profile_visits"] == 12
+    assert payload["bookmarks"] == 4
+    assert payload["format_kind"] == "x_long_post"
+    summary = synced_client.get("/api/social/post-metrics/summary")
+    assert summary.status_code == 200
+    assert summary.json()["total_profile_visits"] == 12
+    assert summary.json()["total_bookmarks"] == 4
+    assert summary.json()["top_posts"][0]["bookmarks"] == 4
+
+
 def test_x_social_post_observer_sweep_writes_metrics(monkeypatch, db_session):
     account = social_publishing.ensure_default_social_account(db_session)
     post = SocialPostDraftRow(

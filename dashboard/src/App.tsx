@@ -30,6 +30,7 @@ const primaryNavItems = [
   { to: '/planning', label: 'Planning', meta: 'Opportunities & Goals' },
   { to: '/publishing', label: 'Publishing', meta: 'Social Ops' },
   { to: '/releases', label: 'Releases', meta: 'Delivery' },
+  { to: '/schedules', label: 'Schedule', meta: 'Recurring Ops' },
 ]
 
 const secondaryNavGroups = [
@@ -45,7 +46,6 @@ const secondaryNavGroups = [
   {
     label: 'System Ops',
     items: [
-      { to: '/schedules', label: 'Schedules', meta: 'Recurring jobs' },
       { to: '/system/notifications', label: 'Notifications', meta: 'Lark / queue' },
       { to: '/projects', label: 'Projects', meta: 'Governance' },
       { to: '/errors', label: 'Errors', meta: 'Fingerprints' },

@@ -410,6 +410,8 @@ class SchedulerLockRow(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class CodexSessionRow(Base):
     __tablename__ = "codex_sessions"
     __table_args__ = (
@@ -799,6 +801,10 @@ class SocialPostMetricRow(Base):
     reposts = Column(Integer, nullable=False, default=0)
     follows = Column(Integer, nullable=False, default=0)
     link_clicks = Column(Integer, nullable=False, default=0)
+    profile_visits = Column(Integer, nullable=False, default=0)
+    bookmarks = Column(Integer, nullable=False, default=0)
+    format_kind = Column(Text)
+    posted_at = Column(DateTime)
     summary = Column(Text)
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
@@ -1689,6 +1695,20 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+    if "social_post_metrics" in tables:
+        existing = {c["name"] for c in insp.get_columns("social_post_metrics")}
+        metric_cols = {
+            "profile_visits": "INTEGER DEFAULT 0 NOT NULL",
+            "bookmarks": "INTEGER DEFAULT 0 NOT NULL",
+            "format_kind": "TEXT",
+            "posted_at": "TIMESTAMP",
+        }
+        for col, col_type in metric_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to social_post_metrics table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE social_post_metrics ADD COLUMN {col} {col_type}"))
+                    conn.commit()
     migrate_social_x_read_budget(engine_, tables)
 
     if "social_reply_items" in tables:
@@ -1769,11 +1789,9 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
-
     if "recurring_workflow_runs" not in tables:
         logger.info("Migrating: creating 'recurring_workflow_runs' table")
         RecurringWorkflowRunRow.__table__.create(bind=engine_, checkfirst=True)
-
     if "scheduler_locks" not in tables:
         logger.info("Migrating: creating 'scheduler_locks' table")
         SchedulerLockRow.__table__.create(bind=engine_, checkfirst=True)

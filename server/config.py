@@ -121,6 +121,12 @@ X_SOCIAL_SWEEP_SCHEDULER_ENABLED = os.environ.get(
 ).lower() in {"1", "true", "yes", "on"}
 X_SOCIAL_SWEEP_SCHEDULER_POLL_SECONDS = max(60, int(os.environ.get("OPS_X_SOCIAL_SWEEP_SCHEDULER_POLL_SECONDS", "300")))
 X_SOCIAL_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_X_SOCIAL_SWEEP_STARTUP_DELAY_SECONDS", "45")))
+SECRET_MANAGER_CLEANUP_SWEEP_SCHEDULER_ENABLED = os.environ.get(
+    "OPS_SECRET_MANAGER_CLEANUP_SWEEP_SCHEDULER_ENABLED",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
+).lower() in {"1", "true", "yes", "on"}
+SECRET_MANAGER_CLEANUP_SWEEP_POLL_SECONDS = max(300, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_SWEEP_POLL_SECONDS", "1800")))
+SECRET_MANAGER_CLEANUP_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_SWEEP_STARTUP_DELAY_SECONDS", "60")))
 X_DAILY_PLANNER_GENERATING_TIMEOUT_MINUTES = max(1, int(os.environ.get("OPS_X_DAILY_PLANNER_GENERATING_TIMEOUT_MINUTES", "15")))
 X_DAILY_PLANNER_MAX_CREATED_PER_TICK = max(1, int(os.environ.get("OPS_X_DAILY_PLANNER_MAX_CREATED_PER_TICK", "3")))
 X_READ_DAILY_REQUEST_BUDGET = max(0, int(os.environ.get("OPS_X_READ_DAILY_REQUEST_BUDGET", "20")))
@@ -173,7 +179,25 @@ SOCIAL_IMAGE_TIMEOUT = int(os.environ.get("SOCIAL_IMAGE_TIMEOUT", "90"))
 X_OAUTH_CLIENT_ID_SECRET = os.environ.get("X_OAUTH_CLIENT_ID_SECRET", "x-official-oauth2-client-id").strip() or "x-official-oauth2-client-id"
 X_OAUTH_CLIENT_SECRET_SECRET = os.environ.get("X_OAUTH_CLIENT_SECRET_SECRET", "x-official-oauth2-client-secret").strip() or "x-official-oauth2-client-secret"
 X_OAUTH_REFRESH_TOKEN_SECRET = os.environ.get("X_OAUTH_REFRESH_TOKEN_SECRET", "x-official-oauth2-refresh-token").strip() or "x-official-oauth2-refresh-token"
+X_OAUTH_REFRESH_TOKEN_STORAGE = os.environ.get("X_OAUTH_REFRESH_TOKEN_STORAGE", "auto").strip().lower() or "auto"  # auto | local_db | secret_manager
+X_OAUTH_REFRESH_TOKEN_LOCAL_KEY = os.environ.get("X_OAUTH_REFRESH_TOKEN_LOCAL_KEY", X_OAUTH_REFRESH_TOKEN_SECRET).strip() or X_OAUTH_REFRESH_TOKEN_SECRET
+OPS_LOCAL_SECRET_ENCRYPTION_KEY = os.environ.get("OPS_LOCAL_SECRET_ENCRYPTION_KEY", "").strip()
 X_OAUTH_REDIRECT_URI = os.environ.get("X_OAUTH_REDIRECT_URI", "http://127.0.0.1:9600/api/social/x/oauth/callback").strip() or "http://127.0.0.1:9600/api/social/x/oauth/callback"
+SECRET_MANAGER_CLEANUP_PROJECTS = [
+    item.strip()
+    for item in os.environ.get("OPS_SECRET_MANAGER_CLEANUP_PROJECTS", "fabled-archive-494108-k5,synapse-network-prod").split(",")
+    if item.strip()
+]
+SECRET_MANAGER_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_KEEP_VERSIONS", "3")))
+ARTIFACT_REGISTRY_CLEANUP_PROJECTS = [
+    item.strip()
+    for item in os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_PROJECTS", "fabled-archive-494108-k5,synapse-network-prod").split(",")
+    if item.strip()
+]
+ARTIFACT_REGISTRY_CLEANUP_REGION = os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_REGION", "us-central1").strip() or "us-central1"
+ARTIFACT_REGISTRY_CLEANUP_REPOSITORY = os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_REPOSITORY", "synapse-staging").strip() or "synapse-staging"
+ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS", "10")))
+ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS = max(0, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS", "45")))
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 

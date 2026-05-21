@@ -97,6 +97,20 @@ const presentationMap: Record<string, Presentation> = {
     action: '读取 marker 文件并推进状态机',
     outputs: ['CI evidence', 'PR handoff', 'Needs Human reports'],
   },
+  secret_manager_version_cleanup_sweep: {
+    lane: 'health',
+    label: 'Secret 版本清理',
+    input: 'Staging + production Secret Manager metadata',
+    action: '保留最新 3 个 active versions',
+    outputs: ['Cleanup candidates', 'Destroyed versions', 'Skipped reasons'],
+  },
+  artifact_registry_cleanup_sweep: {
+    lane: 'health',
+    label: '镜像历史清理',
+    input: 'Artifact Registry image metadata',
+    action: '清理旧 digest，保留 promoted / release 镜像',
+    outputs: ['Cleanup candidates', 'Deleted images', 'Kept images'],
+  },
 }
 
 function _record(value: unknown): Record<string, unknown> {

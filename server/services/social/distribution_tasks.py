@@ -16,11 +16,7 @@ from server.services.social.publishing import (
     x_publisher,
     x_oauth_token_provider,
 )
-from server.services.social.distribution_core import (
-    _clean_optional,
-    _record_event,
-    _validate_task_status,
-)
+from server.services.social.distribution_core import _record_event, _validate_task_status
 from server.services.social.distribution_documents import (
     sync_task_document_from_task,
 )
@@ -32,8 +28,12 @@ from server.services.social.distribution_content_strategy import (
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
+from server.services.social.distribution_publish_lint import (
+    BLOCKED,
+    lint_distribution_task,
+    lint_summary,
+)
 from server.services.social.distribution_projection import _task_out
-
 
 def update_distribution_task(
     db: Session, task_id: int, body: dist_schema.SocialDistributionTaskPatchRequest
@@ -77,67 +77,6 @@ def update_distribution_task(
     return _task_out(row)
 
 
-def mark_distribution_task_live(
-    db: Session, task_id: int, body: dist_schema.SocialDistributionMarkLiveRequest
-) -> dist_schema.SocialDistributionTaskOut:
-    row = db.get(SocialDistributionTaskRow, task_id)
-    if row is None:
-        raise ValueError("Distribution task not found.")
-    if not body.published_url.strip():
-        raise ValueError("published_url is required.")
-    row.status = "live"
-    row.published_url = body.published_url.strip()
-    row.manual_result_note = _clean_optional(body.manual_result_note)
-    row.updated_at = utcnow()
-    sync_task_document_from_task(
-        db,
-        task=row,
-        metadata={"published_url": row.published_url},
-    )
-    _record_event(
-        db,
-        row.asset,
-        row,
-        "task_marked_live",
-        body.actor,
-        "Operator marked task live.",
-        {"published_url": row.published_url},
-    )
-    db.commit()
-    db.refresh(row)
-    return _task_out(row)
-
-
-def mark_distribution_task_removed(
-    db: Session, task_id: int, body: dist_schema.SocialDistributionMarkRemovedRequest
-) -> dist_schema.SocialDistributionTaskOut:
-    row = db.get(SocialDistributionTaskRow, task_id)
-    if row is None:
-        raise ValueError("Distribution task not found.")
-    if not body.manual_result_note.strip():
-        raise ValueError("removed reason is required.")
-    row.status = "removed"
-    row.manual_result_note = body.manual_result_note.strip()
-    row.updated_at = utcnow()
-    sync_task_document_from_task(
-        db,
-        task=row,
-        metadata={"removed_reason": row.manual_result_note},
-    )
-    _record_event(
-        db,
-        row.asset,
-        row,
-        "task_removed",
-        body.actor,
-        "Operator marked task removed.",
-        {"reason": row.manual_result_note},
-    )
-    db.commit()
-    db.refresh(row)
-    return _task_out(row)
-
-
 def publish_distribution_task_to_x(
     db: Session, task_id: int, actor: str = "operator"
 ) -> dist_schema.SocialDistributionTaskOut:
@@ -167,6 +106,15 @@ def publish_distribution_task_to_x(
         else "\n\n".join(tweets)
     )
     _validate_x_publish_payload(x_format, tweets, post_text)
+    publish_lint = lint_distribution_task(
+        platform=row.platform,
+        channel_key=row.channel_key,
+        title=row.platform_title,
+        body=post_text,
+        metadata=metadata,
+    )
+    if publish_lint.status == BLOCKED:
+        raise ValueError(f"platform_publish_lint_blocked: {lint_summary(publish_lint)}")
     policy_text = post_text
     policy = run_content_policy_check(policy_text)
     if policy.get("status") == "blocked":
@@ -175,6 +123,15 @@ def publish_distribution_task_to_x(
     social_account = ensure_default_social_account(db)
     row.status = "submitted"
     row.updated_at = utcnow()
+    _record_event(
+        db,
+        row.asset,
+        row,
+        "task_publish_submitted",
+        actor,
+        "Distribution task submitted to X API after Human Gate.",
+        {"platform": row.platform, "channel_key": row.channel_key, "x_format": x_format},
+    )
     db.flush()
     try:
         if x_format == "thread":
@@ -303,6 +260,13 @@ def _mark_x_publish_success(
             **metadata,
             "x_format": x_format,
             "published_tweet_ids": published_ids,
+            "visibility_status": "unverified",
+            "layout_status": "unknown",
+            "last_publish_audit": {
+                "visibility_status": "unverified",
+                "layout_status": "unknown",
+                "source": "x_api_publish",
+            },
         },
         ensure_ascii=False,
         sort_keys=True,

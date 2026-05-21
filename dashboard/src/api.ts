@@ -13,6 +13,9 @@ export type {
 import { createSocialMetricApi } from './apiSocialMetrics'
 export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
+import { createSchedulesApi } from './apiSchedules'
+import type { RecurringWorkflowRunResult } from './apiSchedules'
+export type { RecurringWorkflow, RecurringWorkflowHealth, RecurringWorkflowRun, RecurringWorkflowRunResult, ScheduleTemplate } from './apiSchedules'
 import type { SocialOpsOverview } from './types/socialOps'
 export type { SocialOpsOverview, SocialPostMetricSummary, SocialPostMetricTopPost } from './types/socialOps'
 const BASE = '/api'
@@ -1858,58 +1861,6 @@ export interface CompanyReviewBundleMaterializeResult {
   }>
 }
 
-export interface RecurringWorkflow {
-  id: number
-  workflow_key: string
-  display_name: string
-  description: string
-  status: string
-  trigger_type: string
-  owner_role: string
-  schedule: Record<string, unknown>
-  input_query: Record<string, unknown>
-  output_action: Record<string, unknown>
-  escalation_rule: Record<string, unknown>
-  validation_signal: Record<string, unknown>
-  is_builtin: boolean
-  last_run_at: string | null
-  next_run_at: string | null
-  is_due: boolean
-  health_status: string
-  last_result: Record<string, unknown>
-  created_at: string | null
-  updated_at: string | null
-}
-
-export interface RecurringWorkflowRun {
-  id: number
-  workflow_key: string
-  status: string
-  triggered_by: string
-  dry_run: boolean
-  params: Record<string, unknown>
-  result: Record<string, unknown>
-  error_excerpt: string | null
-  started_at: string | null
-  completed_at: string | null
-  duration_ms: number
-}
-
-export interface RecurringWorkflowRunResult {
-  workflow_key: string
-  status: string
-  run_started_at: string | null
-  run_id: number | null
-  result: Record<string, unknown>
-}
-
-export interface RecurringWorkflowHealth {
-  bug_log_scheduler: Record<string, unknown>
-  goal_planner_scheduler?: Record<string, unknown>
-  notification_dispatcher: Record<string, unknown>
-  recurring_registry: Record<string, unknown>
-}
-
 export interface PlanningManifest {
   id: number
   manifest_key: string
@@ -2107,6 +2058,7 @@ export const api = {
   ...createSocialDistributionApi(request),
   ...createSocialMetricApi(request),
   ...createReleaseScheduledJobsApi(request),
+  ...createSchedulesApi(request),
   // Agents
   getAgents: () => request<Agent[]>('/agents'),
   getAgent: (id: string) => request<Agent>(`/agents/${id}`),
@@ -2119,26 +2071,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
-  getRecurringWorkflows: () => request<RecurringWorkflow[]>('/recurring-workflows'),
-  getRecurringWorkflowHealth: () => request<RecurringWorkflowHealth>('/recurring-workflows/health'),
-  getRecurringWorkflowRuns: (workflowKey: string, limit = 50) =>
-    request<RecurringWorkflowRun[]>(`/recurring-workflows/${workflowKey}/runs?limit=${encodeURIComponent(String(limit))}`),
-  runRecurringWorkflow: (
-    workflowKey: string,
-    data?: {
-      dry_run?: boolean
-      auto_start?: boolean
-      intake_min_score?: number
-      intake_max_created?: number
-      acceptance_limit?: number
-      auto_dispatch_acceptance?: boolean
-    },
-  ) =>
-    request<RecurringWorkflowRunResult>(`/recurring-workflows/${workflowKey}/run`, {
-      method: 'POST',
-      body: JSON.stringify(data || {}),
-    }),
-
   // Planning lifecycle
   getPlanningMissionControl: () => request<PlanningMissionControl>('/planning/mission-control'),
   getPlanningMissionBoard: () => request<MissionBoard>('/planning/mission-board'),

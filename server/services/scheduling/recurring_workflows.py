@@ -41,6 +41,9 @@ from server.services.forum_feedback import run_forum_feedback_sweep
 from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
+from server.services.scheduling.artifact_registry_workflows import ARTIFACT_REGISTRY_CLEANUP_WORKFLOW
+from server.services.scheduling.cleanup_workflows import run_cleanup_workflow
+from server.services.scheduling.secret_manager_workflows import SECRET_MANAGER_VERSION_CLEANUP_WORKFLOW
 from server.services.social.daily_planner import run_x_social_daily_content_planner
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
@@ -53,7 +56,6 @@ from server.services.social.publishing import (
 )
 from server.services.planning.product_opportunities import run_product_planning_sweep
 from server.services.result_objects import ServiceObjectResult, dump_service_result, service_object_result
-
 def _json_loads(raw: str | None, default: Any) -> Any:
     if not raw:
         return default
@@ -61,16 +63,13 @@ def _json_loads(raw: str | None, default: Any) -> Any:
         return json.loads(raw)
     except Exception:
         return default
-
 def _json_object(raw: str | None) -> dict[str, Any]:
     payload = _json_loads(raw, {}); return payload if isinstance(payload, dict) else {}
-
 def _json_dumps(payload: Any) -> str:
     def _default(value: Any) -> Any:
         if isinstance(value, datetime):
             return _ensure_utc(value).isoformat() if _ensure_utc(value) else None
         return str(value)
-
     return json.dumps(dump_service_result(payload), ensure_ascii=False, default=_default)
 def _ensure_utc(value: datetime | None) -> datetime | None:
     if value is None:
@@ -230,6 +229,8 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_sync_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "processed_count"},
     },
+    SECRET_MANAGER_VERSION_CLEANUP_WORKFLOW,
+    ARTIFACT_REGISTRY_CLEANUP_WORKFLOW,
     {"workflow_key": "social_asset_planner_sweep", "display_name": "Social Asset Planner Sweep", "description": "Sample one high-quality signal type and create at most one human-reviewed content asset.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "hourly", "interval_hours": 1}, "input_query": {"sources": ["product_changes", "trend_radar", "published_metrics"], "max_signals": 5}, "output_action": {"kind": "create_social_content_asset", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "created_asset_id"}},
     {
         "workflow_key": "x_social_daily_content_planner",
@@ -292,7 +293,6 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "validation_signal": {"success_metric": "observed_count"},
     },
 ]
-
 _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "social_asset_planner_sweep": {"cadence": "hourly", "target_count": 3, "max_signals_per_prompt": 5, "auto_publish": False, "human_gate_required": True},
     "x_social_daily_content_planner": {"platform": "x", "cadence": "hourly", "idempotency": "top_up_to_three_active_drafts_per_operator_local_day", "target_count": 3, "auto_publish": False, "human_gate_required": True},
@@ -301,8 +301,6 @@ _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "x_social_reply_candidate_sweep": {"platform": "x", "cadence": "every_30_minutes", "source": "social_repost_candidates", "max_created_per_run": 1, "auto_reply": False, "human_gate_required": True},
     "x_social_post_observer_sweep": {"platform": "x", "cadence": "hourly", "read_only": True, "max_records": 20, "auto_publish": False},
 }
-
-
 def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, Any]]:
     rows = list_optimization_signals(db, status="open")
     items: list[dict[str, Any]] = []
@@ -319,7 +317,6 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
             }
         )
     return items
-
 def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
     if workflow_key == "social_asset_planner_sweep":
         return run_social_asset_planner_sweep(db)
@@ -1488,6 +1485,9 @@ def _execute_recurring_workflow(
     acceptance_limit: int,
     auto_dispatch_acceptance: bool,
 ) -> dict[str, Any]:
+    cleanup_result = run_cleanup_workflow(row, workflow_key=workflow_key, dry_run=dry_run)
+    if cleanup_result is not None:
+        return cleanup_result
     if dry_run:
         if workflow_key == "goal_planner_sweep":
             from server.services.planning.lifecycle import run_planner_sweep, sweep_to_dict

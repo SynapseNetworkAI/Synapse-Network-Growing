@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
+import json
 
 from sqlalchemy.orm import Session
 
@@ -82,6 +83,7 @@ def _board_card(
             status_counts, doc_status_counts
         ),
         live_count=status_counts.get("live", 0),
+        visibility_issue_count=_visibility_issue_count(tasks),
         status_counts=dict(status_counts),
         document_status_counts=dict(doc_status_counts),
         next_action=board_next_action(column_key),
@@ -167,3 +169,20 @@ def _has_document_kind(
     document_kind: str,
 ) -> bool:
     return any(doc.document_kind == document_kind for doc in docs)
+
+
+def _visibility_issue_count(tasks: list) -> int:
+    issue_statuses = {"removed_by_filter", "flagged", "not_found", "blocked"}
+    count = 0
+    for task in tasks:
+        try:
+            metadata = json.loads(getattr(task, "metadata_json", None) or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            continue
+        if metadata.get("visibility_status") in issue_statuses:
+            count += 1
+        elif metadata.get("layout_status") == "needs_fix":
+            count += 1
+    return count

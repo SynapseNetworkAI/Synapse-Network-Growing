@@ -16,6 +16,7 @@ from server.schemas_social_metrics import (
     SocialPostMetricQueryOut,
     SocialPostMetricTopPostOut,
 )
+from server.services.social.post_metrics import metric_row_out, metric_top_post_out
 from server.services.social.publishing import DEFAULT_X_HANDLE
 
 
@@ -95,6 +96,7 @@ def _metric_engagement(row: SocialPostMetricRow) -> int:
         + int(row.replies or 0)
         + int(row.reposts or 0)
         + int(row.link_clicks or 0)
+        + int(row.bookmarks or 0)
     )
 
 
@@ -106,10 +108,6 @@ def _post_for_metric(
     return posts_by_id.get(int(row.post_id))
 
 
-def _metric_post_id(row: SocialPostMetricRow) -> int | None:
-    return int(row.post_id) if row.post_id is not None else None
-
-
 def _post_attr(post: SocialPostDraftRow | None, attr: str):
     return getattr(post, attr, None)
 
@@ -119,17 +117,7 @@ def _metric_detail_out(
 ) -> SocialPostMetricDetailOut:
     post = _post_for_metric(row, posts_by_id)
     return SocialPostMetricDetailOut(
-        id=int(row.id),
-        post_id=_metric_post_id(row),
-        external_post_id=row.external_post_id,
-        impressions=int(row.impressions or 0),
-        likes=int(row.likes or 0),
-        replies=int(row.replies or 0),
-        reposts=int(row.reposts or 0),
-        follows=int(row.follows or 0),
-        link_clicks=int(row.link_clicks or 0),
-        summary=row.summary,
-        observed_at=row.observed_at,
+        **metric_row_out(row).model_dump(),
         post_title=_post_attr(post, "title"),
         post_body_excerpt=_body_excerpt(_post_attr(post, "body_text")),
         post_status=_post_attr(post, "status"),
@@ -144,16 +132,8 @@ def _metric_top_post_out(
 ) -> SocialPostMetricTopPostOut:
     post = _post_for_metric(row, posts_by_id)
     return SocialPostMetricTopPostOut(
-        post_id=_metric_post_id(row),
-        external_post_id=row.external_post_id,
+        **metric_top_post_out(row).model_dump(exclude={"title"}),
         title=_post_attr(post, "title"),
-        impressions=int(row.impressions or 0),
-        likes=int(row.likes or 0),
-        replies=int(row.replies or 0),
-        reposts=int(row.reposts or 0),
-        link_clicks=int(row.link_clicks or 0),
-        engagement_total=_metric_engagement(row),
-        observed_at=row.observed_at,
     )
 
 
@@ -276,6 +256,8 @@ def _daily_metric_out(
     replies = _sum_metric(bucket_rows, "replies")
     reposts = _sum_metric(bucket_rows, "reposts")
     clicks = _sum_metric(bucket_rows, "link_clicks")
+    profile_visits = _sum_metric(bucket_rows, "profile_visits")
+    bookmarks = _sum_metric(bucket_rows, "bookmarks")
     unique_posts = _unique_metric_keys(bucket_rows)
     posts_by_id = _posts_by_id(db, bucket_rows)
     return SocialPostMetricDailyOut(
@@ -287,8 +269,12 @@ def _daily_metric_out(
         total_replies=replies,
         total_reposts=reposts,
         total_link_clicks=clicks,
+        total_profile_visits=profile_visits,
+        total_bookmarks=bookmarks,
         average_engagement=round(
-            (likes + replies + reposts + clicks) / max(1, len(unique_posts)), 2
+            (likes + replies + reposts + clicks + bookmarks)
+            / max(1, len(unique_posts)),
+            2,
         ),
         top_post=_top_post_or_none(bucket_rows, posts_by_id),
         last_observed_at=_last_observed_at(bucket_rows),
