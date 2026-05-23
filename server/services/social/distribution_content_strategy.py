@@ -9,7 +9,7 @@ from typing import Any
 from server.services.social.distribution_core import _normalize_platform
 
 X_WEIGHTED_CHAR_LIMIT = 280
-X_LONG_POST_CHAR_LIMIT = 4000
+X_LONG_POST_SOFT_LIMIT = 4000
 
 _URL_RE = re.compile(r"https?://[^\s]+", flags=re.IGNORECASE)
 
@@ -30,7 +30,7 @@ def x_weighted_character_count(text: str) -> int:
 def platform_format_kind(platform: str) -> str:
     normalized = _normalize_platform(platform)
     if normalized == "x":
-        return "single_x_post"
+        return "x_long_post"
     if normalized == "hacker_news":
         return "hn_submission"
     if normalized in {"reddit", "v2ex"}:
@@ -43,7 +43,7 @@ def platform_format_kind(platform: str) -> str:
 def platform_target_length(platform: str) -> str:
     normalized = _normalize_platform(platform)
     if normalized == "x":
-        return "single tweet/thread under 280 weighted chars each or X Premium long post under 4000 chars"
+        return "X Premium long post, density-driven, max 4000 chars"
     if normalized == "hacker_news":
         return "title 40-80 chars plus optional first comment draft"
     if normalized == "reddit":
@@ -71,7 +71,15 @@ def text_length_metadata(platform: str, body: str) -> dict[str, object]:
 def normalize_x_payload(
     payload: dict[str, Any], *, fallback_title: str
 ) -> tuple[str, str, dict[str, object]]:
-    x_format, tweets = _normalize_x_format_and_tweets(payload)
+    x_format, tweets, post_text = _normalize_x_format_and_content(payload)
+    if x_format == "long_post":
+        body = _validated_x_long_post_text(post_text)
+        title = _x_title(payload, fallback_title=fallback_title, x_format=x_format)
+        metadata = _x_long_post_metadata(body)
+        if payload.get("rationale"):
+            metadata["rationale"] = str(payload.get("rationale"))
+        return title, body, metadata
+
     weighted_counts = _validated_x_weighted_counts(tweets)
     body = tweets[0] if x_format == "single" else _thread_body(tweets)
     title = _x_title(payload, fallback_title=fallback_title, x_format=x_format)
@@ -84,6 +92,8 @@ def normalize_x_payload(
 def x_tweets_from_metadata(
     metadata: dict[str, Any], fallback_body: str | None
 ) -> list[str]:
+    if str(metadata.get("x_format") or "").strip().lower() == "long_post":
+        return []
     tweets = metadata.get("tweets")
     if isinstance(tweets, list):
         cleaned = [str(item).strip() for item in tweets if str(item).strip()]
@@ -105,20 +115,43 @@ def x_format_from_metadata(metadata: dict[str, Any], tweets: list[str]) -> str:
     return "single" if len(tweets) <= 1 else "thread"
 
 
-def _normalize_x_format_and_tweets(payload: dict[str, Any]) -> tuple[str, list[str]]:
+def x_long_post_text_from_metadata(
+    metadata: dict[str, Any], fallback_body: str | None
+) -> str:
+    for key in ("long_post_text", "post_text"):
+        value = str(metadata.get(key) or "").strip()
+        if value:
+            return value
+    return str(fallback_body or "").strip()
+
+
+def _normalize_x_format_and_content(
+    payload: dict[str, Any],
+) -> tuple[str, list[str], str]:
     x_format = str(payload.get("x_format") or "").strip().lower()
     tweets = [
         str(item).strip() for item in payload.get("tweets", []) if str(item).strip()
     ]
+    post_text = str(payload.get("post_text") or "").strip()
+    if x_format == "long_post" and not post_text:
+        post_text = str(payload.get("platform_body") or "").strip()
+    if not x_format and post_text:
+        x_format = "long_post"
     if not x_format and tweets:
         x_format = "single" if len(tweets) == 1 else "thread"
-    _validate_x_shape(x_format, tweets)
-    return x_format, tweets
+    _validate_x_shape(x_format, tweets, post_text)
+    return x_format, tweets, post_text
 
 
-def _validate_x_shape(x_format: str, tweets: list[str]) -> None:
-    if x_format not in {"single", "thread"}:
-        raise ValueError("x_draft_invalid: x_format must be single or thread.")
+def _validate_x_shape(x_format: str, tweets: list[str], post_text: str) -> None:
+    if x_format not in {"single", "thread", "long_post"}:
+        raise ValueError(
+            "x_draft_invalid: x_format must be single, thread, or long_post."
+        )
+    if x_format == "long_post":
+        if not post_text:
+            raise ValueError("x_draft_invalid: post_text must not be empty.")
+        return
     if not tweets:
         raise ValueError("x_draft_invalid: tweets must not be empty.")
     if x_format == "single" and len(tweets) != 1:
@@ -144,7 +177,9 @@ def _validated_x_weighted_counts(tweets: list[str]) -> list[int]:
 
 def _x_title(payload: dict[str, Any], *, fallback_title: str, x_format: str) -> str:
     return str(payload.get("platform_title") or "").strip() or (
-        fallback_title if x_format == "single" else f"X thread: {fallback_title}"
+        fallback_title
+        if x_format in {"single", "long_post"}
+        else f"X thread: {fallback_title}"
     )
 
 
@@ -159,6 +194,30 @@ def _x_metadata(
         "x_format": x_format,
         "tweets": tweets,
         "counting_mode": "conservative",
+    }
+
+
+def _validated_x_long_post_text(post_text: str) -> str:
+    body = str(post_text or "").strip()
+    if not body:
+        raise ValueError("x_draft_invalid: post_text must not be empty.")
+    if len(body) > X_LONG_POST_SOFT_LIMIT:
+        raise ValueError(
+            f"x_draft_invalid: long post exceeds {X_LONG_POST_SOFT_LIMIT} chars."
+        )
+    return body
+
+
+def _x_long_post_metadata(body: str) -> dict[str, object]:
+    return {
+        "format_kind": "x_long_post",
+        "target_length": platform_target_length("x"),
+        "character_count": len(body),
+        "soft_max_chars": X_LONG_POST_SOFT_LIMIT,
+        "x_format": "long_post",
+        "long_post_text": body,
+        "premium_required": True,
+        "counting_mode": "plain_character_count",
     }
 
 

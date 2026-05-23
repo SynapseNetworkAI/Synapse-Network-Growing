@@ -10,14 +10,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server import config
 from server.database import DeploymentRecordRow, utcnow
 from server.services.releases.scheduled_job_catalog import (
     SCHEDULED_JOB_ACTIVE_STATUSES,
     SCHEDULED_JOB_FAMILIES,
     SCHEDULED_JOBS_REPO,
-    SCHEDULED_JOBS_TRIGGER_SOURCE,
-    SCHEDULED_JOBS_WORKFLOW_FILE,
     scheduled_job_catalog,
 )
 from server.services.releases.scheduled_job_schemas import (
@@ -27,14 +24,10 @@ from server.services.releases.scheduled_job_schemas import (
     ScheduledCloudRunJobsPublishRequest,
     ScheduledCloudRunJobsStatusOut,
 )
-from server.services.delivery.deployment_governance import (
-    _callback_url,
-    _dispatch_github_workflow,
-    _json_dump,
-)
-from server.services.releases.scheduled_job_workflow import (
-    ensure_scheduled_job_workflow_accepts_inputs,
-)
+from server.services.delivery.deployment_governance import _json_dump
+
+SCHEDULED_JOBS_TRIGGER_SOURCE = "local_deploy_runner"
+SCHEDULED_JOBS_WORKFLOW_FILE = "local_scheduled_job_runner"
 
 
 @dataclass(frozen=True)
@@ -258,7 +251,7 @@ def _latest_record_for_job(
 
 def scheduled_jobs_status(db: Session) -> ScheduledCloudRunJobsStatusOut:
     diagnostics = [
-        "gcp_status_unavailable: Ops Console reads deployment manifests only; Google writes run through GitHub Actions WIF."
+        "gcp_status_unavailable: Ops Console reads deployment manifests only; Google writes run through the local scheduled-job runner."
     ]
     items = [_status_item_for_job(db, job) for job in scheduled_job_catalog()]
     return ScheduledCloudRunJobsStatusOut(
@@ -317,7 +310,7 @@ def _record_diagnostic(status: str) -> str | None:
     return (
         None
         if status in {"succeeded", "failed"}
-        else "GitHub Actions publish is still pending or running."
+        else "Local scheduled-job runner is pending or running."
     )
 
 
@@ -337,26 +330,6 @@ def publish_scheduled_jobs(
         actor=actor,
         source_ref=source_ref,
     )
-    inputs = _workflow_inputs(
-        record,
-        body,
-        family=target.family,
-        environment=target.environment,
-        actor=actor,
-        source_ref=source_ref,
-    )
-    try:
-        _ensure_remote_workflow_accepts_inputs(inputs)
-        record.external_url = _dispatch_github_workflow(
-            repo_full_name=SCHEDULED_JOBS_REPO,
-            workflow_file=SCHEDULED_JOBS_WORKFLOW_FILE,
-            ref="main",
-            inputs=inputs,
-        )
-        db.commit()
-    except Exception as exc:  # noqa: BLE001
-        _mark_dispatch_failed(db, record, exc)
-        raise
     return ScheduledCloudRunJobsPublishOut(
         deployment_record_id=int(record.id),
         family=target.family,
@@ -367,9 +340,9 @@ def publish_scheduled_jobs(
         external_url=_clean(record.external_url) or None,
         jobs=[job.job_name for job in target.jobs],
         message=(
-            f"Scheduled job publish dispatched for {target.jobs[0].job_name}."
+            f"Scheduled job publish queued for local runner: {target.jobs[0].job_name}."
             if target.publish_mode == "single_job"
-            else f"Scheduled job publish dispatched for {target.family}."
+            else f"Scheduled job publish queued for local runner: {target.family}."
         ),
     )
 
@@ -399,7 +372,7 @@ def _create_publish_record(
         metadata_json=_json_dump(
             {
                 "deploy_repo_full_name": SCHEDULED_JOBS_REPO,
-                "deploy_strategy": "github_actions_wif_cloudrun_jobs",
+                "deploy_strategy": "local_runner_cloudrun_jobs",
                 "publishMode": publish_mode,
                 "jobFamily": family,
                 "jobName": jobs[0].job_name if publish_mode == "single_job" else None,
@@ -409,6 +382,13 @@ def _create_publish_record(
                 "environment": environment,
                 "runSmokeJobs": bool(body.run_smoke_jobs),
                 "runMigrations": bool(body.run_migrations),
+                "localDeployRunner": True,
+                "localDeployRunnerVersion": "v1.1",
+                "localRunnerCommand": _local_scheduled_job_command(
+                    family=family,
+                    jobs=[job.job_name for job in jobs],
+                    run_smoke_jobs=bool(body.run_smoke_jobs),
+                ),
             }
         ),
         started_at=utcnow(),
@@ -419,38 +399,24 @@ def _create_publish_record(
     return record
 
 
-def _workflow_inputs(
-    record: DeploymentRecordRow,
-    body: ScheduledCloudRunJobsPublishRequest,
-    *,
-    family: str,
-    environment: str,
-    actor: str,
-    source_ref: str,
-) -> dict[str, str]:
-    inputs = {
-        "record_id": str(int(record.id)),
-        "job_family": family,
-        "source_ref_type": "branch",
-        "source_ref": source_ref,
-        "actor": actor,
-        "trigger_source": SCHEDULED_JOBS_TRIGGER_SOURCE,
-        "run_smoke_jobs": "true" if body.run_smoke_jobs else "false",
-        "run_migrations": "true" if body.run_migrations else "false",
-    }
-    job_name = _clean(body.job_name)
-    if job_name:
-        inputs["job_name"] = job_name
-    callback_url = _callback_url(int(record.id))
-    if callback_url:
-        inputs["callback_url"] = callback_url
-    if config.DEPLOY_WEBHOOK_TOKEN:
-        inputs["callback_token"] = config.DEPLOY_WEBHOOK_TOKEN
-    return inputs
+def _local_scheduled_job_command(
+    *, family: str, jobs: list[str], run_smoke_jobs: bool
+) -> list[str]:
+    command = [
+        "bash",
+        "scripts/local/deploy_synapse_scheduled_job.sh",
+        "--family",
+        family,
+        "--jobs",
+        ",".join(jobs),
+    ]
+    if run_smoke_jobs:
+        command.append("--run-smoke-jobs")
+    return command
 
 
 def _ensure_remote_workflow_accepts_inputs(inputs: dict[str, str]) -> None:
-    ensure_scheduled_job_workflow_accepts_inputs(inputs)
+    raise ValueError("github_workflows_removed: scheduled jobs use local runner.")
 
 
 def _mark_dispatch_failed(

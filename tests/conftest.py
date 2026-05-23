@@ -1,13 +1,63 @@
 """Shared test fixtures for the Ops Dashboard API tests."""
+
 import json
 import os
 from pathlib import Path
+import re
+import threading
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
+
+
+DEFAULT_TEST_DATABASE_URL = (
+    "postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/"
+    "synapse_growing_test"
+)
+TEST_DATABASE_URL = (
+    os.environ.get("OPS_TEST_POSTGRES_URL", "").strip()
+    or os.environ.get("OPS_TEST_DATABASE_URL", "").strip()
+    or DEFAULT_TEST_DATABASE_URL
+)
+# Tests own the database schema and reset it aggressively. Never inherit the
+# runtime OPS_DATABASE_URL here, or a local test run can lock/drop the dev DB.
+os.environ["OPS_DATABASE_URL"] = TEST_DATABASE_URL
+os.environ.setdefault("OPS_RELEASE_DEPLOY_BACKEND", "local")
+
+
+def _ensure_postgres_database(database_url: str) -> None:
+    url = make_url(database_url)
+    if url.get_backend_name() != "postgresql":
+        raise RuntimeError(
+            "Tests require a PostgreSQL OPS_DATABASE_URL/OPS_TEST_POSTGRES_URL"
+        )
+    database_name = url.database or ""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", database_name):
+        raise RuntimeError(f"Unsafe PostgreSQL test database name: {database_name!r}")
+    if not (database_name.endswith("_test") or database_name.startswith("test_")):
+        raise RuntimeError(
+            f"Refusing to run tests against non-test PostgreSQL database: {database_name!r}"
+        )
+    admin_url = url.set(database="postgres")
+    admin_engine = create_engine(
+        admin_url, isolation_level="AUTOCOMMIT", pool_pre_ping=True
+    )
+    try:
+        with admin_engine.connect() as conn:
+            try:
+                conn.execute(text(f"CREATE DATABASE {database_name}"))
+            except ProgrammingError as exc:
+                if "already exists" not in str(exc).lower():
+                    raise
+    finally:
+        admin_engine.dispose()
+
+
+_ensure_postgres_database(TEST_DATABASE_URL)
 
 from server.database import Base, get_db
 from server.main import app
@@ -15,22 +65,13 @@ from server.config import PROJECT_ROOT
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.runtime.copilot_sdk_state import task_output_dir
 
-# In-memory SQLite for tests — StaticPool ensures all connections share one DB
 TEST_ENGINE = create_engine(
-    "sqlite:///:memory:",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
+    TEST_DATABASE_URL,
+    pool_pre_ping=True,
 )
 
-
-@event.listens_for(TEST_ENGINE, "connect")
-def _enable_fk(dbapi_conn, _):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
-
-
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=TEST_ENGINE)
+_SCHEMA_RESET_LOCK = threading.Lock()
 
 
 @pytest.fixture(autouse=True)
@@ -51,7 +92,9 @@ def _fake_vcs_delivery(db, requirement, workflow_run, step):
         "blockers": [],
         "repositories": [
             {
-                "repo_path": str(getattr(requirement, "target_project_path", "") or "test-repo"),
+                "repo_path": str(
+                    getattr(requirement, "target_project_path", "") or "test-repo"
+                ),
                 "status": "delivered",
                 "branch_name": branch_name,
                 "commit_sha": "deadbeef0001",
@@ -67,8 +110,13 @@ def _fake_vcs_delivery(db, requirement, workflow_run, step):
     return payload, None
 
 
-def _fake_review_pr_sync(db, requirement, workflow_run, step, delivery_contract=None, vcs_payload=None):
-    branch_name = str((vcs_payload or {}).get("branch_name") or f"ops/req-{getattr(requirement, 'id', 'x')}-test")
+def _fake_review_pr_sync(
+    db, requirement, workflow_run, step, delivery_contract=None, vcs_payload=None
+):
+    branch_name = str(
+        (vcs_payload or {}).get("branch_name")
+        or f"ops/req-{getattr(requirement, 'id', 'x')}-test"
+    )
     base_branch = str((vcs_payload or {}).get("base_branch") or "main")
     return {
         "status": "draft",
@@ -95,7 +143,9 @@ def _fake_capture_task_file_change_baseline(db, task, requirement=None, step=Non
         output_path = Path(raw_output_path).expanduser()
         output_dir = output_path.parent
     else:
-        output_dir = task_output_dir(PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id))
+        output_dir = task_output_dir(
+            PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id)
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "file-changes-baseline.json").write_text(
         json.dumps(
@@ -119,13 +169,18 @@ def _fake_snapshot_file_changes(db, task, requirement, step=None):
         output_path = Path(raw_output_path).expanduser()
         output_dir = output_path.parent
     else:
-        output_dir = task_output_dir(PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id))
+        output_dir = task_output_dir(
+            PROJECT_ROOT, str(getattr(task, "agent_id", "test")), int(task.id)
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "file-changes.json").write_text(
         json.dumps(
             {
                 "changed_files": [],
-                "target_project_path": str(getattr(requirement, "target_project_path", "") or "") or None,
+                "target_project_path": str(
+                    getattr(requirement, "target_project_path", "") or ""
+                )
+                or None,
                 "changed_target_project_paths": [],
                 "project_snapshots": [],
                 "all_target_project_paths": [],
@@ -143,14 +198,18 @@ def _fake_snapshot_file_changes(db, task, requirement, step=None):
     )
 
 
-def _fake_generate_plan_brief_markdown_with_agent(db, requirement, *, acceptance_contract):
+def _fake_generate_plan_brief_markdown_with_agent(
+    db, requirement, *, acceptance_contract
+):
     return (
         "\n\n".join(
             [
                 str(getattr(requirement, "title", "") or "").strip(),
                 str(getattr(requirement, "description_markdown", "") or "").strip(),
                 "Target project:",
-                str(getattr(requirement, "target_project_path", "") or "test-repo").strip(),
+                str(
+                    getattr(requirement, "target_project_path", "") or "test-repo"
+                ).strip(),
                 "Test raw Codex plan output.",
             ]
         ).strip(),
@@ -172,37 +231,54 @@ def _override_get_db():
         db.close()
 
 
+def _reset_postgres_schema() -> None:
+    TEST_ENGINE.dispose()
+    reset_engine = create_engine(
+        TEST_DATABASE_URL, isolation_level="AUTOCOMMIT", pool_pre_ping=True
+    )
+    try:
+        with reset_engine.connect() as conn:
+            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+    finally:
+        reset_engine.dispose()
+
+
+def _rebuild_postgres_schema() -> None:
+    with _SCHEMA_RESET_LOCK:
+        _reset_postgres_schema()
+        Base.metadata.create_all(bind=TEST_ENGINE)
+
+
+def _drop_postgres_schema() -> None:
+    with _SCHEMA_RESET_LOCK:
+        _reset_postgres_schema()
+
+
 @pytest.fixture(autouse=True)
 def setup_db():
     """Create all tables before each test, drop after."""
     app.dependency_overrides[get_db] = _override_get_db
-    Base.metadata.create_all(bind=TEST_ENGINE)
-    with patch(
-        "server.services.requirements.service._generate_plan_brief_markdown_with_agent",
-        _fake_generate_plan_brief_markdown_with_agent,
-    ), patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False), patch(
-        "server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False
-    ), patch(
-        "server.main.config.CODEX_CLI_MONITOR_ENABLED", False
-    ), patch(
-        "server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False
-    ), patch(
-        "server.main.config.CI_STATUS_SWEEP_SCHEDULER_ENABLED", False
-    ), patch(
-        "server.services.workflows.declarative._launch_final_regression_runner",
-        lambda runner_command, env: _FakePopen(runner_command, env=env),
-    ), patch(
-        "server.config.LARK_DELIVERY_DRY_RUN", True
-    ), patch(
-        "server.services.social.publishing.SessionLocal", TestSession
+    _rebuild_postgres_schema()
+    with (
+        patch(
+            "server.services.requirements.service._generate_plan_brief_markdown_with_agent",
+            _fake_generate_plan_brief_markdown_with_agent,
+        ),
+        patch("server.main.config.COPILOT_SDK_MONITOR_ENABLED", False),
+        patch("server.main.config.OPENAI_RESPONSES_MONITOR_ENABLED", False),
+        patch("server.main.config.CODEX_CLI_MONITOR_ENABLED", False),
+        patch("server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False),
+        patch("server.main.config.CI_STATUS_SWEEP_SCHEDULER_ENABLED", False),
+        patch(
+            "server.services.workflows.declarative._launch_final_regression_runner",
+            lambda runner_command, env: _FakePopen(runner_command, env=env),
+        ),
+        patch("server.config.LARK_DELIVERY_DRY_RUN", True),
+        patch("server.services.social.publishing.SessionLocal", TestSession),
     ):
         yield
-    with TEST_ENGINE.begin() as conn:
-        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
-        inspector = inspect(conn)
-        for table_name in inspector.get_table_names():
-            conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{table_name}"')
-        conn.exec_driver_sql("PRAGMA foreign_keys=ON")
+    _drop_postgres_schema()
     app.dependency_overrides.clear()
 
 

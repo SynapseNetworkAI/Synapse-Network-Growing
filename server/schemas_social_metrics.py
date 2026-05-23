@@ -17,6 +17,8 @@ class SocialPostMetricTopPostOut(BaseModel):
     replies: int = 0
     reposts: int = 0
     link_clicks: int = 0
+    profile_visits: int = 0
+    bookmarks: int = 0
     engagement_total: int = 0
     observed_at: Optional[datetime] = None
 
@@ -31,6 +33,10 @@ class SocialPostMetricOut(BaseModel):
     reposts: int = 0
     follows: int = 0
     link_clicks: int = 0
+    profile_visits: int = 0
+    bookmarks: int = 0
+    format_kind: Optional[str] = None
+    posted_at: Optional[datetime] = None
     summary: Optional[str] = None
     observed_at: Optional[datetime] = None
 
@@ -60,6 +66,8 @@ class SocialPostMetricDailyOut(BaseModel):
     total_replies: int = 0
     total_reposts: int = 0
     total_link_clicks: int = 0
+    total_profile_visits: int = 0
+    total_bookmarks: int = 0
     average_engagement: float = 0.0
     top_post: Optional[SocialPostMetricTopPostOut] = None
     last_observed_at: Optional[datetime] = None
@@ -82,7 +90,25 @@ class SocialPostMetricSummaryOut(BaseModel):
     total_replies: int = 0
     total_reposts: int = 0
     total_link_clicks: int = 0
+    total_profile_visits: int = 0
+    total_bookmarks: int = 0
     average_engagement: float = 0.0
     top_posts: list[SocialPostMetricTopPostOut] = Field(default_factory=list)
     last_observed_at: Optional[datetime] = None
     diagnostic: Optional[str] = None
+
+
+class SocialPostMetricManualCreateRequest(BaseModel):
+    external_post_id: Optional[str] = None
+    impressions: int = 0
+    likes: int = 0
+    replies: int = 0
+    reposts: int = 0
+    follows: int = 0
+    link_clicks: int = 0
+    profile_visits: int = 0
+    bookmarks: int = 0
+    format_kind: Optional[str] = None
+    posted_at: Optional[datetime] = None
+    summary: Optional[str] = None
+    observed_at: Optional[datetime] = None

@@ -305,11 +305,13 @@ intake -> execute -> validate -> deliver
 
 当前边界：
 
-1. `/schedules` 展示内置 recurring workflow registry、运行历史、健康状态和手动 dry run / run now。
+1. `/schedules` 是顶部主导航 `Schedule`，展示内置 recurring workflow registry、运行历史、健康状态、模板、手动 dry run / run now。
 2. Bug Log Sweep Scheduler 是真实自动定时运行的稳定性入口，负责日志扫描和 bug intake。
 3. Notification Dispatcher 是真实后台 loop，负责通知队列消费、dedupe、cooldown、suppression、retry 和 dead letter。
-4. 其他 recurring workflows 先作为可手动运行的一等任务定义，不由通用 scheduler 自动运行。
-5. 高风险 recurring workflow 的 `Run Now` 默认不 auto-start requirement，也不能绕过 human gate。
+4. `secret_manager_version_cleanup_sweep` 和 `artifact_registry_cleanup_sweep` 是内置基础设施清理任务，只读取 metadata，dry-run 先出候选，destructive apply 需要 operator 明确确认。
+5. 自定义 schedule 只能从 allowlisted template 创建、修改和删除；不允许任意 shell cron、任意 prompt runner 或没有 handler 的后台任务。
+6. 其他 recurring workflows 先作为可手动运行的一等任务定义，不由通用 scheduler 自动运行。
+7. 高风险 recurring workflow 的 `Run Now` 默认不 auto-start requirement，也不能绕过 human gate。
 
 这让 operator 能看到“谁在后台推动系统、上次跑了什么、失败在哪里、是否卡住”，避免后台任务变成新的黑盒。
 
@@ -588,7 +590,7 @@ Python 服务的日志层现在采用统一约束，而不是各自随意输出�
 6. deliver 只能发生在 validate 成功之后
 7. release candidate 只接受 validate 成功的 requirement
 8. requirement、alert、approval、release 四类 Lark 通知必须统一走结构化交互卡片；alert 只放 P0/P1，approval 只放 human gate，普通 workflow 细节留在 Ops Console。
-9. 后台 scheduler、dispatcher 和 recurring workflow 必须通过 `/schedules` 暴露健康、运行历史、手动 dry run 和失败信息，不能只藏在 daemon 日志里。
+9. 后台 scheduler、dispatcher 和 recurring workflow 必须通过 `/schedules` 暴露健康、运行历史、手动 dry run、模板来源和失败信息，不能只藏在 daemon 日志里；新增/修改/删除只能走 allowlisted schedule template。
 
 ## 7. Current Status
 

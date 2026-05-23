@@ -2,7 +2,7 @@ import { useEffect, useState, type MouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SdkPackageRelease, SdkPackageReleaseEvent, SdkPackageReleaseHistoryItem, SdkPackageReleaseHistoryPage, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
-import { SDK_CHANNEL_OPTIONS, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
+import { SDK_CHANNEL_OPTIONS, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkInstallCommand, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
 
 const HISTORY_PAGE_SIZE = 10
 const HISTORY_STATUS_OPTIONS = ['', 'planned', 'building', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
@@ -27,6 +27,7 @@ export default function SdkPackageReleaseDetailPage() {
   const [historyChannelDraft, setHistoryChannelDraft] = useState('')
   const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', channel: '' })
   const [historyOffset, setHistoryOffset] = useState(0)
+  const [confirmPhrase, setConfirmPhrase] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -79,7 +80,7 @@ export default function SdkPackageReleaseDetailPage() {
     }
     setBusyAction(action)
     try {
-      const payload = { actor: 'operator', package_version: packageVersion, channel, note: note || null }
+      const payload = { actor: 'operator', package_version: packageVersion, channel, note: note || null, confirm_phrase: confirmPhrase || null }
       if (action === 'dry-run') await sdkPackagesApi.dryRunSdkPackageRelease(item.id, payload)
       if (action === 'publish') await sdkPackagesApi.publishSdkPackageRelease(item.id, payload)
       if (action === 'retry') await sdkPackagesApi.retrySdkPackageRelease(item.id, payload)
@@ -117,13 +118,15 @@ export default function SdkPackageReleaseDetailPage() {
   const historyPage = Math.floor((history?.offset ?? 0) / HISTORY_PAGE_SIZE) + 1
   const canPrevHistory = (history?.offset ?? 0) > 0
   const canNextHistory = (history?.offset ?? 0) + HISTORY_PAGE_SIZE < historyTotal
+  const expectedConfirmPhrase = `PUBLISH_SDK_${item.package_version}`
+  const installCommand = sdkInstallCommand(item.sdk_language, item.package_name, item.package_version)
 
   return (
     <div className="space-y-[var(--ops-section-gap)]">
       <SectionFrame
         eyebrow="SDK Package Release"
         title={`${item.sdk_language} · ${item.package_name}`}
-        description="单个 SDK package 的 dry-run、publish、retry 和 patch version 都在这里操作；Growing 只调度 GitHub Actions，不保存 registry token。"
+        description="单个 SDK package 的 dry-run、publish、retry 和 patch version 都在这里操作；Growing 创建本地 publish run，不保存 registry token。"
         actions={
           <>
             <button type="button" className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => navigate(`/releases/sdk-trains/${encodeURIComponent(item.release_train_version)}`)}>
@@ -183,6 +186,18 @@ export default function SdkPackageReleaseDetailPage() {
             placeholder="记录本次 dry-run / publish / retry 备注"
             onChange={(event) => setNote(event.target.value)}
           />
+          {item.status === 'ready_to_publish' ? (
+            <label className="mt-4 block">
+              <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Human Gate Confirm Phrase</span>
+              <input
+                className="mt-2 w-full rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-transparent px-4 py-3 font-mono text-sm"
+                value={confirmPhrase}
+                placeholder={expectedConfirmPhrase}
+                onChange={(event) => setConfirmPhrase(event.target.value)}
+              />
+              <span className="mt-2 block text-xs text-[color:var(--ops-text-muted)]">公共 SDK registry 版本不可覆盖；发布前请输入确认短语。</span>
+            </label>
+          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             {!terminal ? (
               <button type="button" className="rounded-2xl border border-[color:var(--ops-state-ready-border)] px-4 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-60" disabled={Boolean(busyAction)} onClick={() => runAction('dry-run')}>
@@ -190,7 +205,7 @@ export default function SdkPackageReleaseDetailPage() {
               </button>
             ) : null}
             {item.status === 'ready_to_publish' ? (
-              <button type="button" className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" disabled={Boolean(busyAction)} onClick={() => runAction('publish')}>
+              <button type="button" className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60" disabled={Boolean(busyAction) || confirmPhrase !== expectedConfirmPhrase} onClick={() => runAction('publish')}>
                 {busyAction === 'publish' ? '发布中…' : 'Publish'}
               </button>
             ) : null}
@@ -206,11 +221,14 @@ export default function SdkPackageReleaseDetailPage() {
           {item.failure_summary ? <div className="mt-4 rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]">{item.failure_summary}</div> : null}
         </SectionFrame>
 
-        <SectionFrame eyebrow="Links" title="发布链路">
+        <SectionFrame eyebrow="Links" title="本地发布链路">
           <div className="space-y-3 text-sm text-[color:var(--ops-text-muted)]">
-            <div>Workflow：{item.workflow_run_url ? <button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(item.workflow_run_url)}>打开 GitHub Actions</button> : '-'}</div>
+            <div>Local run：<span className="font-mono">{item.workflow_run_url || '-'}</span></div>
             <div>Package：{item.package_url ? <button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(item.package_url)}>打开 Registry 页面</button> : '-'}</div>
-            <div>Registry secrets：只存在 GitHub Actions secrets，不进入 Growing DB。</div>
+            <div>Install：<span className="font-mono">{installCommand}</span></div>
+            <div>Platform：<span className="font-mono">{String(item.metadata.platform_key || item.registry)}</span></div>
+            <div>Verify：<span className="font-mono">{String((item.metadata.verify_result as { status?: string } | undefined)?.status || '-')}</span></div>
+            <div>Registry secrets：只存在本地 runner 环境 / Secret Manager，不进入 Growing DB。</div>
             <div>重复发布：registry 已发布同版本不可覆盖，必须 bump patch version。</div>
           </div>
         </SectionFrame>

@@ -1557,6 +1557,7 @@ def test_social_oauth_router_errors_are_bounded(monkeypatch, synced_client):
 def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
     monkeypatch, synced_client
 ):
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "secret_manager")
     social_publishing.x_oauth_token_provider._cache.clear()
     stored_versions: list[tuple[str, str]] = []
 
@@ -1685,6 +1686,7 @@ def test_x_oauth_callback_marks_session_failed_on_exchange_error(
 def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
     monkeypatch, synced_client
 ):
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "secret_manager")
     social_publishing.x_oauth_token_provider._cache.clear()
     stored_versions: list[tuple[str, str]] = []
     seen_authorizations: list[str] = []
@@ -2355,6 +2357,53 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
         social_publishing.SocialPublishError, match="token endpoint returned"
     ):
         provider.get_access_token()
+
+
+def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(monkeypatch, db_session):
+    from server.services.local_secrets import read_latest_local_secret, write_local_secret_version
+
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "local_db")
+    monkeypatch.setattr(social_publishing.config, "OPS_LOCAL_SECRET_ENCRYPTION_KEY", "test-local-secret-key")
+    write_local_secret_version(
+        db_session,
+        social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY,
+        "refresh-old",
+        keep_active=3,
+    )
+    db_session.commit()
+
+    def fake_read(secret_ref):
+        values = {
+            social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id-123",
+            social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret-456",
+        }
+        if secret_ref in values:
+            return values[secret_ref]
+        raise AssertionError(f"unexpected Secret Manager read: {secret_ref}")
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _limit):
+            return b'{"access_token":"access-fresh","refresh_token":"refresh-new","expires_in":7200}'
+
+    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "add_version",
+        lambda secret_ref, value: (_ for _ in ()).throw(AssertionError("Secret Manager add_version must not be called")),
+    )
+    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+
+    token = social_publishing.x_oauth_token_provider.get_access_token()
+
+    assert token.access_token == "access-fresh"
+    assert token.refresh_token_rotated is True
+    assert read_latest_local_secret(db_session, social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY) == "refresh-new"
 
 
 def test_x_media_upload_http_error_paths(monkeypatch):

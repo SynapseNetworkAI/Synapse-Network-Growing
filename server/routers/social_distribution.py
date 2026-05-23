@@ -14,12 +14,15 @@ from server.schemas_social_distribution import (
     SocialContentAssetPatchRequest,
     SocialContentTaskCreateRequest,
     SocialDistributionBoardOut,
+    SocialDistributionAccountAuthStatusListOut,
     SocialDistributionAccountOut,
     SocialDistributionAccountPatchRequest,
     SocialDistributionApproveCanonicalArticleRequest,
+    SocialDistributionCampaignTemplateOut,
     SocialDistributionGenerateContentPlanRequest,
     SocialDistributionExpandCanonicalArticleRequest,
     SocialDistributionApproveGenerateRequest,
+    SocialDistributionAuditPublishedPageRequest,
     SocialDistributionGenerateTasksOut,
     SocialDistributionGenerateTasksRequest,
     SocialDistributionMarkLiveRequest,
@@ -43,6 +46,12 @@ from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
 )
 from server.services.social.distribution_board import social_distribution_board
+from server.services.social.distribution_account_auth import (
+    distribution_account_auth_statuses,
+)
+from server.services.social.distribution_campaign_templates import (
+    create_x_brand_week_template,
+)
 from server.services.social.distribution_documents import (
     approve_canonical_article,
     create_content_task,
@@ -53,9 +62,12 @@ from server.services.social.distribution_generation import (
     approve_and_generate_distribution_tasks,
     generate_distribution_tasks,
 )
-from server.services.social.distribution_tasks import (
+from server.services.social.distribution_publish_audit import (
+    audit_distribution_task_published_page,
     mark_distribution_task_live,
     mark_distribution_task_removed,
+)
+from server.services.social.distribution_tasks import (
     publish_distribution_task_to_x,
     validate_distribution_task_x_auth,
     update_distribution_task,
@@ -73,6 +85,22 @@ def _http_error(exc: ValueError) -> HTTPException:
 @router.get("/accounts", response_model=list[SocialDistributionAccountOut])
 def list_distribution_accounts_endpoint(db: Session = Depends(get_db)):
     return list_distribution_accounts(db)
+
+
+@router.get(
+    "/accounts/auth-status",
+    response_model=SocialDistributionAccountAuthStatusListOut,
+)
+def list_distribution_account_auth_status_endpoint(
+    platform: str | None = None,
+    account_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    return distribution_account_auth_statuses(
+        db,
+        platform=platform,
+        account_id=account_id,
+    )
 
 
 @router.patch("/accounts/{account_id}", response_model=SocialDistributionAccountOut)
@@ -112,6 +140,14 @@ def create_content_task_endpoint(
         return create_content_task(db, body)
     except ValueError as exc:
         raise _http_error(exc) from exc
+
+
+@router.post(
+    "/campaign-templates/x-brand-week-technical-builders",
+    response_model=SocialDistributionCampaignTemplateOut,
+)
+def create_x_brand_week_template_endpoint(db: Session = Depends(get_db)):
+    return create_x_brand_week_template(db, created_by="operator")
 
 
 @router.get("/assets", response_model=list[SocialContentAssetOut])
@@ -270,6 +306,21 @@ def mark_distribution_task_removed_endpoint(
 ):
     try:
         return mark_distribution_task_removed(db, task_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/tasks/{task_id}/audit-published-page",
+    response_model=SocialDistributionTaskOut,
+)
+def audit_distribution_task_published_page_endpoint(
+    task_id: int,
+    body: SocialDistributionAuditPublishedPageRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return audit_distribution_task_published_page(db, task_id, body)
     except ValueError as exc:
         raise _http_error(exc) from exc
 

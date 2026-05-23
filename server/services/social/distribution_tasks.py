@@ -16,23 +16,24 @@ from server.services.social.publishing import (
     x_publisher,
     x_oauth_token_provider,
 )
-from server.services.social.distribution_core import (
-    _clean_optional,
-    _record_event,
-    _validate_task_status,
-)
+from server.services.social.distribution_core import _record_event, _validate_task_status
 from server.services.social.distribution_documents import (
     sync_task_document_from_task,
 )
 from server.services.social.distribution_content_strategy import (
-    X_LONG_POST_CHAR_LIMIT,
+    X_LONG_POST_SOFT_LIMIT,
     X_WEIGHTED_CHAR_LIMIT,
     x_format_from_metadata,
+    x_long_post_text_from_metadata,
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
+from server.services.social.distribution_publish_lint import (
+    BLOCKED,
+    lint_distribution_task,
+    lint_summary,
+)
 from server.services.social.distribution_projection import _task_out
-
 
 def update_distribution_task(
     db: Session, task_id: int, body: dist_schema.SocialDistributionTaskPatchRequest
@@ -76,67 +77,6 @@ def update_distribution_task(
     return _task_out(row)
 
 
-def mark_distribution_task_live(
-    db: Session, task_id: int, body: dist_schema.SocialDistributionMarkLiveRequest
-) -> dist_schema.SocialDistributionTaskOut:
-    row = db.get(SocialDistributionTaskRow, task_id)
-    if row is None:
-        raise ValueError("Distribution task not found.")
-    if not body.published_url.strip():
-        raise ValueError("published_url is required.")
-    row.status = "live"
-    row.published_url = body.published_url.strip()
-    row.manual_result_note = _clean_optional(body.manual_result_note)
-    row.updated_at = utcnow()
-    sync_task_document_from_task(
-        db,
-        task=row,
-        metadata={"published_url": row.published_url},
-    )
-    _record_event(
-        db,
-        row.asset,
-        row,
-        "task_marked_live",
-        body.actor,
-        "Operator marked task live.",
-        {"published_url": row.published_url},
-    )
-    db.commit()
-    db.refresh(row)
-    return _task_out(row)
-
-
-def mark_distribution_task_removed(
-    db: Session, task_id: int, body: dist_schema.SocialDistributionMarkRemovedRequest
-) -> dist_schema.SocialDistributionTaskOut:
-    row = db.get(SocialDistributionTaskRow, task_id)
-    if row is None:
-        raise ValueError("Distribution task not found.")
-    if not body.manual_result_note.strip():
-        raise ValueError("removed reason is required.")
-    row.status = "removed"
-    row.manual_result_note = body.manual_result_note.strip()
-    row.updated_at = utcnow()
-    sync_task_document_from_task(
-        db,
-        task=row,
-        metadata={"removed_reason": row.manual_result_note},
-    )
-    _record_event(
-        db,
-        row.asset,
-        row,
-        "task_removed",
-        body.actor,
-        "Operator marked task removed.",
-        {"reason": row.manual_result_note},
-    )
-    db.commit()
-    db.refresh(row)
-    return _task_out(row)
-
-
 def publish_distribution_task_to_x(
     db: Session, task_id: int, actor: str = "operator"
 ) -> dist_schema.SocialDistributionTaskOut:
@@ -152,8 +92,30 @@ def publish_distribution_task_to_x(
     metadata = _task_metadata(row)
     tweets = x_tweets_from_metadata(metadata, row.platform_body)
     x_format = x_format_from_metadata(metadata, tweets)
-    _validate_x_publish_payload(x_format, tweets)
-    policy_text = "\n\n".join(tweets)
+    if x_format == "long_post" and row.account:
+        capabilities = {
+            item.strip()
+            for item in str(row.account.api_capability or "").split(",")
+            if item.strip()
+        }
+        if "long_post" not in capabilities:
+            raise ValueError("this X channel is not configured for long-post API publishing.")
+    post_text = (
+        x_long_post_text_from_metadata(metadata, row.platform_body)
+        if x_format == "long_post"
+        else "\n\n".join(tweets)
+    )
+    _validate_x_publish_payload(x_format, tweets, post_text)
+    publish_lint = lint_distribution_task(
+        platform=row.platform,
+        channel_key=row.channel_key,
+        title=row.platform_title,
+        body=post_text,
+        metadata=metadata,
+    )
+    if publish_lint.status == BLOCKED:
+        raise ValueError(f"platform_publish_lint_blocked: {lint_summary(publish_lint)}")
+    policy_text = post_text
     policy = run_content_policy_check(policy_text)
     if policy.get("status") == "blocked":
         return _mark_x_policy_blocked(db, row, actor, policy)
@@ -161,10 +123,21 @@ def publish_distribution_task_to_x(
     social_account = ensure_default_social_account(db)
     row.status = "submitted"
     row.updated_at = utcnow()
+    _record_event(
+        db,
+        row.asset,
+        row,
+        "task_publish_submitted",
+        actor,
+        "Distribution task submitted to X API after Human Gate.",
+        {"platform": row.platform, "channel_key": row.channel_key, "x_format": x_format},
+    )
     db.flush()
     try:
         if x_format == "thread":
             result = _publish_x_thread(db, row, social_account, tweets)
+        elif x_format == "long_post":
+            result = x_publisher.publish_text(social_account, post_text)
         else:
             result = x_publisher.publish_text(social_account, tweets[0])
     except SocialPublishError as exc:
@@ -241,6 +214,9 @@ def _mark_x_publish_failed(
     actor: str,
     exc: SocialPublishError,
 ) -> dist_schema.SocialDistributionTaskOut:
+    if exc.kind == "x_refresh_failed" and row.account is not None:
+        social_account = ensure_default_social_account(db)
+        social_account.status = "needs_authorization"
     row.status = "failed"
     row.failure_summary = exc.summary
     row.updated_at = utcnow()
@@ -284,6 +260,13 @@ def _mark_x_publish_success(
             **metadata,
             "x_format": x_format,
             "published_tweet_ids": published_ids,
+            "visibility_status": "unverified",
+            "layout_status": "unknown",
+            "last_publish_audit": {
+                "visibility_status": "unverified",
+                "layout_status": "unknown",
+                "source": "x_api_publish",
+            },
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -302,7 +285,7 @@ def _mark_x_publish_success(
         db,
         row.asset,
         row,
-        "task_published_x_thread" if x_format == "thread" else "task_published_x",
+        _x_publish_event_type(x_format),
         actor,
         _x_publish_success_message(x_format),
         {
@@ -364,6 +347,14 @@ def _x_publish_success_message(x_format: str) -> str:
     return "Distribution task published to X after Human Gate."
 
 
+def _x_publish_event_type(x_format: str) -> str:
+    if x_format == "thread":
+        return "task_published_x_thread"
+    if x_format == "long_post":
+        return "task_published_x_long_post"
+    return "task_published_x"
+
+
 def _persist_x_thread_progress(
     db: Session, row: SocialDistributionTaskRow, published_ids: list[str]
 ) -> None:
@@ -402,21 +393,23 @@ def _mark_x_thread_partial_failure(
     )
 
 
-def _validate_x_publish_payload(x_format: str, tweets: list[str]) -> None:
+def _validate_x_publish_payload(
+    x_format: str, tweets: list[str], post_text: str
+) -> None:
+    if x_format == "long_post":
+        if not post_text:
+            raise ValueError("X long post publish payload is empty.")
+        if len(post_text) > X_LONG_POST_SOFT_LIMIT:
+            raise ValueError(
+                f"X long post exceeds {X_LONG_POST_SOFT_LIMIT} characters."
+            )
+        return
     if not tweets:
         raise ValueError("X publish payload is empty.")
     if x_format == "single" and len(tweets) != 1:
         raise ValueError("X single publish requires exactly one tweet.")
     if x_format == "thread" and len(tweets) < 2:
         raise ValueError("X thread publish requires at least two tweets.")
-    if x_format == "long_post":
-        if len(tweets) != 1:
-            raise ValueError("X long post publish requires exactly one body.")
-        if len(tweets[0]) > X_LONG_POST_CHAR_LIMIT:
-            raise ValueError(
-                f"X long post exceeds {X_LONG_POST_CHAR_LIMIT} chars."
-            )
-        return
     for index, tweet in enumerate(tweets):
         count = x_weighted_character_count(tweet)
         if count > X_WEIGHTED_CHAR_LIMIT:

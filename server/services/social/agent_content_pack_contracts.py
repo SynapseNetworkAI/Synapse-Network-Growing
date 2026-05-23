@@ -86,6 +86,7 @@ PLATFORM_DRAFT_OUTPUT_SCHEMA: dict[str, Any] = {
         "platform_title": {"type": ["string", "null"]},
         "platform_body": {"type": ["string", "null"]},
         "x_format": {"type": ["string", "null"]},
+        "post_text": {"type": ["string", "null"]},
         "tweets": {"type": "array", "items": {"type": "string"}},
         "format_kind": {"type": ["string", "null"]},
         "target_length": {"type": ["string", "null"]},
@@ -97,6 +98,7 @@ PLATFORM_DRAFT_OUTPUT_SCHEMA: dict[str, Any] = {
         "platform_title",
         "platform_body",
         "x_format",
+        "post_text",
         "tweets",
         "format_kind",
         "target_length",
@@ -201,12 +203,19 @@ def platform_task_prompt(payload: PlatformTaskPromptInput) -> tuple[str, str]:
         "decisions. For Hacker News, keep the submission factual and restrained. "
         "For X, write the X Official Account draft in English even when the "
         "canonical source material is Chinese. Strictly choose exactly one "
-        "Dynamic X Variant and include x_format plus tweets: "
-        "{\"x_format\":\"single|thread\",\"tweets\":[\"...\"],\"rationale\":\"...\"}. "
-        "Use single only for short updates. Use thread for deep reasoning, "
-        "tutorials, founder stories, or architecture posts. Each tweet must be "
-        "under 280 weighted characters; URLs count as 23 and CJK characters count as 2. "
-        "Do not output a Premium long post in v1."
+        "Dynamic X Variant. The official account has Premium enabled, so default "
+        "deep founder stories, tutorials, and architecture posts to "
+        "{\"x_format\":\"long_post\",\"post_text\":\"...\",\"rationale\":\"...\"}. "
+        "For long_post, set platform_body and post_text to the same final X text. "
+        "Use single/thread only for short updates or explicit operator requests. "
+        "X long posts have MAX_LENGTH=4000 characters and no minimum length. "
+        "Stop when the useful content is complete. Do not pad, repeat claims, "
+        "or invent details to reach a target length. Before final JSON, count the post_text characters; "
+        "if it is over 3900, rewrite it shorter instead of returning it. For "
+        "series content about a one-person company system, preserve a pragmatic "
+        "solo-founder engineering voice and concrete implementation tradeoffs. "
+        "Legacy single/thread variants must include tweets where each tweet is "
+        "under 280 weighted characters."
     )
     return system_prompt, user_prompt
 
@@ -254,10 +263,15 @@ def _platform_guidance(platform: str, channel_key: str) -> str:
     normalized = platform.strip()
     if normalized == "x":
         return (
-            "Dynamic X Variant: output either one normal tweet or a thread. "
-            "Do not output a Premium long post in v1. Write the X Official "
-            "Account draft in English, even when the canonical source material "
-            "is Chinese."
+            "Dynamic X Variant: the X Official Account has Premium enabled. "
+            "Default to x_format=long_post with post_text for deep technical "
+            "articles, founder stories, architecture posts, and tutorials. Use "
+            "English even when the canonical source material is Chinese. For "
+            "long_post, set platform_body and post_text to the same final X "
+            "text. MAX_LENGTH=4000 characters, no minimum length, and "
+            "rewrite shorter if the draft exceeds 3900 characters. Keep it "
+            "density-driven and free of padding. Single/thread are legacy "
+            "fallbacks only for short updates or explicit operator requests."
         )
     if normalized == "hacker_news":
         return (

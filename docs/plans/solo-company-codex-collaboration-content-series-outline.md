@@ -162,7 +162,7 @@ target_repo: Synapse-Network-Growing
 3. staging 和 production 必须分开治理。
 4. staging 可以基于 `main` 或 PR checks 通过的分支做显式 operator 发布。
 5. production deploy / rollback 必须 Human Gate。
-6. 成功上线要进入 Online Record，而不是只看 GitHub Actions 绿了没。
+6. 成功上线要进入 Online Record，而不是只看某个外部执行器是否显示绿色。
 7. 你的系统差异化：不是 GitHub Action 本身，而是把 PR、部署、健康检查、回滚和上线账本连成了一个 operator-facing control plane。
 
 ### 标题方向

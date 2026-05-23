@@ -12,6 +12,7 @@ export interface XDraftView {
   xLimit: number
   xHasOverLimit: boolean
   combined: string
+  canPublishX: boolean
 }
 
 export function buildXDraftView(task: SocialDistributionTask | null): XDraftView {
@@ -22,6 +23,7 @@ export function buildXDraftView(task: SocialDistributionTask | null): XDraftView
       xLimit: 280,
       xHasOverLimit: false,
       combined: `Title:\n${task?.platform_title ?? ''}\n\nBody:\n${task?.platform_body ?? ''}`,
+      canPublishX: false,
     }
   }
   const metadata = task.metadata ?? {}
@@ -35,15 +37,23 @@ export function buildXDraftView(task: SocialDistributionTask | null): XDraftView
       ? Number(metadata.character_count) || tweet.length
       : xWeightedCounts[index] ?? conservativeXCount(tweet),
   }))
-  const xLimit = xFormat === 'long_post' ? 4000 : 280
+  const xLimit = xFormat === 'long_post' ? Number(metadata.soft_max_chars) || 4000 : 280
+  const xHasOverLimit = xRows.some((row) => row.count > xLimit)
   return {
     xFormat,
     xRows,
     xLimit,
-    xHasOverLimit: xRows.some((row) => row.count > xLimit),
+    xHasOverLimit,
     combined: xRows.length
       ? xCombinedCopy(xFormat, xRows)
       : `Title:\n${task.platform_title ?? ''}\n\nBody:\n${task.platform_body ?? ''}`,
+    canPublishX:
+      task.publish_mode === 'api_human_gated' &&
+      ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
+      !xHasOverLimit &&
+      (xFormat !== 'long_post' || hasCapability(task.api_capability, 'long_post')) &&
+      (xFormat !== 'long_post' || xRows.length === 1) &&
+      (xFormat !== 'thread' || xRows.length >= 2),
   }
 }
 
@@ -58,9 +68,10 @@ export function PlatformFormatSummary({
 }) {
   const formatKind = stringValue(task.metadata.format_kind)
   const targetLength = stringValue(task.metadata.target_length)
+  const xLimit = xFormat === 'long_post' ? Number(task.metadata.soft_max_chars) || 4000 : 280
   const countLabel =
     task.platform === 'x' && xRows.length
-      ? xRows.map((row) => `${row.count}/${xFormat === 'long_post' ? 4000 : 280}`).join(' · ')
+      ? xRows.map((row) => `${row.count}/${xLimit}`).join(' · ')
       : stringValue(task.metadata.word_count)
         ? `${task.metadata.word_count} words`
         : stringValue(task.metadata.character_count)
@@ -86,7 +97,7 @@ export function XDraftPreview({
     const row = rows[0]
     return (
       <Field label={`X 长文 (${row.count}/4000 chars)`}>
-        <textarea readOnly className={`${textareaClass} min-h-[320px]`} value={row.tweet} />
+        <textarea readOnly className={`${textareaClass} min-h-[360px]`} value={row.tweet} />
       </Field>
     )
   }
@@ -127,8 +138,8 @@ export function copyCombinedLabel(platform: string, xFormat: string | null, rowC
 }
 
 function xFormatFromMetadata(metadata: Record<string, unknown>, tweets: string[]): string {
-  const explicit = stringValue(metadata.x_format)
-  const formatKind = stringValue(metadata.format_kind)
+  const explicit = stringValue(metadata.x_format).toLowerCase()
+  const formatKind = stringValue(metadata.format_kind).toLowerCase()
   if (['long_post', 'x_long_post', 'premium_long_post'].includes(explicit)) return 'long_post'
   if (['long_post', 'x_long_post', 'premium_long_post'].includes(formatKind)) return 'long_post'
   if (explicit === 'single' || explicit === 'thread') return explicit
@@ -142,8 +153,12 @@ function xRowsFromTask(
   metadata: Record<string, unknown>,
 ): string[] {
   if (tweets.length) return tweets
+  if (xFormat === 'long_post') {
+    const longPost = stringValue(metadata.long_post_text) || stringValue(metadata.post_text) || String(body ?? '').trim()
+    return longPost ? [longPost] : []
+  }
   const bodyText = String(body ?? '').trim()
-  if (xFormat === 'long_post' && bodyText) return [bodyText]
+  if (bodyText) return [bodyText]
   const metadataBody = stringValue(metadata.body_text)
   return metadataBody ? [metadataBody] : []
 }
@@ -157,6 +172,10 @@ function xFormatLabel(xFormat: string | null): string {
   if (xFormat === 'thread') return 'X Thread'
   if (xFormat === 'long_post') return 'X Premium Long Post'
   return 'X Single'
+}
+
+function hasCapability(value: unknown, capability: string): boolean {
+  return String(value ?? '').split(',').map((item) => item.trim()).includes(capability)
 }
 
 function stringArray(value: unknown): string[] {

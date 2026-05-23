@@ -22,6 +22,7 @@
 14. 前端必须是 Enterprise Workbench，不得回到平铺卡片后台、长期内联表单、Drawer/Side Panel 或浏览器原生 confirm。
 15. 上下文是预算，不是垃圾桶；长期规则、项目 policy、会话上下文和临时证据必须分层治理。
 16. 治理优先于更强自主性；policy、validation、delivery、incident、observability 未收口前，不升级更复杂的 agent 自主决策。
+17. GitHub PR 描述和评论必须使用真实换行；用 `gh pr create/edit --body-file`、heredoc 或临时 Markdown 文件，不要在 shell 字符串里写 literal `\n`，避免 GitHub 页面出现乱码式单段文本。
 
 ## 按需加载入口
 

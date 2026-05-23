@@ -47,7 +47,7 @@ def test_projects_api_creates_project_with_linked_policy(synced_client, db_sessi
             "display_name": "Created Growing Shadow",
             "root_path": "/tmp/created-growing-shadow",
             "repo_full_name": "SynapseNetworkAI/Synapse-Network-Growing",
-            "deploy_strategy": "github_actions",
+            "deploy_strategy": "local_deploy_runner",
             "deploy_repo_full_name": "SynapseNetworkAI/Synapse-Network-Growing",
             "deploy_trigger_enabled": True,
         },

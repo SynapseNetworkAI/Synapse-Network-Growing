@@ -9,13 +9,13 @@ Load this when touching CI, PRs, tests, coverage, linting, code quality, line co
 3. PR CI uses `scripts/ci/ci_scope.py` for scoped checks. Unclear scope or workflow/dependency/schema/migration/non-classifier CI gate changes upgrade to full gate.
 4. Docs-only scope does not install dashboard dependencies or run backend pytest. Dashboard-only scope skips backend pytest. Backend-only scope skips dashboard tests/build. Backend-only scope defaults to `backend-targeted`: run static quality, compile changed Python files, and execute mapped tests from `scripts/ci/backend_targeted_tests.py`; `backend-full` is reserved for main, nightly, manual full, migrations/schema, release/workflow/security/finance, and CI gate changes.
 5. Local pre-push defaults to `scripts/ci/local_pr_checks.sh --scope auto`; use `SYNAPSE_CI_SCOPE=full` for major changes or release prep.
-6. GitHub branch protection should require aggregate `pr-checks`; skipped scoped jobs must not become merge blockers.
-7. GitHub Actions dependency caches are required: Python jobs use pip cache, Node jobs use yarn cache, and uv/uvx jobs use setup-uv cache. Do not cache `dashboard/node_modules` by default.
-8. GitHub-hosted runner tools such as `rg` must be pinned and cached. PR CI should use `bootstrap_ci_tools.sh` for fixed-version ripgrep and cache `.ci-tools/ripgrep/<version>`.
-9. Lightweight scope, docs, and aggregate jobs can use `ubuntu-slim`; heavy backend, dashboard, and full gates keep standard Ubuntu runners.
+6. GitHub branch protection must not require removed remote workflow checks. Local CI evidence is recorded in `local_ci_runs` / `local_ci_events`.
+7. Local CI should reuse local pip, yarn, uv, and Docker caches, but lockfile changes must still invalidate dependency assumptions.
+8. Local runner tools such as `rg` and `uv` must be available before running gates; fail closed with a clear diagnostic if a required tool is missing.
+9. Local CI is the execution path. Remote runners are not the default merge or deploy backstop.
 10. Python runtime is detected dynamically. Do not hardcode one machine's virtualenv as the only valid path.
 11. Diff coverage must use a valid merge-base; fetch stale `origin/main` before judging coverage.
-12. `--no-verify` can bypass only local hooks. It is not a qualified delivery result; remote CI remains the backstop.
+12. `--no-verify` can bypass only local hooks. It is not a qualified delivery result; a recorded local CI run remains the backstop.
 
 ## Push Quality Gates V2
 

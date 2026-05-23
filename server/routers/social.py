@@ -32,6 +32,7 @@ from server.schemas import (
 from server.schemas_social_metrics import (
     SocialPostMetricDailyQueryOut,
     SocialPostMetricDetailOut,
+    SocialPostMetricManualCreateRequest,
     SocialPostMetricOut,
     SocialPostMetricQueryOut,
     SocialPostMetricSummaryOut,
@@ -43,6 +44,7 @@ from server.services.social.post_metric_queries import (
     query_social_post_metrics,
 )
 from server.services.social.post_metrics import (
+    create_manual_social_post_metric,
     list_social_post_metrics,
     social_post_metrics_summary,
 )
@@ -215,6 +217,14 @@ def publish_social_repost_candidate_to_x_endpoint(candidate_id: int, body: Socia
 @router.get("/post-metrics", response_model=list[SocialPostMetricOut])
 def list_social_post_metrics_endpoint(db: Session = Depends(get_db)):
     return list_social_post_metrics(db)
+
+
+@router.post("/post-metrics/manual", response_model=SocialPostMetricOut)
+def create_manual_social_post_metric_endpoint(
+    body: SocialPostMetricManualCreateRequest,
+    db: Session = Depends(get_db),
+):
+    return create_manual_social_post_metric(db, body)
 
 
 @router.get("/post-metrics/daily", response_model=SocialPostMetricDailyQueryOut)

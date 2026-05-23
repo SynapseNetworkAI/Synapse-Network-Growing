@@ -9,14 +9,10 @@ import type { SocialDistributionBoard } from '../apiSocialDistribution'
 import { EmptyPane, OverlayModal, SectionFrame, useToast } from './workbench'
 import { DistributionBoard } from './SocialDistributionBoard'
 import { ContentTaskDetailModal, TaskDetailModal } from './SocialDistributionDetails'
+export { DistributionSettingsPanel } from './SocialDistributionSettingsPanel'
+import { useSocialDistributionAuthStatus } from './useSocialDistributionAuthStatus'
 import {
-  AccountForm,
   ContentTaskForm,
-  Pager,
-  StateBadge,
-  TaskLikeTable,
-  pageSlice,
-  statusTone,
 } from './SocialDistributionWidgets'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
@@ -24,9 +20,11 @@ const DEFAULT_CONTENT_FORM = {
   title: '',
   source_material: '',
   target_audience: '一人公司创业者、独立开发者、AI agent builder',
-  target_platforms: 'x, v2ex, hacker_news, devto, hashnode, reddit',
+  target_platforms: 'x',
   canonical_url: '',
   source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md',
+  campaign_key: '',
+  post_intent: 'brand_positioning',
 }
 
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
@@ -38,9 +36,12 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [selectedAccountIds, setSelectedAccountIds] = useState<number[]>([])
   const [manualUrl, setManualUrl] = useState('')
   const [manualNote, setManualNote] = useState('')
+  const [auditVisibility, setAuditVisibility] = useState('visible')
+  const [auditLayout, setAuditLayout] = useState('passed')
   const [showCreate, setShowCreate] = useState(false)
   const [busy, setBusy] = useState(false)
   const [xAuthNotice, setXAuthNotice] = useState<string | null>(null)
+  const { authStatuses, authStatusBusy, checkAccountAuthStatuses } = useSocialDistributionAuthStatus()
   const [plannerBusy, setPlannerBusy] = useState(false)
   const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
 
@@ -82,6 +83,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         target_platforms: form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean),
         canonical_url: form.canonical_url,
         source_doc_path: form.source_doc_path,
+        campaign_key: form.campaign_key,
+        post_intent: form.post_intent,
         created_by: 'operator',
       })
       setShowCreate(false)
@@ -92,6 +95,23 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       toast.success('内容计划已创建')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建内容计划失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createXBrandWeekCampaign() {
+    try {
+      setBusy(true)
+      const result = await api.createXBrandWeekCampaignTemplate()
+      await loadTasks()
+      if (result.assets[0]) {
+        setDetail(result.assets[0])
+        setSelectedAccountIds(result.assets[0].tasks.map((task) => task.account_id))
+      }
+      toast.success(`X 品牌周任务已准备：新增 ${result.created_count}，已存在 ${result.existing_count}`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '创建 X 品牌周任务失败')
     } finally {
       setBusy(false)
     }
@@ -189,6 +209,23 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
+  async function auditPublishedPage(task: SocialDistributionTask) {
+    try {
+      const updated = await api.auditSocialDistributionPublishedPage(task.id, {
+        visibility_status: auditVisibility,
+        layout_status: auditLayout,
+        audit_note: manualNote,
+        actor: 'operator',
+      })
+      setTaskDetail(updated)
+      if (detail) setDetail(await api.getSocialContentAsset(detail.id))
+      await loadTasks()
+      toast.success('页面状态审计已记录')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '记录页面审计失败')
+    }
+  }
+
   async function skipTask(task: SocialDistributionTask) {
     try {
       const updated = await api.updateSocialDistributionTask(task.id, { status: 'skipped', manual_result_note: manualNote })
@@ -225,7 +262,12 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setTaskDetail(updated)
       if (detail) setDetail(await api.getSocialContentAsset(detail.id))
       await loadTasks()
-      toast.success('已发布到 X')
+      if (updated.status === 'live') {
+        toast.success('已发布到 X')
+        return
+      }
+      const reason = updated.failure_summary || updated.manual_result_note || 'X 发布未完成'
+      toast.error(reason)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '发布到 X 失败')
     } finally {
@@ -262,6 +304,12 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
           <button type="button" disabled={plannerBusy} className="rounded-xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={() => void runAssetPlanner()}>
             {plannerBusy ? '生成中…' : '从信号生成内容计划'}
           </button>
+          <button type="button" disabled={busy} className="rounded-xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={() => void createXBrandWeekCampaign()}>
+            {busy ? '处理中…' : '创建 X 品牌周任务'}
+          </button>
+          <button type="button" disabled={authStatusBusy} className="rounded-xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={() => void checkAccountAuthStatuses()}>
+            {authStatusBusy ? '检查中…' : '检查登录状态'}
+          </button>
           <button type="button" className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => setShowCreate(true)}>创建内容计划</button>
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => void loadTasks()}>刷新</button>
         </div>
@@ -289,6 +337,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')
           setManualNote(task.manual_result_note ?? '')
+          setAuditVisibility(stringValue(task.metadata.visibility_status) || 'visible')
+          setAuditLayout(stringValue(task.metadata.layout_status) || 'passed')
           setXAuthNotice(null)
         }}
       />
@@ -299,93 +349,25 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         toast={toast}
         onManualUrlChange={setManualUrl}
         onManualNoteChange={setManualNote}
+        auditVisibility={auditVisibility}
+        auditLayout={auditLayout}
+        onAuditVisibilityChange={setAuditVisibility}
+        onAuditLayoutChange={setAuditLayout}
         onClose={() => setTaskDetail(null)}
         onMarkLive={() => taskDetail ? void markLive(taskDetail) : undefined}
         onMarkRemoved={() => taskDetail ? void markRemoved(taskDetail) : undefined}
         onSkip={() => taskDetail ? void skipTask(taskDetail) : undefined}
+        onAuditPublishedPage={() => taskDetail ? void auditPublishedPage(taskDetail) : undefined}
         onPublishX={() => taskDetail ? void publishX(taskDetail) : undefined}
         publishBusy={busy}
         xAuthNotice={xAuthNotice}
+        authStatus={taskDetail ? authStatuses[taskDetail.account_id] : undefined}
+        onCheckAuth={() => void checkAccountAuthStatuses()}
       />
     </SectionFrame>
   )
 }
 
-export function DistributionSettingsPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
-  const toast = useToast()
-  const [accounts, setAccounts] = useState<SocialDistributionAccount[]>([])
-  const [editing, setEditing] = useState<SocialDistributionAccount | null>(null)
-  const [form, setForm] = useState({
-    profile_url: '',
-    status: 'planned',
-    email_hint: '',
-    two_factor_status: 'unknown',
-    publish_mode: 'manual_only',
-    api_capability: 'none',
-    credential_ref: '',
-    notes: '',
-  })
-  const [page, setPage] = useState(1)
-
-  async function loadAccounts() {
-    try {
-      setAccounts(await api.getDistributionAccounts())
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '加载渠道失败')
-    }
-  }
-  useEffect(() => {
-    void loadAccounts()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function saveAccount() {
-    if (!editing) return
-    try {
-      await api.updateDistributionAccount(editing.id, {
-        ...form,
-        credential_ref: form.credential_ref.trim() ? form.credential_ref : undefined,
-      })
-      setEditing(null)
-      await loadAccounts()
-      toast.success('渠道设置已保存')
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '保存失败')
-    }
-  }
-
-  const paged = pageSlice(accounts, page)
-  return (
-    <SectionFrame eyebrow="Settings" title="Settings" description="管理分发渠道账号、Profile、2FA 状态和人工发布规则。">
-      <TaskLikeTable
-        headers={['平台 / 渠道', '状态', '治理', '更新', '操作']}
-        rows={paged.map((account) => [
-          <div key="name"><b>{account.display_name}</b><div className="font-mono text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</div></div>,
-          <StateBadge key="status" tone={statusTone(account.status)}>{account.status}</StateBadge>,
-          <div key="gov" className="text-xs text-[color:var(--ops-text-muted)]">{account.publish_mode} · {account.api_capability} · 2FA {account.two_factor_status}{account.credential_ref_configured ? ' · secret ref set' : ''}</div>,
-          <span key="time" className="text-xs text-[color:var(--ops-text-muted)]">{formatDateTime(account.updated_at)}</span>,
-          <div key="actions" className="flex flex-wrap gap-2">
-            <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => { window.location.href = `/publishing?tab=tasks&platform=${encodeURIComponent(account.platform)}&channel_key=${encodeURIComponent(account.channel_key)}` }}>历史</button>
-            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => {
-              setEditing(account)
-              setForm({
-                profile_url: account.profile_url ?? '',
-                status: account.status,
-                email_hint: account.email_hint ?? '',
-                two_factor_status: account.two_factor_status,
-                publish_mode: account.publish_mode,
-                api_capability: account.api_capability,
-                credential_ref: '',
-                notes: account.notes ?? '',
-              })
-            }}>编辑</button>
-          </div>,
-        ])}
-      />
-      <Pager page={page} total={accounts.length} onPageChange={setPage} />
-      <OverlayModal open={Boolean(editing)} eyebrow="Distribution Account" title={editing ? `编辑 ${editing.display_name}` : '编辑渠道'} actions={<button type="button" className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white" onClick={() => void saveAccount()}>保存</button>} onClose={() => setEditing(null)}>
-        <AccountForm form={form} onChange={setForm} />
-      </OverlayModal>
-    </SectionFrame>
-  )
+function stringValue(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }

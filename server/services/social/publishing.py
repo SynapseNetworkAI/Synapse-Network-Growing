@@ -61,6 +61,11 @@ from server.schemas import (
 from server.services.agents.llm_adapter import get_provider
 from server.services.runtime.codex_cli import CodexExecResult, filter_codex_stderr, run_codex_exec
 from server.services.result_objects import ServiceListResult, ServiceObjectResult, service_list_result, service_object_result
+from server.services.local_secrets import (
+    LocalSecretStoreError,
+    read_latest_local_secret,
+    write_local_secret_version,
+)
 from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
 from server.services.social.reply_agent import generate_x_reply_for_candidate
 from server.services.social.reply_records import apply_generated_reply_to_row, reply_agent_failure_summary
@@ -806,7 +811,13 @@ image_generator: SocialImageGenerator = SocialImageGenerator()
 
 
 def _account_out(row: SocialAccountRow) -> dict[str, Any]:
-    auth_status, auth_message = x_oauth_token_provider.auth_status()
+    if row.status == "needs_authorization":
+        auth_status, auth_message = (
+            "needs_authorization",
+            "Previous X OAuth refresh failed. Start OAuth authorization again.",
+        )
+    else:
+        auth_status, auth_message = x_oauth_token_provider.auth_status()
     return {
         "id": int(row.id),
         "platform": row.platform,
@@ -2603,7 +2614,7 @@ secret_store = SecretValueStore()
 
 
 class XOAuth2TokenProvider:
-    """Refresh X OAuth2 access tokens from long-lived Secret Manager credentials."""
+    """Refresh X OAuth2 access tokens without persisting access tokens."""
 
     def __init__(self, store: SecretValueStore):
         self.store = store
@@ -2611,9 +2622,43 @@ class XOAuth2TokenProvider:
         # Access tokens are intentionally not cached across publish requests.
         self._cache: dict[str, tuple[str, float]] = {}
 
+    def _refresh_token_storage(self) -> str:
+        mode = os.environ.get("X_OAUTH_REFRESH_TOKEN_STORAGE", config.X_OAUTH_REFRESH_TOKEN_STORAGE).strip().lower() or "auto"
+        if mode == "auto":
+            return "local_db" if self.store is secret_store else "secret_manager"
+        if mode in {"local_db", "postgres", "db"}:
+            return "local_db"
+        return "secret_manager"
+
+    def _read_refresh_token(self) -> str:
+        if self._refresh_token_storage() != "local_db":
+            return self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        try:
+            with SessionLocal() as db:
+                return read_latest_local_secret(db, config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY)
+        except LocalSecretStoreError as exc:
+            raise SocialPublishError("x_auth_failed", str(exc)) from exc
+
+    def _write_refresh_token(self, value: str, *, reason: str) -> None:
+        if self._refresh_token_storage() != "local_db":
+            self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, value)
+            return
+        try:
+            with SessionLocal() as db:
+                write_local_secret_version(
+                    db,
+                    config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY,
+                    value,
+                    metadata={"source": "x_oauth2", "reason": reason},
+                    keep_active=3,
+                )
+                db.commit()
+        except LocalSecretStoreError as exc:
+            raise SocialPublishError("x_refresh_failed", str(exc)) from exc
+
     def auth_status(self) -> tuple[str, str | None]:
         try:
-            self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+            self._read_refresh_token()
         except SocialPublishError as exc:
             if exc.kind == "gcp_adc_expired":
                 return "gcp_adc_expired", exc.summary
@@ -2660,7 +2705,7 @@ class XOAuth2TokenProvider:
             raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
         if ref.startswith("env:"):
             return XOAuth2AccessToken(access_token=self.store.read(ref), refreshed=False)
-        refresh_token = self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        refresh_token = self._read_refresh_token()
         data = self._token_request({"grant_type": "refresh_token", "refresh_token": refresh_token})
         access_token = str(data.get("access_token") or "").strip()
         if not access_token:
@@ -2668,7 +2713,7 @@ class XOAuth2TokenProvider:
         new_refresh_token = str(data.get("refresh_token") or "").strip()
         rotated = False
         if new_refresh_token and new_refresh_token != refresh_token:
-            self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, new_refresh_token)
+            self._write_refresh_token(new_refresh_token, reason="refresh_token_rotation")
             rotated = True
         return XOAuth2AccessToken(access_token=access_token, refreshed=True, refresh_token_rotated=rotated)
 
@@ -2687,7 +2732,7 @@ class XOAuth2TokenProvider:
             raise SocialPublishError("x_refresh_failed", "X OAuth callback response did not include access_token.")
         if not refresh_token:
             raise SocialPublishError("x_refresh_failed", "X OAuth callback response did not include refresh_token. Confirm offline.access scope is enabled.")
-        self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, refresh_token)
+        self._write_refresh_token(refresh_token, reason="oauth_authorization_code_exchange")
         return XOAuth2AccessToken(access_token=access_token, refreshed=True, refresh_token_rotated=True)
 
 

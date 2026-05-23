@@ -6,10 +6,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import SchedulesPage from './SchedulesPage'
 
 const apiMock = vi.hoisted(() => ({
-  getRecurringWorkflows: vi.fn(),
+  getSchedules: vi.fn(),
+  getScheduleTemplates: vi.fn(),
   getRecurringWorkflowHealth: vi.fn(),
-  getRecurringWorkflowRuns: vi.fn(),
-  runRecurringWorkflow: vi.fn(),
+  getScheduleRuns: vi.fn(),
+  runSchedule: vi.fn(),
+  createSchedule: vi.fn(),
+  updateSchedule: vi.fn(),
+  deleteSchedule: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -67,35 +71,67 @@ const runs = [
 describe('SchedulesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiMock.getRecurringWorkflows.mockResolvedValue([
+    apiMock.getSchedules.mockResolvedValue([
       workflow({ workflow_key: 'goal_planner_sweep', display_name: 'Goal Planner Sweep', owner_role: 'portfolio_planner', is_due: true, health_status: 'due', next_run_at: '2020-01-01T00:00:00Z' }),
       workflow({ workflow_key: 'forum_feedback_sweep', display_name: 'Forum Feedback Sweep', owner_role: 'support_triage_agent' }),
       workflow({ workflow_key: 'ci_status_sweep', display_name: 'CI Status Sweep', owner_role: 'runtime_reliability_engineer' }),
       workflow({ workflow_key: 'weekly_repo_hygiene_review', display_name: 'Weekly Repo Hygiene Review', owner_role: 'runtime_reliability_engineer', schedule: { cadence: 'weekly', day: 'SUN', suggested_local_time: '10:00' } }),
       workflow({ workflow_key: 'bug_log_sweep', display_name: 'Bug Log Sweep', owner_role: 'runtime_reliability_engineer', health_status: 'failed', last_result: { status: 'failed', reason: 'log parser failed' } }),
       workflow({ workflow_key: 'new_unknown_sweep', display_name: 'New Unknown Sweep', owner_role: 'operator', input_query: { source: 'custom' }, output_action: { kind: 'custom_output' }, validation_signal: { success_metric: 'custom_metric' } }),
+      workflow({ workflow_key: 'custom_artifact_cleanup_test', display_name: 'Custom Artifact Cleanup Test', owner_role: 'runtime_reliability_engineer', output_action: { kind: 'cleanup_artifact_registry_versions' }, category: 'infra_cleanup', risk_level: 'high', editable: true, deletable: true }),
+    ])
+    apiMock.getScheduleTemplates.mockResolvedValue([
+      {
+        template_key: 'artifact_registry_cleanup',
+        display_name: 'Artifact Registry Cleanup',
+        description: 'Clean stale Docker image versions',
+        category: 'infra_cleanup',
+        risk_level: 'high',
+        handler_key: 'cleanup_artifact_registry_versions',
+        schedule: { cadence: 'daily', suggested_local_time: '12:20' },
+        input_query: { projects: ['demo'] },
+        output_action: { kind: 'cleanup_artifact_registry_versions' },
+        validation_signal: { success_metric: 'deleted_count' },
+      },
     ])
     apiMock.getRecurringWorkflowHealth.mockResolvedValue(health)
-    apiMock.getRecurringWorkflowRuns.mockResolvedValue(runs)
-    apiMock.runRecurringWorkflow.mockResolvedValue({
+    apiMock.getScheduleRuns.mockResolvedValue(runs)
+    apiMock.runSchedule.mockResolvedValue({
       workflow_key: 'bug_log_sweep',
       status: 'completed',
       run_started_at: '2026-04-18T00:00:00Z',
       run_id: 12,
       result: { dry_run: true },
     })
+    apiMock.createSchedule.mockResolvedValue(workflow({ workflow_key: 'custom_artifact_registry_cleanup', display_name: 'Artifact Registry Cleanup' }))
+    apiMock.updateSchedule.mockResolvedValue(workflow({ workflow_key: 'custom_artifact_cleanup_test', display_name: 'Renamed Artifact Cleanup', editable: true, deletable: true }))
+    apiMock.deleteSchedule.mockResolvedValue({ deleted: true, schedule: {} })
   })
 
   it('groups recurring workflows by operating domain with attention and uncategorized lanes', async () => {
     render(<SchedulesPage />)
 
-    expect(await screen.findByText('定时任务')).toBeTruthy()
+    expect(await screen.findByText('定时任务控制台')).toBeTruthy()
     expect(screen.getByText(/Attention Required/)).toBeTruthy()
     expect(screen.getByText(/Strategy & Planning/)).toBeTruthy()
     expect(screen.getByText(/Intake & Support/)).toBeTruthy()
     expect(screen.getByText(/System Health & Reliability/)).toBeTruthy()
     expect(screen.getByText(/New \/ Uncategorized Initiates/)).toBeTruthy()
     expect(screen.getAllByText('Missing Presentation Metadata').length).toBeGreaterThan(0)
+  })
+
+  it('exposes the Schedule Center tabs needed for E2E observability', async () => {
+    const user = userEvent.setup()
+    render(<SchedulesPage />)
+
+    expect(await screen.findByRole('button', { name: 'Overview' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Tasks' }))
+    expect(await screen.findByText(/Schedule Tasks/)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Run History' }))
+    expect(await screen.findByText('Run History')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Templates' }))
+    expect(await screen.findByText('安全模板')).toBeTruthy()
+    expect(await screen.findByText('Artifact Registry Cleanup')).toBeTruthy()
   })
 
   it('shows compact input action output for scheduled job cards', async () => {
@@ -130,7 +166,7 @@ describe('SchedulesPage', () => {
     const inspector = await screen.findByTestId('schedule-run-inspector')
     expect(within(inspector).getByRole('button', { name: 'Run History' })).toBeTruthy()
     expect(within(inspector).getByRole('button', { name: 'Configuration' })).toBeTruthy()
-    expect(apiMock.getRecurringWorkflowRuns).toHaveBeenCalledWith(expect.any(String), 50)
+    expect(apiMock.getScheduleRuns).toHaveBeenCalledWith(expect.any(String), 50)
     expect(within(inspector).getAllByText(/materialized_requirement_ids/).length).toBeGreaterThan(0)
     expect(within(inspector).getByText('Debug params / result JSON')).toBeTruthy()
     expect(within(inspector).getAllByText('Copy JSON').length).toBeGreaterThan(0)
@@ -140,7 +176,7 @@ describe('SchedulesPage', () => {
   it('opens history modal immediately while run action is still pending', async () => {
     const user = userEvent.setup()
     let resolveRun: (value: unknown) => void = () => {}
-    apiMock.runRecurringWorkflow.mockReturnValue(new Promise((resolve) => { resolveRun = resolve }))
+    apiMock.runSchedule.mockReturnValue(new Promise((resolve) => { resolveRun = resolve }))
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
@@ -172,7 +208,7 @@ describe('SchedulesPage', () => {
     await user.click(screen.getByRole('button', { name: 'Dry Run' }))
 
     await waitFor(() => {
-      expect(apiMock.runRecurringWorkflow).toHaveBeenCalledWith(expect.any(String), {
+      expect(apiMock.runSchedule).toHaveBeenCalledWith(expect.any(String), {
         dry_run: true,
         auto_start: false,
         auto_dispatch_acceptance: false,
@@ -192,7 +228,7 @@ describe('SchedulesPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Re-run with this context' }))
 
     await waitFor(() => {
-      expect(apiMock.runRecurringWorkflow).toHaveBeenCalledWith(expect.any(String), {
+      expect(apiMock.runSchedule).toHaveBeenCalledWith(expect.any(String), {
         dry_run: true,
         auto_start: false,
         auto_dispatch_acceptance: false,
@@ -202,7 +238,7 @@ describe('SchedulesPage', () => {
 
   it('refreshes run history and falls back when the selected run leaves the latest 50', async () => {
     const user = userEvent.setup()
-    apiMock.getRecurringWorkflowRuns
+    apiMock.getScheduleRuns
       .mockResolvedValueOnce(runs)
       .mockResolvedValueOnce([{ ...runs[0], id: 99, dry_run: false, status: 'succeeded', result: { created_requirement_ids: [99] } }])
     render(<SchedulesPage />)
@@ -218,7 +254,7 @@ describe('SchedulesPage', () => {
   it('locks the running card while Run Now is in flight', async () => {
     const user = userEvent.setup()
     let resolveRun: (value: unknown) => void = () => {}
-    apiMock.runRecurringWorkflow.mockReturnValue(new Promise((resolve) => { resolveRun = resolve }))
+    apiMock.runSchedule.mockReturnValue(new Promise((resolve) => { resolveRun = resolve }))
     render(<SchedulesPage />)
 
     expect((await screen.findAllByText('Bug Log Sweep')).length).toBeGreaterThan(0)
@@ -237,6 +273,48 @@ describe('SchedulesPage', () => {
       run_started_at: '2026-04-18T00:00:00Z',
       run_id: 12,
       result: {},
+    })
+  })
+
+  it('creates a custom schedule from an allowlisted template', async () => {
+    const user = userEvent.setup()
+    render(<SchedulesPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Templates' }))
+    await user.click(await screen.findByRole('button', { name: '创建任务' }))
+    const dialog = await screen.findByRole('dialog', { name: '创建定时任务' })
+    await user.click(within(dialog).getByRole('button', { name: '创建任务' }))
+
+    await waitFor(() => {
+      expect(apiMock.createSchedule).toHaveBeenCalledWith(expect.objectContaining({
+        template_key: 'artifact_registry_cleanup',
+        display_name: 'Artifact Registry Cleanup',
+      }))
+    })
+  })
+
+  it('edits and deletes custom schedules while keeping built-ins protected', async () => {
+    const user = userEvent.setup()
+    render(<SchedulesPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Tasks' }))
+    const row = await screen.findByText('Custom Artifact Cleanup Test')
+    const tableRow = row.closest('tr') as HTMLElement
+    await user.click(within(tableRow).getByRole('button', { name: '编辑' }))
+    const dialog = await screen.findByRole('dialog', { name: '修改定时任务' })
+    await user.clear(within(dialog).getByDisplayValue('Custom Artifact Cleanup Test'))
+    await user.type(within(dialog).getByDisplayValue(''), 'Renamed Artifact Cleanup')
+    await user.click(within(dialog).getByRole('button', { name: '保存修改' }))
+
+    await waitFor(() => {
+      expect(apiMock.updateSchedule).toHaveBeenCalledWith('custom_artifact_cleanup_test', expect.objectContaining({
+        display_name: 'Renamed Artifact Cleanup',
+      }))
+    })
+
+    await user.click(within(tableRow).getByRole('button', { name: '删除' }))
+    await waitFor(() => {
+      expect(apiMock.deleteSchedule).toHaveBeenCalledWith('custom_artifact_cleanup_test')
     })
   })
 })
