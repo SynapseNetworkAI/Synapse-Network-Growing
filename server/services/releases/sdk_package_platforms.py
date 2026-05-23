@@ -53,9 +53,9 @@ def _template_summary(platform_key: str) -> tuple[str, str, str, str]:
     if platform_key == "maven-central":
         return (
             "mvn -B -f java/pom.xml test package",
-            "mvn -B -f java/pom.xml deploy",
-            "mvn dependency:get -Dartifact=ai.synapsenetwork:synapse-network-sdk:{version}",
-            "mvn dependency:get -Dartifact=ai.synapsenetwork:synapse-network-sdk:{version}",
+            "bash scripts/publish/maven_central_deploy.sh",
+            "mvn dependency:get -Dartifact=ai.synapse-network:synapse-network-sdk:{version}",
+            "mvn dependency:get -Dartifact=ai.synapse-network:synapse-network-sdk:{version}",
         )
     return (
         "dotnet test dotnet/tests/SynapseNetwork.Sdk.Tests/SynapseNetwork.Sdk.Tests.csproj && dotnet pack dotnet/src/SynapseNetwork.Sdk/SynapseNetwork.Sdk.csproj -c Release",
