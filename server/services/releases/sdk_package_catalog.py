@@ -31,7 +31,7 @@ PACKAGE_CATALOG: dict[str, dict[str, str]] = {
         "package_url_template": "https://pkg.go.dev/{package_name}@v{version}",
     },
     "java": {
-        "package_name": "ai.synapsenetwork:synapse-network-sdk",
+        "package_name": "ai.synapse-network:synapse-network-sdk",
         "registry": "maven-central",
         "platform_key": "maven-central",
         "credential_env_var": "MAVEN_TOKEN",

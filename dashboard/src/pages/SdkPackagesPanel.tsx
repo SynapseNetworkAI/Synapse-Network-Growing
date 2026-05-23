@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SdkPackagePlatform, SdkPackageRelease, SdkPackageReleasePage, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, FieldLabel, OverlayModal, StateBadge, useToast } from '../components/workbench'
-import { SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkReleaseTone } from './sdkPackageUi'
+import { SDK_SOURCE_REPO_URL, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkReleaseTone } from './sdkPackageUi'
 
 const PAGE_SIZE = 10
 const STATUS_OPTIONS = ['', 'planned', 'dry_running', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
@@ -166,6 +166,9 @@ export default function SdkPackagesPanel({ search }: Readonly<{ search: string }
         <div className="flex flex-wrap gap-2">
           <button type="button" className="rounded-xl border border-[color:var(--ops-state-running-border)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ops-state-running-text)]" onClick={() => setPlatformModalOpen(true)}>
             Platform Settings
+          </button>
+          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm font-semibold" onClick={() => openExternalUrl(SDK_SOURCE_REPO_URL)}>
+            SDK GitHub repo
           </button>
           <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white" onClick={() => setModalOpen(true)}>
             新增发布记录

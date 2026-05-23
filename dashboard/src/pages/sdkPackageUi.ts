@@ -1,3 +1,45 @@
+import { sdkPackagesApi } from '../sdkPackagesApi'
+
+export const SDK_SOURCE_REPO_URL = 'https://github.com/SynapseNetworkAI/Synapse-Network-Sdk'
+
+export const SDK_PUBLIC_PACKAGE_LINKS = [
+  {
+    language: 'python',
+    registry: 'PyPI',
+    packageName: 'synapse-network-ai-sdk',
+    url: 'https://pypi.org/project/synapse-network-ai-sdk/1.0.0/',
+    installCommand: 'pip install synapse-network-ai-sdk==1.0.0',
+  },
+  {
+    language: 'typescript',
+    registry: 'npm',
+    packageName: '@synapse-network-ai/sdk',
+    url: 'https://www.npmjs.com/package/@synapse-network-ai/sdk/v/1.0.0',
+    installCommand: 'npm install @synapse-network-ai/sdk@1.0.0',
+  },
+  {
+    language: 'go',
+    registry: 'Go module',
+    packageName: 'github.com/SynapseNetworkAI/Synapse-Network-Sdk/go',
+    url: 'https://pkg.go.dev/github.com/SynapseNetworkAI/Synapse-Network-Sdk/go@v1.0.0',
+    installCommand: 'go get github.com/SynapseNetworkAI/Synapse-Network-Sdk/go@v1.0.0',
+  },
+  {
+    language: 'java',
+    registry: 'Maven Central',
+    packageName: 'ai.synapse-network:synapse-network-sdk',
+    url: 'https://repo1.maven.org/maven2/ai/synapse-network/synapse-network-sdk/1.0.0/',
+    installCommand: 'mvn dependency:get -Dartifact=ai.synapse-network:synapse-network-sdk:1.0.0',
+  },
+  {
+    language: 'dotnet',
+    registry: 'NuGet',
+    packageName: 'SynapseNetwork.Sdk',
+    url: 'https://www.nuget.org/packages/SynapseNetwork.Sdk/1.0.0',
+    installCommand: 'dotnet add package SynapseNetwork.Sdk --version 1.0.0',
+  },
+]
+
 export const SDK_STATUS_LABEL: Record<string, string> = {
   planned: '已计划',
   dry_running: 'Dry Run 中',
@@ -65,4 +107,3 @@ export async function syncSdkStatuses({
     setBusyAction(null)
   }
 }
-import { sdkPackagesApi } from '../sdkPackagesApi'

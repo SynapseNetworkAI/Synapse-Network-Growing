@@ -91,7 +91,13 @@ def _steps(language: str, *, publish: bool, version: str, channel: str) -> list[
         return dry + (publish_steps if publish else [])
     if language == "java":
         dry = [Step("maven_package", "mvn -B -f java/pom.xml test package")]
-        publish_steps = [Step("maven_deploy", "mvn -B -f java/pom.xml deploy", True)]
+        publish_steps = [
+            Step(
+                "maven_central_deploy",
+                "bash scripts/publish/maven_central_deploy.sh",
+                True,
+            )
+        ]
         return dry + (publish_steps if publish else [])
     dry = [
         Step(
@@ -118,7 +124,9 @@ def _steps(language: str, *, publish: bool, version: str, channel: str) -> list[
     return dry + (publish_steps if publish else [])
 
 
-def _verification_step(language: str, version: str) -> Step:
+def _verification_step(
+    language: str, version: str, package_name: str | None = None
+) -> Step:
     if language == "python":
         return Step(
             "verify_pypi",
@@ -136,9 +144,10 @@ def _verification_step(language: str, version: str) -> Step:
             f"go list -m -json github.com/SynapseNetworkAI/Synapse-Network-Sdk/go@v{version}",
         )
     if language == "java":
+        artifact = clean(package_name) or "ai.synapse-network:synapse-network-sdk"
         return Step(
             "verify_maven",
-            f"mvn -q dependency:get -Dartifact=ai.synapsenetwork:synapse-network-sdk:{version}",
+            f"mvn -q dependency:get -Dartifact={artifact}:{version}",
         )
     return Step(
         "verify_nuget",
@@ -157,6 +166,10 @@ def _runner_env(platform_key: str, credential_env_var: str) -> dict[str, str]:
     if platform_key == "npm" and token:
         env["NODE_AUTH_TOKEN"] = token
         env["NPM_CONFIG_REGISTRY"] = "https://registry.npmjs.org"
+    if platform_key == "maven-central" and token and ":" in token:
+        username, password = token.split(":", 1)
+        env["MAVEN_CENTRAL_USERNAME"] = username
+        env["MAVEN_CENTRAL_PASSWORD"] = password
     if platform_key == "nuget":
         dotnet_root = Path(
             env.get(
@@ -318,7 +331,12 @@ def _process_one(db: Session, row: SdkPackageReleaseRow) -> None:
         _run_step(db, row, step, env)
     if publish:
         _run_step(
-            db, row, _verification_step(language, clean(row.package_version)), env
+            db,
+            row,
+            _verification_step(
+                language, clean(row.package_version), clean(row.package_name)
+            ),
+            env,
         )
         row.status = "published"
         row.package_url = package_url_for(row)

@@ -53,6 +53,8 @@ def test_initialize_sdk_release_train_creates_default_package_records(synced_cli
     go_record = next(item for item in payload if item["sdk_language"] == "go")
     assert go_record["git_tag"] == "go/v1.0.0"
     assert go_record["registry"] == "go-module"
+    java_record = next(item for item in payload if item["sdk_language"] == "java")
+    assert java_record["package_name"] == "ai.synapse-network:synapse-network-sdk"
 
 
 def test_sdk_package_platforms_can_be_configured(synced_client):
@@ -522,7 +524,7 @@ def test_sdk_package_runner_templates_and_env(monkeypatch, tmp_path):
         step.key
         for step in _steps("go", publish=True, version="1.0.0", channel="latest")
     }
-    assert "maven_deploy" in {
+    assert "maven_central_deploy" in {
         step.key
         for step in _steps("java", publish=True, version="1.0.0", channel="latest")
     }
@@ -538,6 +540,9 @@ def test_sdk_package_runner_templates_and_env(monkeypatch, tmp_path):
     )
     assert "go list -m -json" in _verification_step("go", "1.0.0").command
     assert "mvn -q dependency:get" in _verification_step("java", "1.0.0").command
+    assert "ai.synapse-network:synapse-network-sdk" in _verification_step(
+        "java", "1.0.0"
+    ).command
     assert "dotnet add" in _verification_step("dotnet", "1.0.0").command
 
     pypi_env = _runner_env("pypi", "PYPI_API_TOKEN")
@@ -546,6 +551,10 @@ def test_sdk_package_runner_templates_and_env(monkeypatch, tmp_path):
     npm_env = _runner_env("npm", "NPM_TOKEN")
     assert npm_env["NODE_AUTH_TOKEN"] == "npm-token"
     assert npm_env["NPM_CONFIG_REGISTRY"] == "https://registry.npmjs.org"
+    monkeypatch.setenv("MAVEN_TOKEN", "central-user:central-password")
+    maven_env = _runner_env("maven-central", "MAVEN_TOKEN")
+    assert maven_env["MAVEN_CENTRAL_USERNAME"] == "central-user"
+    assert maven_env["MAVEN_CENTRAL_PASSWORD"] == "central-password"
     dotnet_env = _runner_env("nuget", "NUGET_API_KEY")
     assert dotnet_env["DOTNET_ROOT"] == str(dotnet_root)
     assert str(dotnet_root) in dotnet_env["PATH"]
