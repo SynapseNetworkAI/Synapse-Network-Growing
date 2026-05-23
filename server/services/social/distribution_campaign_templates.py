@@ -109,9 +109,11 @@ X_BRAND_WEEK_TASKS: tuple[CampaignTaskSpec, ...] = (
             title=f"X Week 1 Reply Block Day {day}",
             target_audience="Agent infra, devtools, payments, solo-founder builders on X",
             source_material=(
-                "Paste 5 real X URLs or watchlist posts for today's reply block. "
-                "Generate value-add reply drafts only. No hard sell, no 'Great point', "
-                "no link spam; each reply must add one concrete technical angle."
+                "Agent Economy Listening Loop: use real X URLs or stored watchlist/trend posts "
+                "about agent payments, API monetization, x402, MCP paid tools, USDC settlement, "
+                "provider registry, agent marketplace, or agent spend control. Prioritize direct "
+                "developer pain over generic AI news. Generate value-add reply drafts only. No hard "
+                "sell, no 'Great point', no links or source URLs by default; each reply must add one concrete technical angle."
             ),
             post_intent="engagement_reply",
             day_offset=day - 1,
