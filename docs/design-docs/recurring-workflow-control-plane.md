@@ -51,8 +51,8 @@ Scheduled Jobs / 定时任务管理面把系统里所有“会定期或后台推
 
 6. **X Social Sweep Scheduler**
    - 真实自动运行的轻量 scheduler。
-   - 只调度 `x_social_daily_content_planner`、`x_social_trend_radar_sweep`、`x_social_repost_candidate_sweep`。
-   - 只能生成 human-reviewed draft、read-only trend summary 和 repost candidate，不能自动发布、回复、转发、关注或删除。
+   - 只调度命名的 `x_social_*` 工作流，包括 daily planner、trend radar、repost/reply candidate、reply block preflight 和 post observer。
+   - 只能生成 human-reviewed draft、read-only trend summary、repost/reply candidate 和发布前证据，不能后台自动发布、回复、转发、关注或删除。
 
 6. **Release PR Status Sweep Scheduler**
    - 只读同步 GitHub PR 外部状态。
@@ -434,7 +434,7 @@ OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS=5
 6. GitHub `404 / Not Found` 是业务终态，不是普通网络失败；必须映射为 `pr_closed / abandoned`，`next_action=review_missing_pr`，并记录 `PR removed from GitHub or no longer accessible`，避免永久僵尸轮询。
 7. Timeout、5xx、auth 或未知 CLI 失败不得覆盖本地 release 状态，只能写本次 recurring run 的失败摘要，等待下次 sweep 或 operator 处理。
 8. 合并 PR 不自动部署；deploy / rollback 仍必须进入 Release surface 与 Human Gate。
-9. X Social recurring workflows 是平台前缀化的运营自动化：`x_social_daily_content_planner` 每小时 tick，并把当天 active human-reviewed daily planner 草稿库存补足到 3 条；已有 3 条时不调用 Agent，不足 3 条时可一次补齐缺口，但遇到生成失败立即停止本轮。它的输入包含 public-safe 产品变更信号，不直接改官网。`x_social_trend_radar_sweep` 优先从 Watchlist timeline 只读采集真实 X posts，并按 `last_checked_at` 做账号级节流；`x_social_repost_candidate_sweep` 只从带真实 `source_url` 的趋势生成引用转发候选。它们不得自动发布、回复、转发或关注账号。
+9. X Social recurring workflows 是平台前缀化的运营自动化：`x_social_daily_content_planner` 每小时 tick，并把当天 active human-reviewed daily planner 草稿库存补足到 3 条；已有 3 条时不调用 Agent，不足 3 条时可一次补齐缺口，但遇到生成失败立即停止本轮。它的输入包含 public-safe 产品变更信号，不直接改官网。`x_social_trend_radar_sweep` 优先从 Watchlist timeline 只读采集真实 X posts，并按 `last_checked_at` 做账号级节流；`x_social_repost_candidate_sweep` 只从带真实 `source_url` 的趋势生成引用转发候选；`x_social_daily_reply_block_publisher` 只为 due engagement reply task 生成 agent-reviewed reply candidates 和证据，不做后台公开回复。它们不得自动发布、回复、转发或关注账号。
 10. `x_social_trend_radar_sweep` 的 Rate Limit 语义必须 fail-soft：X API 429 / auth / 权限问题只写 diagnostic 和 run result，不强制重试、不阻断其它定时任务、不把本地 seed 冒充真实 X 来源。
 11. `x_social_repost_candidate_sweep` 的输出必须 value-add：quote 文案需要提供 Synapse angle、agent/API/payment rails 观点或开发者收益，不得只生成 `Great point` / `Interesting` 这类附和式内容。
 

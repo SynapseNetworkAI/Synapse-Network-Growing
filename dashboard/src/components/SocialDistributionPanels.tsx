@@ -3,6 +3,7 @@ import {
   api,
   type SocialContentAssetDetail,
   type SocialDistributionAccount,
+  type SocialReplyItem,
   type SocialDistributionTask,
 } from '../api'
 import type { SocialDistributionBoard } from '../apiSocialDistribution'
@@ -11,6 +12,11 @@ import { DistributionBoard } from './SocialDistributionBoard'
 import { ContentTaskDetailModal, TaskDetailModal } from './SocialDistributionDetails'
 export { DistributionSettingsPanel } from './SocialDistributionSettingsPanel'
 import { useSocialDistributionAuthStatus } from './useSocialDistributionAuthStatus'
+import {
+  TaskKindFilterControl,
+  filterBoardByKind,
+  type TaskKindFilter,
+} from './SocialDistributionTaskKindFilter'
 import {
   ContentTaskForm,
 } from './SocialDistributionWidgets'
@@ -43,6 +49,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [xAuthNotice, setXAuthNotice] = useState<string | null>(null)
   const { authStatuses, authStatusBusy, checkAccountAuthStatuses } = useSocialDistributionAuthStatus()
   const [plannerBusy, setPlannerBusy] = useState(false)
+  const [taskKindFilter, setTaskKindFilter] = useState<TaskKindFilter>('all')
   const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
 
   async function loadTasks() {
@@ -185,6 +192,81 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
+  async function generateXReplyBlock() {
+    if (!detail) return
+    try {
+      setBusy(true)
+      const result = await api.generateSocialXReplyBlock(detail.id, {
+        actor: 'agent',
+        target_count: 5,
+        agent_review: true,
+      })
+      setDetail(result.asset)
+      await loadTasks()
+      toast.success(`X 回复候选已生成：${result.reply_ids.length} 条，失败 ${result.failed_reply_ids.length} 条`)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成 X 回复候选失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshOpenAsset() {
+    if (!detail) return
+    const nextDetail = await api.getSocialContentAsset(detail.id)
+    setDetail(nextDetail)
+  }
+
+  async function markReplyManualPublished(reply: SocialReplyItem) {
+    try {
+      setBusy(true)
+      await api.updateSocialReply(reply.id, {
+        status: 'published_manual',
+        reviewed_by: 'operator',
+        review_note: 'Marked manually published from publishing reply task detail.',
+      })
+      await refreshOpenAsset()
+      await loadTasks()
+      toast.success('已标记为人工发布')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '标记人工发布失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function publishReplyToX(reply: SocialReplyItem) {
+    try {
+      setBusy(true)
+      await api.publishSocialReplyToX(reply.id, { actor: 'agent' })
+      await refreshOpenAsset()
+      await loadTasks()
+      toast.success('已通过 X API 发布回复')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'X API 发布回复失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function regenerateReply(reply: SocialReplyItem) {
+    if (!reply.source_candidate_id) {
+      toast.error('该候选缺少 source candidate，无法重新生成')
+      return
+    }
+    try {
+      setBusy(true)
+      await api.generateSocialReplyForRepostCandidate(reply.source_candidate_id, { actor: 'agent' })
+      await refreshOpenAsset()
+      await loadTasks()
+      toast.success('回复候选已重新生成')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '重新生成回复失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function markLive(task: SocialDistributionTask) {
     try {
       const updated = await api.markSocialDistributionTaskLive(task.id, { published_url: manualUrl, manual_result_note: manualNote, actor: 'operator' })
@@ -294,6 +376,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
+  const visibleBoard = board ? filterBoardByKind(board, taskKindFilter) : null
+
   return (
     <SectionFrame
       eyebrow="Distribution Tasks"
@@ -317,7 +401,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     >
       {!board ? <EmptyPane>分发看板加载中。</EmptyPane> : null}
       {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容计划。点击“创建内容计划”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
-      {board ? <DistributionBoard board={board} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
+      {board ? <TaskKindFilterControl value={taskKindFilter} onChange={setTaskKindFilter} /> : null}
+      {visibleBoard ? <DistributionBoard board={visibleBoard} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
       <OverlayModal open={showCreate} eyebrow="Content Plan" title="创建内容计划" description="输入一篇源内容或大纲；创建后自动生成方案，审核通过后再生成平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
         <ContentTaskForm form={form} onChange={setForm} />
       </OverlayModal>
@@ -327,12 +412,17 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         selectedAccountIds={selectedAccountIds}
         formatDateTime={formatDateTime}
         busy={busy}
+        toast={toast}
         onToggleAccount={(id) => setSelectedAccountIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
         onClose={() => setDetail(null)}
         onGeneratePlan={() => void generatePlan()}
         onExpandCanonicalArticle={() => void expandCanonicalArticle()}
         onApproveCanonicalArticle={(documentId) => void approveCanonicalArticle(documentId)}
         onApproveGenerate={() => void approveAndGenerate()}
+        onGenerateXReplyBlock={() => void generateXReplyBlock()}
+        onMarkReplyManualPublished={(reply) => void markReplyManualPublished(reply)}
+        onPublishReplyToX={(reply) => void publishReplyToX(reply)}
+        onRegenerateReply={(reply) => void regenerateReply(reply)}
         onOpenTask={(task) => {
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')

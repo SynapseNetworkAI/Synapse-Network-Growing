@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -33,18 +31,16 @@ const apiMock = vi.hoisted(() => ({
   getScheduledCloudRunJobsStatus: vi.fn(),
   publishScheduledCloudRunJobs: vi.fn(),
   syncScheduledCloudRunJobs: vi.fn(),
+  getDeploymentEvents: vi.fn(),
 }))
-
-vi.mock('../api', () => ({
-  api: apiMock,
-}))
-
+vi.mock('../api', () => ({ api: apiMock }))
 vi.mock('../apiReleaseTasks', () => ({
   getReleaseTasksPage: apiMock.getReleaseTasksPage,
   getReleaseTaskGateStatus: apiMock.getReleaseTaskGateStatus,
   deployReleaseTask: apiMock.deployReleaseTask,
   attachReleaseTaskPrebuiltImage: apiMock.attachReleaseTaskPrebuiltImage,
 }))
+vi.mock('../apiDeployments', () => ({ getDeploymentEvents: apiMock.getDeploymentEvents }))
 
 function candidate(overrides: Record<string, unknown> = {}) {
   const release = {
@@ -227,6 +223,7 @@ describe('ReleasesPage', () => {
       pending_ids: [],
       error_ids: [],
     })
+    apiMock.getDeploymentEvents.mockResolvedValue([])
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask(),
       releaseTask({

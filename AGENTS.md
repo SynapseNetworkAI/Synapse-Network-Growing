@@ -71,7 +71,7 @@ Rules:
 3. Planner Sweep creates candidates, not official requirements, unless operator-approved materialization is explicit.
 4. RequirementCandidate materialization must fail closed without evidence-bound `execution_acceptance_steps`.
 5. Drop Goal stops future investment and safe-halts unfinished work; it never reverts delivered releases.
-6. Production deploy, funds, settlement, contract, auth, external paid spend, and self-modifying deployment require human gate.
+6. Production deploy requires a Production Approval Gate. The gate may be a human operator or an `agent_release_reviewer` when same-commit staging evidence, smoke evidence, deployment events, rollback target, and PR/check evidence all pass. Rollback, funds, settlement, contract, auth/secret/credential change, external paid spend, and self-modifying deployment still require human gate.
 7. Legacy `/api/tasks` and `/api/approvals` public routes are retired. Remaining fixed-step execution internals are deletion candidates, not valid extension points.
 8. Frontend must remain a Human-Agent Control Plane. Do not reintroduce flat CRUD navigation, detached candidate queues, or raw JSON as the primary operator surface.
 

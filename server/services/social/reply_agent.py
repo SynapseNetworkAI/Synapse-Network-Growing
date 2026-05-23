@@ -364,12 +364,15 @@ def _validate_generated_reply(
 
 def generate_x_reply_for_candidate(
     candidate: SocialRepostCandidateRow,
+    *,
+    timeout_seconds: int | None = None,
 ) -> GeneratedXReply:
     system_prompt, user_prompt, context_sources = _build_reply_generation_prompt(
         candidate
     )
     model = config.SOCIAL_CONTENT_LLM_MODEL
-    timeout = min(max(int(config.SOCIAL_CONTENT_LLM_TIMEOUT or 180), 30), 900)
+    requested_timeout = timeout_seconds if timeout_seconds is not None else config.SOCIAL_CONTENT_LLM_TIMEOUT
+    timeout = min(max(int(requested_timeout or 180), 30), 900)
     if config.SOCIAL_CONTENT_LLM_PROVIDER == "codex":
         raw_text, metadata, model = _call_reply_codex(
             system_prompt, user_prompt, model=model, timeout=timeout

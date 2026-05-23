@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import get_db
+from server.database import DeploymentRecordRow, get_db
 from server.schemas import DeploymentOverviewOut, DeploymentRecordOut, DeploymentReportRequest, EnvironmentStatusOut
+from server.schemas_deployment_events import DeploymentEventOut
+from server.services.delivery.deployment_events import list_deployment_events, record_deployment_event
 from server.services.delivery.deployment_governance import (
     build_deployment_overview,
     build_project_environment_statuses,
@@ -30,6 +32,11 @@ def get_project_environment_status_endpoint(policy_id: int, db: Session = Depend
     return build_project_environment_statuses(db, policy)
 
 
+@router.get("/{record_id}/events", response_model=list[DeploymentEventOut])
+def list_deployment_events_endpoint(record_id: int, db: Session = Depends(get_db)):
+    return list_deployment_events(db, record_id)
+
+
 @router.post("/{record_id}/report", response_model=DeploymentRecordOut)
 def report_deployment_status_endpoint(
     record_id: int,
@@ -41,7 +48,9 @@ def report_deployment_status_endpoint(
     if required and x_deploy_token != required:
         raise HTTPException(status_code=401, detail="Invalid deploy webhook token.")
     try:
-        return report_deployment_result(
+        row = db.get(DeploymentRecordRow, int(record_id))
+        previous_status = str(getattr(row, "status", "") or "requested") if row else None
+        result = report_deployment_result(
             db,
             record_id,
             status=body.status,
@@ -53,5 +62,38 @@ def report_deployment_status_endpoint(
             notes=body.notes,
             metadata=body.metadata,
         )
+        row = db.get(DeploymentRecordRow, int(record_id))
+        if row is not None:
+            record_deployment_event(
+                db,
+                row,
+                event_type="deployment_reported",
+                actor="staging_deploy_runner",
+                status_from=previous_status,
+                status_to=str(row.status or ""),
+                summary=row.notes or f"Deployment reported {row.status}.",
+                payload={
+                    "external_run_id": row.external_run_id,
+                    "external_url": row.external_url,
+                    "health_status": row.health_status,
+                },
+            )
+            if row.environment == "production":
+                record_deployment_event(
+                    db,
+                    row,
+                    event_type="production_reported",
+                    actor="production_deploy_runner",
+                    status_from=previous_status,
+                    status_to=str(row.status or ""),
+                    summary=row.notes or f"Production deployment reported {row.status}.",
+                    payload={
+                        "external_run_id": row.external_run_id,
+                        "external_url": row.external_url,
+                        "health_status": row.health_status,
+                    },
+                )
+            db.commit()
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 
 
 SCHEDULING_TESTS = ("tests/test_weekly_repo_hygiene_review.py",)
+DATABASE_TESTS = (
+    "tests/test_database_config.py",
+    "tests/test_database_retry.py",
+    "tests/test_postgres_migration.py",
+)
 
 TARGETED_TEST_MAPPINGS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
@@ -17,6 +22,14 @@ TARGETED_TEST_MAPPINGS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
             "scripts/ci/weekly_repo_hygiene_scan.py",
         ),
         SCHEDULING_TESTS,
+    ),
+    (
+        (
+            "server/database_config.py",
+            "server/database_retry.py",
+            "scripts/db/",
+        ),
+        DATABASE_TESTS,
     ),
 )
 

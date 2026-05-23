@@ -383,11 +383,6 @@ def trigger_requirement_deployment(
     effective_commit_sha = ""
     if rollback_target_sha or commit_sha or env_name == "production" or source_ref_type == "commit":
         effective_commit_sha = _resolve_commit_sha(db, requirement, rollback_target_sha or commit_sha or effective_source_ref)
-    if env_name == "production" and not rollback_target_sha:
-        staging_success = _latest_success_row(db, policy_data["project_key"], "staging", commit_sha=effective_commit_sha)
-        if staging_success is None:
-            raise ValueError("Production promotion requires a successful staging deployment for the same commit.")
-
     record = DeploymentRecordRow(
         requirement_id=requirement_id,
         project_policy_id=int(policy.id),
@@ -418,6 +413,36 @@ def trigger_requirement_deployment(
         started_at=utcnow(),
     )
     db.add(record)
+    db.flush()
+    from server.services.delivery import deployment_governance_events
+
+    deployment_governance_events.record_requested(db, record)
+    if env_name == "production" and not rollback_target_sha:
+        from server.services.delivery.production_agent_approval import (
+            apply_production_agent_gate,
+            review_production_agent_approval,
+        )
+
+        deployment_governance_events.record_production_agent_review_started(db, record)
+        approval = review_production_agent_approval(
+            db,
+            project_key=str(policy_data["project_key"]),
+            commit_sha=effective_commit_sha,
+            source_ref_type=source_ref_type,
+            source_ref=effective_source_ref,
+            requirement_id=requirement_id,
+        )
+        if not apply_production_agent_gate(
+            db,
+            record=record,
+            approval=approval,
+            production_branch_blocker=False,
+        ):
+            db.commit()
+            db.refresh(record)
+            return DeploymentRecordOut(**_deployment_record_to_dict(record))
+        deployment_governance_events.record_production_dispatch_started(db, record)
+    deployment_governance_events.record_dispatched(db, record)
     db.commit()
     db.refresh(record)
 

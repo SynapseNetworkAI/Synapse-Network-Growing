@@ -33,6 +33,30 @@ function formatTime(value: string | null) {
   return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
+function AgentApprovalSummary({ metadata }: Readonly<{ metadata: Record<string, unknown> | null | undefined }>) {
+  const approval = metadata?.agent_approval || metadata?.production_agent_approval
+  if (!approval || typeof approval !== 'object') return null
+  const gate = approval as Record<string, unknown>
+  const blockedReasons = Array.isArray(gate.blocked_reasons)
+    ? gate.blocked_reasons.map((item) => String(item))
+    : []
+  return (
+    <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Agent Approval Gate</span>
+        <StateBadge tone={blockedReasons.length ? 'blocked' : 'delivered'}>{String(gate.status || '-')}</StateBadge>
+      </div>
+      <div className="grid gap-2 text-xs md:grid-cols-2">
+        <span>risk: {String(gate.risk_score ?? '-')}</span>
+        <span>staging: {String(gate.staging_record_id ?? '-')}</span>
+        <span>rollback: {String(gate.rollback_target_record_id ?? '-')}</span>
+        <span>reviewer: {String(gate.actor || 'agent_release_reviewer')}</span>
+      </div>
+      {blockedReasons.length ? <div className="mt-2 text-xs text-[color:var(--ops-state-blocked-text)]">{blockedReasons.join(' · ')}</div> : null}
+    </div>
+  )
+}
+
 export default function ReleaseDetailPage() {
   const { requirementId } = useParams<{ requirementId: string }>()
   const navigate = useNavigate()
@@ -42,6 +66,7 @@ export default function ReleaseDetailPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [deployScope, setDeployScope] = useState<DeployScope>('auto')
+  const [rollbackSha, setRollbackSha] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -167,6 +192,10 @@ export default function ReleaseDetailPage() {
                 <option value="all">all</option>
               </select>
             </label>
+            <label className="flex min-w-[280px] items-center gap-2 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm">
+              <span className="text-[color:var(--ops-text-caption)]">Rollback SHA</span>
+              <input className="min-w-0 flex-1 bg-transparent text-[color:var(--ops-text-title)] outline-none" value={rollbackSha} onChange={(event) => setRollbackSha(event.target.value)} placeholder={release?.commit_sha || 'commit sha'} />
+            </label>
             <button
               className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-60"
               disabled={busyAction === 'prepare' || detail.validation?.status !== 'passed'}
@@ -234,12 +263,8 @@ export default function ReleaseDetailPage() {
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-60"
-              disabled={busyAction === 'rollback'}
-              onClick={async () => {
-                const sha = window.prompt('输入要回滚到的 commit SHA', release?.commit_sha || '')
-                if (!sha?.trim()) return
-                await runAction('rollback', () => api.rollbackRelease(id, { actor: 'operator', note: note || null, rollback_target_sha: sha.trim() }))
-              }}
+              disabled={busyAction === 'rollback' || !rollbackSha.trim()}
+              onClick={() => runAction('rollback', () => api.rollbackRelease(id, { actor: 'operator', note: note || null, rollback_target_sha: rollbackSha.trim() }))}
             >
               回滚
             </button>
@@ -308,6 +333,7 @@ export default function ReleaseDetailPage() {
                   <div className="mt-1">source: {String(record.metadata?.sourceRefType || '-')}:{String(record.metadata?.sourceRef || record.branch_name || '-')}</div>
                   <div className="mt-1">scope: {Array.isArray(record.metadata?.deployScope) ? record.metadata.deployScope.join(', ') : String(record.metadata?.deployScope || '-')}</div>
                   {record.metadata?.evidenceUri ? <div className="mt-1">evidence: {String(record.metadata.evidenceUri)}</div> : null}
+                  <AgentApprovalSummary metadata={record.metadata} />
                 </div>
                 <div className="text-right text-xs text-[color:var(--ops-text-caption)]">
                   <div>started {formatTime(record.started_at)}</div>

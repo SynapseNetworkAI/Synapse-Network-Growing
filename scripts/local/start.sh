@@ -61,6 +61,10 @@ fi
 echo "[$(date '+%H:%M:%S')] Starting Ops Dashboard (local) on port $PORT ..."
 echo "[$(date '+%H:%M:%S')] Project root: $PROJECT_ROOT"
 echo "[$(date '+%H:%M:%S')] Python: $(which python)"
+if [[ -z "${OPS_DATABASE_URL:-}" ]]; then
+  echo "[$(date '+%H:%M:%S')] OPS_DATABASE_URL is unset; using local SQLite fallback."
+  echo "[$(date '+%H:%M:%S')] Recommended dev DB: docker compose -f docker-compose.postgres.yml up -d postgres"
+fi
 RELOAD_EXCLUDES=(
   "--reload-exclude" "runtime/*"
   "--reload-exclude" "server/logs/*"

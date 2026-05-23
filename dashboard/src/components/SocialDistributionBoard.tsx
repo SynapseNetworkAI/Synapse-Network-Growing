@@ -1,6 +1,12 @@
 import type { SocialContentAsset, SocialDistributionBoard as Board, SocialDistributionBoardCard as BoardCard } from '../apiSocialDistribution'
 import { StateBadge, statusTone } from './SocialDistributionWidgets'
 
+type ReplyBlockMetrics = {
+  source_candidate_ids?: unknown
+  processed_source_count?: unknown
+  reply_ids?: unknown
+}
+
 export function DistributionBoard({
   board,
   formatDateTime,
@@ -38,6 +44,7 @@ export function DistributionBoard({
 
 function DistributionBoardCard({ card, formatDateTime, onOpen }: { card: BoardCard; formatDateTime: (value: string | null | undefined) => string; onOpen: () => void }) {
   const taskCounts = Object.entries(card.status_counts ?? {}).map(([status, count]) => `${count} ${status}`).join(' / ')
+  const metrics = cardMetrics(card)
   const visibilityIssue = card.visibility_issue_count > 0
   const failed = card.failed_count > 0 || visibilityIssue
   return (
@@ -49,7 +56,7 @@ function DistributionBoardCard({ card, formatDateTime, onOpen }: { card: BoardCa
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">ASSET-{card.asset.id} · {card.asset.source_type}</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">ASSET-{card.asset.id} · {card.task_kind_label} · {card.asset.source_type}</div>
           <div className="mt-2 line-clamp-3 text-sm font-semibold text-[color:var(--ops-text-title)]">{card.asset.title}</div>
         </div>
         <StateBadge tone={failed ? 'blocked' : statusTone(card.asset.status)}>{card.asset.status}</StateBadge>
@@ -61,13 +68,42 @@ function DistributionBoardCard({ card, formatDateTime, onOpen }: { card: BoardCa
         </div>
       ) : null}
       <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
-        <div className="rounded-xl bg-[color:var(--ops-panel-strong)] px-2 py-2"><b>{card.platform_count}</b><span className="block text-[10px] text-[color:var(--ops-text-caption)]">platforms</span></div>
-        <div className="rounded-xl bg-[color:var(--ops-panel-strong)] px-2 py-2"><b>{card.document_count}</b><span className="block text-[10px] text-[color:var(--ops-text-caption)]">docs</span></div>
-        <div className="rounded-xl bg-[color:var(--ops-panel-strong)] px-2 py-2"><b>{card.live_count}</b><span className="block text-[10px] text-[color:var(--ops-text-caption)]">live</span></div>
+        {metrics.map((metric) => (
+          <div key={metric.label} className="rounded-xl bg-[color:var(--ops-panel-strong)] px-2 py-2"><b>{metric.value}</b><span className="block text-[10px] text-[color:var(--ops-text-caption)]">{metric.label}</span></div>
+        ))}
       </div>
       <div className="mt-3 font-mono text-[10px] leading-5 text-[color:var(--ops-text-caption)]">{taskCounts || 'no platform tasks'} · updated {formatDateTime(card.updated_at)}</div>
     </button>
   )
+}
+
+function cardMetrics(card: BoardCard) {
+  if (card.task_kind_code !== 'x_reply_block') {
+    return [
+      { label: 'platforms', value: card.platform_count },
+      { label: 'docs', value: card.document_count },
+      { label: 'live', value: card.live_count },
+    ]
+  }
+  const replyBlock = objectValue(card.asset.agent_metadata.reply_block)
+  return [
+    { label: 'source posts', value: arrayLength(replyBlock.source_candidate_ids) || numberValue(replyBlock.processed_source_count) },
+    { label: 'candidates', value: arrayLength(replyBlock.reply_ids) },
+    { label: 'live', value: card.live_count },
+  ]
+}
+
+function objectValue(value: unknown): ReplyBlockMetrics {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as ReplyBlockMetrics : {}
+}
+
+function arrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  return 0
 }
 
 export function AssetSummary({ asset, taskCount }: { asset: SocialContentAsset; taskCount: number }) {

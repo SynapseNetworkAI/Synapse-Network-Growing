@@ -15,7 +15,11 @@ const apiMock = vi.hoisted(() => ({
   generateSocialDistributionContentPlan: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
+  generateSocialXReplyBlock: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
+  updateSocialReply: vi.fn(),
+  publishSocialReplyToX: vi.fn(),
+  generateSocialReplyForRepostCandidate: vi.fn(),
   getSocialDistributionTaskXAuthStatus: vi.fn(),
   startSocialXOAuth: vi.fn(),
   markSocialDistributionTaskLive: vi.fn(),
@@ -101,6 +105,7 @@ function asset(overrides: Record<string, unknown> = {}) {
     documents: [],
     tasks: [],
     events: [],
+    reply_items: [],
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',
     ...overrides,
@@ -124,6 +129,9 @@ describe('PublishingPage v2 distribution workbench', () => {
             asset: asset(),
             column_key: 'ready_to_publish',
             task_count: 1,
+            task_kind_code: 'content_distribution',
+            task_kind_label: '内容分发',
+            task_kind_action: 'approve_and_generate_platform_docs',
             document_count: 2,
             platform_count: 1,
             failed_count: 0,
@@ -189,5 +197,120 @@ describe('PublishingPage v2 distribution workbench', () => {
     expect(screen.queryByRole('button', { name: '今日队列' })).not.toBeInTheDocument()
     expect(await screen.findByText('How AI agents should pay for APIs')).toBeInTheDocument()
     expect(screen.getByTestId('distribution-board-column-ready_to_publish')).toBeInTheDocument()
+  })
+
+  it('opens the dedicated X reply task detail without long-form publishing sections', async () => {
+    const replyDetail = {
+      ...asset({
+        id: 44,
+        asset_type: 'reply',
+        title: 'X Week 1 Reply Block Day 5',
+        agent_metadata: {
+          post_intent: 'engagement_reply',
+          target_platforms: ['x'],
+          reply_block: {
+            reply_ids: [91],
+            source_candidate_ids: [81],
+            publish_mode: 'agent_approved_needs_manual_publish',
+            approval_ref_configured: false,
+            auto_publish: false,
+          },
+        },
+      }),
+      tasks: [],
+      documents: [{
+        id: 71,
+        asset_id: 44,
+        task_id: null,
+        document_kind: 'source_plan',
+        platform: null,
+        channel_key: null,
+        title: 'Reply plan',
+        body_markdown: 'Paste 5 real X URLs and generate value-add replies.',
+        status: 'generated',
+        version: 1,
+        metadata: {},
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+      }],
+      reply_items: [{
+        id: 91,
+        platform: 'x',
+        external_reply_id: 'target:123',
+        source_candidate_id: 81,
+        source_post_id: '123',
+        source_author_handle: 'OpenAI',
+        source_text: 'Tool-using agents need safer ways to call external APIs.',
+        author_handle: 'SynapseNetworkAI',
+        incoming_text: 'Tool-using agents need safer ways to call external APIs.',
+        intent: 'engagement_reply',
+        suggested_reply: 'One concrete control I like here: give agents credential scopes, budgets, and receipts before they touch paid APIs.',
+        generation_reason: 'Specific and non-promotional.',
+        risk_level: 'normal',
+        status: 'agent_approved_needs_manual_publish',
+        source_url: 'https://x.com/OpenAI/status/123',
+        published_external_post_id: null,
+        reviewed_by: 'agent',
+        failure_summary: null,
+        metadata: {
+          agent_quality_review: { status: 'passed' },
+          x_reply_compliance: { approval_ref_configured: false },
+          model: 'test-reply-model',
+        },
+        created_at: '2026-05-01T00:00:00Z',
+        updated_at: '2026-05-01T00:00:00Z',
+      }],
+    }
+    apiMock.getSocialDistributionBoard.mockResolvedValue({
+      columns: [
+        { key: 'backlog', title: '待计划', description: 'Needs plan.', count: 0, cards: [] },
+        {
+          key: 'needs_review',
+          title: '待审核',
+          description: 'Plan ready.',
+          count: 1,
+          cards: [{
+            id: 'asset:44',
+            asset: replyDetail,
+            column_key: 'needs_review',
+            task_kind_code: 'x_reply_block',
+            task_kind_label: 'X 回复',
+            task_kind_action: 'generate_x_reply_candidates',
+            task_count: 0,
+            document_count: 1,
+            platform_count: 0,
+            failed_count: 0,
+            ready_to_publish_count: 0,
+            live_count: 0,
+            status_counts: {},
+            document_status_counts: { generated: 1 },
+            next_action: '生成 5 条 X 回复候选。',
+            updated_at: '2026-05-01T00:00:00Z',
+          }],
+        },
+        { key: 'ready_to_publish', title: '待发布', description: 'Ready.', count: 0, cards: [] },
+        { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 0, total_documents: 1 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
+    apiMock.getSocialContentAsset.mockResolvedValue(replyDetail)
+
+    render(<PublishingPage />)
+    await userEvent.click(await screen.findByRole('button', { name: '内容发布' }))
+    expect(screen.queryByText('X Week 1 Reply Block Day 5')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'X 回复' }))
+    expect(await screen.findByText('X Week 1 Reply Block Day 5')).toBeInTheDocument()
+    await userEvent.click(await screen.findByText('X Week 1 Reply Block Day 5'))
+
+    expect(await screen.findByText('Reply Candidates')).toBeInTheDocument()
+    expect(screen.getByText('123')).toBeInTheDocument()
+    expect(screen.getByText(/credential scopes, budgets, and receipts/)).toBeInTheDocument()
+    expect(screen.getByText('manual publish required')).toBeInTheDocument()
+    expect(screen.queryByText('Canonical Article')).not.toBeInTheDocument()
+    expect(screen.queryByText('Platform Docs')).not.toBeInTheDocument()
+    expect(screen.queryByText('Channel Selection')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '通过 X API 发布' })).not.toBeInTheDocument()
   })
 })

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import json
+from collections import Counter
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from server import schemas_social_distribution as dist_schema
-from server.database import utcnow
+from server.database import SocialReplyItemRow, utcnow
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionDocumentRow,
+    SocialDistributionTaskRow,
 )
 from server.services.social.distribution_board_contract import (
     BOARD_COLUMNS,
@@ -21,6 +22,8 @@ from server.services.social.distribution_documents import (
     ensure_platform_documents_for_asset,
 )
 from server.services.social.distribution_projection import _asset_out
+from server.services.social.distribution_reply_metadata import reply_ids_from_asset
+from server.services.social.distribution_task_kinds import task_kind_for_asset
 
 
 def social_distribution_board(
@@ -69,24 +72,38 @@ def _board_card(
     docs = list(asset.documents or [])
     status_counts = Counter(str(task.status or "planned") for task in tasks)
     doc_status_counts = Counter(str(doc.status or "generated") for doc in docs)
-    column_key = _asset_column(asset, status_counts, doc_status_counts, docs)
+    task_kind = task_kind_for_asset(asset)
+    reply_status_counts = (
+        _reply_status_counts(asset) if task_kind.code == "x_reply_block" else Counter()
+    )
+    if task_kind.code == "x_reply_block":
+        status_counts.update(reply_status_counts)
+    column_key = _asset_column(
+        asset, status_counts, doc_status_counts, docs, task_kind_code=task_kind.code
+    )
     return dist_schema.SocialDistributionBoardCardOut(
         id=f"asset:{int(asset.id)}",
         asset=_asset_out(asset),
         column_key=column_key,
+        task_kind_code=task_kind.code,
+        task_kind_label=task_kind.label,
+        task_kind_action=task_kind.action,
         task_count=len(tasks),
         document_count=len(docs),
-        platform_count=len({(task.platform, task.channel_key) for task in tasks}),
+        platform_count=_platform_count(asset, tasks, task_kind_code=task_kind.code),
         failed_count=status_counts.get("failed", 0)
+        + status_counts.get("rejected", 0)
         + doc_status_counts.get("failed", 0),
-        ready_to_publish_count=_ready_to_publish_count(
-            status_counts, doc_status_counts
+        ready_to_publish_count=_card_ready_to_publish_count(
+            status_counts, doc_status_counts, task_kind_code=task_kind.code
         ),
-        live_count=status_counts.get("live", 0),
+        live_count=status_counts.get("live", 0)
+        + status_counts.get("published", 0)
+        + status_counts.get("published_manual", 0),
         visibility_issue_count=_visibility_issue_count(tasks),
         status_counts=dict(status_counts),
         document_status_counts=dict(doc_status_counts),
-        next_action=board_next_action(column_key),
+        next_action=board_next_action(column_key, task_kind_code=task_kind.code),
         updated_at=asset.updated_at,
     )
 
@@ -96,7 +113,11 @@ def _asset_column(
     status_counts: Counter[str],
     doc_status_counts: Counter[str],
     docs: list[SocialDistributionDocumentRow],
+    *,
+    task_kind_code: str = "content_distribution",
 ) -> str:
+    if task_kind_code == "x_reply_block":
+        return _reply_asset_column(asset, status_counts, docs)
     column_checks = (
         ("blocked", _asset_is_blocked(asset, status_counts, doc_status_counts)),
         ("live", _asset_is_live(asset, status_counts)),
@@ -106,6 +127,31 @@ def _asset_column(
     for column_key, matched in column_checks:
         if matched:
             return column_key
+    return "backlog"
+
+
+def _reply_asset_column(
+    asset: SocialContentAssetRow,
+    status_counts: Counter[str],
+    docs: list[SocialDistributionDocumentRow],
+) -> str:
+    if _asset_is_blocked(asset, status_counts, Counter()):
+        return "blocked"
+    if status_counts.get("published", 0) or status_counts.get("published_manual", 0):
+        return "live"
+    if (
+        status_counts.get("agent_approved_needs_manual_publish", 0)
+        or status_counts.get("approved", 0)
+        or status_counts.get("needs_review", 0)
+    ):
+        return "ready_to_publish"
+    if _has_document_kind(docs, "source_plan") or asset.status in {
+        "draft",
+        "active",
+        "approved",
+        "ready",
+    }:
+        return "needs_review"
     return "backlog"
 
 
@@ -164,6 +210,21 @@ def _ready_to_publish_count(
     )
 
 
+def _card_ready_to_publish_count(
+    status_counts: Counter[str],
+    doc_status_counts: Counter[str],
+    *,
+    task_kind_code: str,
+) -> int:
+    if task_kind_code == "x_reply_block":
+        return (
+            status_counts.get("agent_approved_needs_manual_publish", 0)
+            + status_counts.get("approved", 0)
+            + status_counts.get("needs_review", 0)
+        )
+    return _ready_to_publish_count(status_counts, doc_status_counts)
+
+
 def _has_document_kind(
     docs: list[SocialDistributionDocumentRow],
     document_kind: str,
@@ -171,7 +232,31 @@ def _has_document_kind(
     return any(doc.document_kind == document_kind for doc in docs)
 
 
-def _visibility_issue_count(tasks: list) -> int:
+def _platform_count(
+    asset: SocialContentAssetRow,
+    tasks: list[SocialDistributionTaskRow],
+    *,
+    task_kind_code: str,
+) -> int:
+    if task_kind_code == "x_reply_block":
+        return 1 if reply_ids_from_asset(asset) else 0
+    return len({(task.platform, task.channel_key) for task in tasks})
+
+
+def _reply_status_counts(asset: SocialContentAssetRow) -> Counter[str]:
+    reply_ids = reply_ids_from_asset(asset)
+    session = object_session(asset)
+    if not reply_ids or session is None:
+        return Counter()
+    rows = (
+        session.query(SocialReplyItemRow.status)
+        .filter(SocialReplyItemRow.id.in_(reply_ids))
+        .all()
+    )
+    return Counter(str(row[0] or "needs_review") for row in rows)
+
+
+def _visibility_issue_count(tasks: list[SocialDistributionTaskRow]) -> int:
     issue_statuses = {"removed_by_filter", "flagged", "not_found", "blocked"}
     count = 0
     for task in tasks:

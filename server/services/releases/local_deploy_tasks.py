@@ -11,6 +11,7 @@ from server.schemas import ReleaseTaskOut, ReleaseTaskPrGateOut
 from server.services.delivery.deployment_governance import _json_dump
 from server.services.local_runner.json_utils import _json_load_dict
 from server.services.releases.prebuilt_images import PREBUILT_FRONTEND_SERVICES
+from server.services.releases import deployment_task_events
 from server.services.releases.tasks import (
     _clean,
     _policy_for_project,
@@ -280,6 +281,19 @@ def create_local_deploy_record_for_task(
         service_key=service_key,
         repo_full_name=repo_full_name,
         extra_metadata=extra_metadata,
+    )
+    deployment_task_events.record_requested(
+        db,
+        row,
+        record,
+        actor=actor,
+        workflow_file="local_deploy_runner",
+    )
+    deployment_task_events.record_dispatched(
+        db,
+        record,
+        actor=actor,
+        inputs={"runner": "local_deploy_runner", "service_key": service_key},
     )
     row.deployment_record_id = int(record.id)
     row.status = "deploying"
