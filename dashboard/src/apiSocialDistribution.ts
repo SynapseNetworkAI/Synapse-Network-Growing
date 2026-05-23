@@ -103,10 +103,35 @@ export interface SocialDistributionDocument {
   updated_at: string | null
 }
 
+export interface SocialReplyItem {
+  id: number
+  platform: string
+  external_reply_id: string
+  source_candidate_id: number | null
+  source_post_id: string | null
+  source_author_handle: string | null
+  source_text: string | null
+  author_handle: string | null
+  incoming_text: string
+  intent: string
+  suggested_reply: string | null
+  generation_reason: string | null
+  risk_level: string
+  status: string
+  source_url: string | null
+  published_external_post_id: string | null
+  reviewed_by: string | null
+  failure_summary: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface SocialContentAssetDetail extends SocialContentAsset {
   tasks: SocialDistributionTask[]
   events: SocialDistributionEvent[]
   documents: SocialDistributionDocument[]
+  reply_items: SocialReplyItem[]
 }
 
 export interface SocialDistributionTaskGroup {
@@ -127,6 +152,9 @@ export interface SocialDistributionBoardCard {
   id: string
   asset: SocialContentAsset
   column_key: string
+  task_kind_code: string
+  task_kind_label: string
+  task_kind_action: string
   task_count: number
   document_count: number
   platform_count: number
@@ -165,6 +193,20 @@ export interface SocialDistributionGenerateTasksResult {
   }>
   generated_task_ids: number[]
   failed_task_ids: number[]
+}
+
+export interface SocialXReplyBlockGenerateResult {
+  asset: SocialContentAssetDetail
+  reply_ids: number[]
+  failed_reply_ids: number[]
+  source_candidate_ids: number[]
+  processed_source_count: number
+  auto_publish: boolean
+  agent_review: boolean
+  publish_mode: string
+  approval_ref_configured: boolean
+  timed_out: boolean
+  blocked_reason: string | null
 }
 
 export interface SocialAssetPlannerRun {
@@ -330,6 +372,32 @@ export function createSocialDistributionApi(request: RequestFn) {
           body: JSON.stringify(data),
         },
         60_000,
+      ),
+    generateSocialXReplyBlock: (
+      assetId: number,
+      data: {
+        actor?: string
+        target_count?: number
+        agent_review?: boolean
+        auto_publish?: boolean
+        max_seconds?: number
+        per_reply_timeout_seconds?: number
+        source_posts?: Array<{
+          source_url: string
+          author_handle?: string | null
+          source_text: string
+          rationale?: string | null
+          opt_in_evidence?: string | null
+        }>
+      } = {},
+    ) =>
+      request<SocialXReplyBlockGenerateResult>(
+        `/social/distribution/assets/${assetId}/generate-x-reply-block`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+        120_000,
       ),
     updateSocialDistributionTask: (
       id: number,

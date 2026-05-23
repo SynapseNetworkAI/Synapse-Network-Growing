@@ -17,6 +17,10 @@ require_ops_python_runtime python
 export OPS_ENV=prod
 PORT=${OPS_PORT:-9600}
 WORKERS=${OPS_WORKERS:-4}
+if [[ -z "${OPS_DATABASE_URL:-}" || "${OPS_DATABASE_URL:-}" == sqlite:* ]]; then
+  echo "OPS_DATABASE_URL must be an explicit PostgreSQL URL for OPS_ENV=prod." >&2
+  exit 2
+fi
 
 if [[ "${OPS_PRESERVE_RUNTIME_ENV:-0}" != "1" ]]; then
   for key in ORCHESTRATION_BACKEND LLM_PROVIDER LLM_MODEL LLM_EXECUTION_MODE COPILOT_SDK_MODEL CODEX_CLI_MODEL; do

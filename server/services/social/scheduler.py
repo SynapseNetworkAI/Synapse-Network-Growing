@@ -25,6 +25,7 @@ class XSocialSweepScheduler:
         "x_social_trend_radar_sweep",
         "x_social_repost_candidate_sweep",
         "x_social_reply_candidate_sweep",
+        "x_social_daily_reply_block_publisher",
         "x_social_post_observer_sweep",
     )
 

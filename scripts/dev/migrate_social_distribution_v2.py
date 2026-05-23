@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from server import config
 from server.database import SessionLocal, engine, utcnow
+from server.database_config import is_sqlite_url
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionAccountRow,
@@ -61,6 +62,9 @@ def main() -> int:
 
 
 def _backup_db() -> Path | None:
+    if not is_sqlite_url(config.DATABASE_URL):
+        print("[social-distribution-v2] backup skipped: non-SQLite database URL")
+        return None
     db_path = Path(config.DATABASE_URL.replace("sqlite:///", ""))
     if not db_path.exists():
         return None

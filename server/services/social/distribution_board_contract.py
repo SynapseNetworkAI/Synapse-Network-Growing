@@ -12,7 +12,15 @@ BOARD_COLUMNS = (
 )
 
 
-def board_next_action(column_key: str) -> str:
+def board_next_action(column_key: str, *, task_kind_code: str = "content_distribution") -> str:
+    if task_kind_code == "x_reply_block":
+        return {
+            "backlog": "补齐真实 X source posts 后生成回复候选。",
+            "needs_review": "生成 5 条 X 回复候选；不生成多平台文章。",
+            "ready_to_publish": "审核 X 回复候选，通过 Human Gate 逐条发布。",
+            "live": "打开回复链接，检查排版、重复和效果数据。",
+            "blocked": "修复 source posts、登录权限或生成超时后重试。",
+        }.get(column_key, "Inspect reply block history.")
     return {
         "backlog": "创建内容任务并生成方案。",
         "needs_review": "审核方案方向，通过后生成平台文档。",

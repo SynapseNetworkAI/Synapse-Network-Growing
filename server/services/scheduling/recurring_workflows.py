@@ -51,6 +51,7 @@ from server.services.social.publishing import (
     run_x_social_repost_candidate_sweep,
     run_x_social_trend_radar_sweep,
 )
+from server.services.scheduling.x_social_reply_block_workflow import REPLY_BLOCK_DRY_RUN, REPLY_BLOCK_RECURRING_WORKFLOW, run_reply_block_workflow
 from server.services.planning.product_opportunities import run_product_planning_sweep
 from server.services.result_objects import ServiceObjectResult, dump_service_result, service_object_result
 
@@ -279,6 +280,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"},
         "validation_signal": {"success_metric": "created_reply_ids"},
     },
+    REPLY_BLOCK_RECURRING_WORKFLOW,
     {
         "workflow_key": "x_social_post_observer_sweep",
         "display_name": "X Social Post Observer Sweep",
@@ -299,9 +301,9 @@ _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "x_social_trend_radar_sweep": {"platform": "x", "read_only": True, "min_relevance_score": 0.70, "external_actions": []},
     "x_social_repost_candidate_sweep": {"platform": "x", "auto_repost": False, "human_gate_required": True, "min_relevance_score": 0.75},
     "x_social_reply_candidate_sweep": {"platform": "x", "cadence": "every_30_minutes", "source": "social_repost_candidates", "max_created_per_run": 1, "auto_reply": False, "human_gate_required": True},
+    "x_social_daily_reply_block_publisher": REPLY_BLOCK_DRY_RUN,
     "x_social_post_observer_sweep": {"platform": "x", "cadence": "hourly", "read_only": True, "max_records": 20, "auto_publish": False},
 }
-
 
 def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, Any]]:
     rows = list_optimization_signals(db, status="open")
@@ -331,6 +333,8 @@ def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
         return run_x_social_repost_candidate_sweep(db)
     if workflow_key == "x_social_reply_candidate_sweep":
         return run_x_social_reply_candidate_sweep(db)
+    if workflow_key == "x_social_daily_reply_block_publisher":
+        return run_reply_block_workflow(db)
     return run_x_social_post_observer_sweep(db)
 
 def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
@@ -539,7 +543,6 @@ def _operator_attention_items(
         deduped.append(item)
     return deduped[:8]
 
-
 def _daily_intake_summary_markdown(
     *,
     intake_result: dict[str, Any],
@@ -571,7 +574,6 @@ def _daily_intake_summary_markdown(
             for item in signal_candidates
         )
     return "\n".join(lines)
-
 
 def _morning_intake_sweep(
     db: Session,
@@ -628,7 +630,6 @@ def _maybe_record_requirement_artifact(
 ) -> bool:
     return False
 
-
 def _review_snapshot_markdown(requirement: RequirementRow, payload: dict[str, Any]) -> str:
     lines = [
         "# Review Snapshot",
@@ -643,7 +644,6 @@ def _review_snapshot_markdown(requirement: RequirementRow, payload: dict[str, An
     if isinstance(delivery, dict) and delivery:
         lines.append(f"- publish status: `{delivery.get('publish_status') or 'unknown'}`")
     return "\n".join(lines)
-
 
 def _record_review_snapshot(db: Session, requirement: RequirementRow) -> bool:
     artifact_types: list[str] = []

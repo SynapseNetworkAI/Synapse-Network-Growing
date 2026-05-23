@@ -546,6 +546,7 @@ class DeploymentRecordRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
     requirement = relationship("RequirementRow")
     project_policy = relationship("ProjectPolicyRow")
+
 class ReleaseTaskRow(Base):
     __tablename__ = "release_tasks"
     __table_args__ = (
@@ -818,8 +819,9 @@ class SocialPostMetricRow(Base):
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_social_distribution  # noqa: E402,F401
-import server.database_scheduled_jobs  # noqa: E402,F401
+import server.database_deployments, server.database_scheduled_jobs, server.database_social_distribution  # noqa: E402,F401
+
+
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -1674,6 +1676,10 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
                     conn.commit()
+
+    if "deployment_events" not in tables:
+        logger.info("Migrating: creating 'deployment_events' table")
+        server.database_deployments.DeploymentEventRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "release_tasks" not in tables:
         logger.info("Migrating: creating 'release_tasks' table")

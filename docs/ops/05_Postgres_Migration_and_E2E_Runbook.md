@@ -4,14 +4,21 @@ title: Postgres Migration and E2E Runbook
 role: dev_rel
 status: ready
 created_at: 2026-05-04
-updated_at: 2026-05-04
+updated_at: 2026-05-15
 author: codex
 target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 ---
 
 # Postgres Migration and E2E Runbook
 
-This runbook moves the local Ops Console from `server/ops.db` SQLite into Docker Postgres, then validates API, frontend, release, and scheduled-job flows against Postgres.
+This runbook moves the Ops Console from `server/ops.db` SQLite into Postgres, then validates API, frontend, release, and scheduled-job flows against Postgres. Local can still use SQLite as a fallback, but staging and production must set an explicit PostgreSQL `OPS_DATABASE_URL`; the app fails closed otherwise.
+
+## Environment Policy
+
+1. Local/dev: Docker Postgres is recommended. SQLite remains a lightweight fallback when `OPS_DATABASE_URL` is unset.
+2. Test: fast unit tests keep in-memory SQLite; DB-sensitive integration tests use `OPS_TEST_POSTGRES_URL`.
+3. Staging/prod: SQLite is forbidden. `OPS_ENV=staging|prod|production` requires an explicit Postgres URL.
+4. Do not dual-write. After cutover, SQLite is an archive/rollback source only, not a hot database.
 
 ## Target Database
 
@@ -28,9 +35,22 @@ docker-compose -f docker-compose.postgres.yml up -d
 docker exec synapse-growing-postgres pg_isready -U synapse_growing -d synapse_growing
 ```
 
+For CI/local integration tests:
+
+```bash
+export OPS_TEST_POSTGRES_URL="$OPS_DATABASE_URL"
+PYTHONPATH=. python -m pytest -q tests/test_postgres_migration.py
+```
+
 ## Full Data Migration
 
 The migration copies every SQLite table, including legacy, social, release, scheduled-job, and SDK package tables.
+
+Before copying, stop write-producing loops and checkpoint SQLite WAL:
+
+```bash
+sqlite3 server/ops.db "PRAGMA wal_checkpoint(TRUNCATE);"
+```
 
 ```bash
 PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python \
@@ -47,6 +67,12 @@ Safety behavior:
 3. Copies rows table-by-table.
 4. Resets Postgres sequences after copy.
 5. Creates `schema_migrations` for future idempotent SQL.
+
+Cutover rules:
+
+1. Validate row counts and core smoke tests before switching `OPS_DATABASE_URL`.
+2. Restart backend workers only after validation passes.
+3. If cutover has accepted new Postgres writes, roll back from a Postgres snapshot/backup rather than returning to SQLite and creating split-brain data.
 
 Validate row counts:
 
@@ -152,4 +178,3 @@ Success criteria:
 6. Scheduled job task reaches `completed` with an Actions URL.
 
 If any publish fails, do not mark it manually complete. Open the Actions link, fix the root cause, then rerun from the failed target or create a new proof run.
-

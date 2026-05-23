@@ -8,11 +8,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 
 from server import config
 from server.database import CodexSessionRow, utcnow
+from server.database_retry import is_sqlite_lock_error, run_with_sqlite_lock_retry
 
 
 _SESSION_HEARTBEAT_WRITE_INTERVAL_SECONDS = max(
@@ -284,11 +285,10 @@ def safe_update_session_state(
     **kwargs: Any,
 ) -> CodexSessionRow | None:
     try:
-        return update_session_state(db, **kwargs)
+        return run_with_sqlite_lock_retry(db, lambda: update_session_state(db, **kwargs))
     except OperationalError as exc:
-        if "database is locked" not in str(exc).lower():
+        if not is_sqlite_lock_error(exc):
             raise
-        db.rollback()
         return None
 
 

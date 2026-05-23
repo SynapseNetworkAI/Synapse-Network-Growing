@@ -21,6 +21,7 @@ from server.services.releases.github_cli import run_gh_json as _run_gh_json, run
 from server.services.releases.github_actions_logs import github_failure_log_result
 from server.services.releases.pr_gate_projection import release_task_pr_gate_with_row_actions
 from server.services.releases.deployment_success import _apply_deployment_success_state, _deployment_has_failure_metadata
+from server.services.releases import deployment_task_events as _deployment_task_events
 from server.services.releases.staging_workflows import staging_workflow_file_for_service
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
@@ -51,16 +52,13 @@ REQUIRED_PROVIDER_STAGING_DEPLOY_SECRETS = {"GCP_WORKLOAD_IDENTITY_PROVIDER", "G
 
 def _valid_service_keys_for_project(project_key: str) -> set[str]:
     return PROJECT_SERVICE_KEYS.get(_clean(project_key), SYNAPSE_NETWORK_SERVICE_KEYS)
-
 def _service_key_error_for_project(project_key: str) -> str:
     allowed = ", ".join(sorted(_valid_service_keys_for_project(project_key)))
     return f"service_key must be one of: {allowed}"
-
 def _deploy_strategy_for_project(project_key: str) -> str:
     if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
         return "github_actions_wif_cloudrun"
     return "github_actions_gcp_cloudrun"
-
 def _controlled_steps_for_project(project_key: str) -> list[str]:
     if _clean(project_key) == SYNAPSE_NETWORK_PROVIDER_PROJECT_KEY:
         return ["checkout", "resolve_ref", "wif_auth", "cloud_build", "artifact_push", "cloud_run_deploy", "health_check"]
@@ -1139,6 +1137,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
     db.add(record)
     db.commit()
     db.refresh(record)
+    _deployment_task_events.record_requested(db, row, record, actor=actor, workflow_file=workflow_file)
     row.deployment_record_id = int(record.id)
     row.status = "deploying"
     row.operator = actor
@@ -1170,6 +1169,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
             ref="main",
             inputs=inputs,
         )
+        _deployment_task_events.record_dispatched(db, record, actor=actor, inputs=inputs)
         db.commit()
         db.refresh(row)
         return _release_task_to_out(row, db=db, pr_gate=gate)
@@ -1207,6 +1207,7 @@ def deploy_release_task_to_staging(db: Session, task_id: int, body: Any) -> Rele
         record.health_status = "failed"
         record.notes = str(exc)[:1000]
         record.finished_at = utcnow()
+        _deployment_task_events.record_dispatch_failed(db, row, record, actor=actor, workflow_file=workflow_file, exc=exc)
         row.status = "failed"
         row.operator = actor
         row.note = str(exc)[:1000]

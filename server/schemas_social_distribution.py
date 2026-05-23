@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from server.schemas import SocialReplyItemOut
+
 
 class SocialDistributionAccountOut(BaseModel):
     id: int
@@ -152,6 +154,7 @@ class SocialContentAssetDetailOut(SocialContentAssetOut):
     tasks: list[SocialDistributionTaskOut] = Field(default_factory=list)
     events: list[SocialDistributionEventOut] = Field(default_factory=list)
     documents: list[SocialDistributionDocumentOut] = Field(default_factory=list)
+    reply_items: list[SocialReplyItemOut] = Field(default_factory=list)
 
 
 class SocialDistributionTaskGroupOut(BaseModel):
@@ -172,6 +175,9 @@ class SocialDistributionBoardCardOut(BaseModel):
     id: str
     asset: SocialContentAssetOut
     column_key: str
+    task_kind_code: str = "content_distribution"
+    task_kind_label: str = "内容分发"
+    task_kind_action: str = "approve_and_generate_platform_docs"
     task_count: int = 0
     document_count: int = 0
     platform_count: int = 0
@@ -235,6 +241,38 @@ class SocialDistributionGenerateTasksOut(BaseModel):
 
 class SocialDistributionApproveGenerateRequest(SocialDistributionGenerateTasksRequest):
     pass
+
+
+class SocialXReplySourcePostIn(BaseModel):
+    source_url: str
+    author_handle: str | None = None
+    source_text: str
+    rationale: str | None = None
+    opt_in_evidence: str | None = None
+
+
+class SocialXReplyBlockGenerateRequest(BaseModel):
+    actor: str = "agent"
+    target_count: int = 5
+    agent_review: bool = True
+    max_seconds: int | None = None
+    per_reply_timeout_seconds: int | None = None
+    auto_publish: bool = False
+    source_posts: list[SocialXReplySourcePostIn] = Field(default_factory=list)
+
+
+class SocialXReplyBlockGenerateOut(BaseModel):
+    asset: SocialContentAssetDetailOut
+    reply_ids: list[int] = Field(default_factory=list)
+    failed_reply_ids: list[int] = Field(default_factory=list)
+    source_candidate_ids: list[int] = Field(default_factory=list)
+    processed_source_count: int = 0
+    auto_publish: bool = False
+    timed_out: bool = False
+    blocked_reason: str | None = None
+    agent_review: bool = True
+    publish_mode: str = "agent_approved_needs_manual_publish"
+    approval_ref_configured: bool = False
 
 
 class SocialAssetPlannerSignalOut(BaseModel):

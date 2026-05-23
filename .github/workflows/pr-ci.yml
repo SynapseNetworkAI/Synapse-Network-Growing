@@ -298,6 +298,39 @@ jobs:
       - name: Run classifier tests
         run: python -m pytest -q tests/test_ci_scope.py
 
+  postgres-integration:
+    name: Postgres integration tests
+    needs: scope
+    if: needs.scope.outputs.run_full == 'true' || needs.scope.outputs.run_backend == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: synapse_growing_test
+          POSTGRES_USER: synapse_growing
+          POSTGRES_PASSWORD: synapse_growing_dev
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U synapse_growing -d synapse_growing_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install backend dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run Postgres integration checks
+        env:
+          OPS_TEST_POSTGRES_URL: postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing_test
+        run: python -m pytest -q tests/test_database_config.py tests/test_database_retry.py tests/test_postgres_migration.py
+
   pr-required:
     name: pr-checks
     needs:
@@ -311,6 +344,7 @@ jobs:
       - docs-checks
       - security-lite
       - scope-self-test
+      - postgres-integration
     if: always()
     runs-on: ubuntu-slim
     steps:

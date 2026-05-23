@@ -17,6 +17,12 @@ from server.schemas_social_metrics import (
     SocialPostMetricTopPostOut,
 )
 from server.services.social.publishing import DEFAULT_X_HANDLE
+from server.services.social.post_metric_projection import (
+    metric_base_out,
+    metric_engagement,
+    metric_post_index,
+    metric_top_post_out,
+)
 
 
 def _operator_zone() -> ZoneInfo:
@@ -75,39 +81,12 @@ def _body_excerpt(value: str | None, *, max_chars: int = 240) -> str | None:
     return text if len(text) <= max_chars else f"{text[: max_chars - 1]}…"
 
 
-def _posts_by_id(
-    db: Session, rows: list[SocialPostMetricRow]
-) -> dict[int, SocialPostDraftRow]:
-    post_ids = [int(row.post_id) for row in rows if row.post_id is not None]
-    if not post_ids:
-        return {}
-    return {
-        int(row.id): row
-        for row in db.query(SocialPostDraftRow)
-        .filter(SocialPostDraftRow.id.in_(post_ids))
-        .all()
-    }
-
-
-def _metric_engagement(row: SocialPostMetricRow) -> int:
-    return (
-        int(row.likes or 0)
-        + int(row.replies or 0)
-        + int(row.reposts or 0)
-        + int(row.link_clicks or 0)
-    )
-
-
 def _post_for_metric(
     row: SocialPostMetricRow, posts_by_id: dict[int, SocialPostDraftRow]
 ) -> SocialPostDraftRow | None:
     if row.post_id is None:
         return None
     return posts_by_id.get(int(row.post_id))
-
-
-def _metric_post_id(row: SocialPostMetricRow) -> int | None:
-    return int(row.post_id) if row.post_id is not None else None
 
 
 def _post_attr(post: SocialPostDraftRow | None, attr: str):
@@ -119,17 +98,7 @@ def _metric_detail_out(
 ) -> SocialPostMetricDetailOut:
     post = _post_for_metric(row, posts_by_id)
     return SocialPostMetricDetailOut(
-        id=int(row.id),
-        post_id=_metric_post_id(row),
-        external_post_id=row.external_post_id,
-        impressions=int(row.impressions or 0),
-        likes=int(row.likes or 0),
-        replies=int(row.replies or 0),
-        reposts=int(row.reposts or 0),
-        follows=int(row.follows or 0),
-        link_clicks=int(row.link_clicks or 0),
-        summary=row.summary,
-        observed_at=row.observed_at,
+        **metric_base_out(row).model_dump(),
         post_title=_post_attr(post, "title"),
         post_body_excerpt=_body_excerpt(_post_attr(post, "body_text")),
         post_status=_post_attr(post, "status"),
@@ -142,19 +111,7 @@ def _metric_detail_out(
 def _metric_top_post_out(
     row: SocialPostMetricRow, posts_by_id: dict[int, SocialPostDraftRow]
 ) -> SocialPostMetricTopPostOut:
-    post = _post_for_metric(row, posts_by_id)
-    return SocialPostMetricTopPostOut(
-        post_id=_metric_post_id(row),
-        external_post_id=row.external_post_id,
-        title=_post_attr(post, "title"),
-        impressions=int(row.impressions or 0),
-        likes=int(row.likes or 0),
-        replies=int(row.replies or 0),
-        reposts=int(row.reposts or 0),
-        link_clicks=int(row.link_clicks or 0),
-        engagement_total=_metric_engagement(row),
-        observed_at=row.observed_at,
-    )
+    return metric_top_post_out(row, _post_for_metric(row, posts_by_id))
 
 
 def _query_metric_rows(
@@ -207,7 +164,7 @@ def query_social_post_metrics(
         .offset(bounded_offset)
         .all()
     )
-    posts_by_id = _posts_by_id(db, rows)
+    posts_by_id = metric_post_index(db, rows).posts_by_id
     return SocialPostMetricQueryOut(
         items=[_metric_detail_out(row, posts_by_id) for row in rows],
         total=int(query.count()),
@@ -226,7 +183,7 @@ def get_social_post_metric(
     )
     if row is None:
         return None
-    return _metric_detail_out(row, _posts_by_id(db, [row]))
+    return _metric_detail_out(row, metric_post_index(db, [row]).posts_by_id)
 
 
 def _default_daily_window(
@@ -263,7 +220,7 @@ def _last_observed_at(rows: list[SocialPostMetricRow]):
 def _top_post_or_none(
     rows: list[SocialPostMetricRow], posts_by_id: dict[int, SocialPostDraftRow]
 ) -> SocialPostMetricTopPostOut | None:
-    top_row = max(rows, key=_metric_engagement, default=None)
+    top_row = max(rows, key=metric_engagement, default=None)
     if top_row is None:
         return None
     return _metric_top_post_out(top_row, posts_by_id)
@@ -277,7 +234,7 @@ def _daily_metric_out(
     reposts = _sum_metric(bucket_rows, "reposts")
     clicks = _sum_metric(bucket_rows, "link_clicks")
     unique_posts = _unique_metric_keys(bucket_rows)
-    posts_by_id = _posts_by_id(db, bucket_rows)
+    posts_by_id = metric_post_index(db, bucket_rows).posts_by_id
     return SocialPostMetricDailyOut(
         local_date=local_date,
         observed_post_count=len(unique_posts),

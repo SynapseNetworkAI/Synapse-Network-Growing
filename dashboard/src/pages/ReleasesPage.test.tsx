@@ -30,6 +30,7 @@ const apiMock = vi.hoisted(() => ({
   getScheduledCloudRunJobsStatus: vi.fn(),
   publishScheduledCloudRunJobs: vi.fn(),
   syncScheduledCloudRunJobs: vi.fn(),
+  getDeploymentEvents: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -38,6 +39,10 @@ vi.mock('../api', () => ({
 
 vi.mock('../apiReleaseTasks', () => ({
   getReleaseTasksPage: apiMock.getReleaseTasksPage,
+}))
+
+vi.mock('../apiDeployments', () => ({
+  getDeploymentEvents: apiMock.getDeploymentEvents,
 }))
 
 function candidate(overrides: Record<string, unknown> = {}) {
@@ -221,6 +226,7 @@ describe('ReleasesPage', () => {
       pending_ids: [],
       error_ids: [],
     })
+    apiMock.getDeploymentEvents.mockResolvedValue([])
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask(),
       releaseTask({

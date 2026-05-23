@@ -1431,6 +1431,7 @@ def _create_reply_from_repost_candidate(
     *,
     actor: str = "x_social_reply_candidate_sweep",
     force_regenerate: bool = False,
+    reply_timeout_seconds: int | None = None,
 ) -> SocialReplyItemRow:
     source_url = str(candidate.source_url or "").strip()
     if not source_url:
@@ -1456,7 +1457,13 @@ def _create_reply_from_repost_candidate(
         return existing
     row = existing or SocialReplyItemRow(external_reply_id=f"target:{source_post_id}")
     try:
-        generated = generate_x_reply_for_candidate(candidate)
+        if reply_timeout_seconds is None:
+            generated = generate_x_reply_for_candidate(candidate)
+        else:
+            generated = generate_x_reply_for_candidate(
+                candidate,
+                timeout_seconds=reply_timeout_seconds,
+            )
         apply_generated_reply_to_row(
             row,
             candidate,

@@ -23,12 +23,19 @@ from server.services.social.publishing import (
     ensure_default_social_account,
     x_oauth_token_provider,
 )
+from server.services.social.post_metric_projection import (
+    metric_base_out,
+    metric_engagement,
+    metric_post_index,
+    metric_top_post_out,
+)
 from server.services.social.x_client import (
     XApiAuthError,
     XApiClient,
     XApiRateLimitError,
     XApiTransientError,
 )
+
 
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
     rows = (
@@ -37,22 +44,7 @@ def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
         .limit(100)
         .all()
     )
-    return [
-        SocialPostMetricOut(
-            id=int(row.id),
-            post_id=row.post_id,
-            external_post_id=row.external_post_id,
-            impressions=int(row.impressions or 0),
-            likes=int(row.likes or 0),
-            replies=int(row.replies or 0),
-            reposts=int(row.reposts or 0),
-            follows=int(row.follows or 0),
-            link_clicks=int(row.link_clicks or 0),
-            summary=row.summary,
-            observed_at=row.observed_at,
-        )
-        for row in rows
-    ]
+    return [metric_base_out(row) for row in rows]
 
 
 def _latest_social_metric_rows(
@@ -72,47 +64,6 @@ def _latest_social_metric_rows(
     return list(latest.values())
 
 
-def _metric_engagement(row: SocialPostMetricRow) -> int:
-    return (
-        int(row.likes or 0)
-        + int(row.replies or 0)
-        + int(row.reposts or 0)
-        + int(row.link_clicks or 0)
-    )
-
-
-def _posts_by_id(
-    db: Session, rows: list[SocialPostMetricRow]
-) -> dict[int, SocialPostDraftRow]:
-    post_ids = [int(row.post_id) for row in rows if row.post_id is not None]
-    if not post_ids:
-        return {}
-    return {
-        int(row.id): row
-        for row in db.query(SocialPostDraftRow)
-        .filter(SocialPostDraftRow.id.in_(post_ids))
-        .all()
-    }
-
-
-def _metric_top_post_out(
-    row: SocialPostMetricRow, posts_by_id: dict[int, SocialPostDraftRow]
-) -> SocialPostMetricTopPostOut:
-    post = posts_by_id.get(int(row.post_id)) if row.post_id is not None else None
-    return SocialPostMetricTopPostOut(
-        post_id=int(row.post_id) if row.post_id is not None else None,
-        external_post_id=row.external_post_id,
-        title=post.title if post else None,
-        impressions=int(row.impressions or 0),
-        likes=int(row.likes or 0),
-        replies=int(row.replies or 0),
-        reposts=int(row.reposts or 0),
-        link_clicks=int(row.link_clicks or 0),
-        engagement_total=_metric_engagement(row),
-        observed_at=row.observed_at,
-    )
-
-
 def _metric_summary_counts(
     rows: list[SocialPostMetricRow],
 ) -> tuple[int, int, int, int]:
@@ -127,8 +78,13 @@ def _metric_summary_counts(
 def _metric_summary_top_posts(
     rows: list[SocialPostMetricRow], posts_by_id: dict[int, SocialPostDraftRow]
 ) -> list[SocialPostMetricTopPostOut]:
-    top_rows = sorted(rows, key=_metric_engagement, reverse=True)[:3]
-    return [_metric_top_post_out(row, posts_by_id) for row in top_rows]
+    top_rows = sorted(rows, key=metric_engagement, reverse=True)[:3]
+    return [
+        metric_top_post_out(
+            row, posts_by_id.get(int(row.post_id)) if row.post_id is not None else None
+        )
+        for row in top_rows
+    ]
 
 
 def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
@@ -137,7 +93,7 @@ def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
         return SocialPostMetricSummaryOut(
             diagnostic="No X post metrics recorded yet. Run x_social_post_observer_sweep after at least one published post has an external X post id."
         )
-    posts_by_id = _posts_by_id(db, rows)
+    posts_by_id = metric_post_index(db, rows).posts_by_id
     total_likes, total_replies, total_reposts, total_link_clicks = (
         _metric_summary_counts(rows)
     )

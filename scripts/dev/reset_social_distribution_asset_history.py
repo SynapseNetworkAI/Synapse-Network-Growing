@@ -11,6 +11,7 @@ from pathlib import Path
 
 from server import config
 from server.database import SessionLocal
+from server.database_config import is_sqlite_url
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionEventRow,
@@ -31,6 +32,19 @@ def main() -> int:
                     "ok": False,
                     "error": "confirmation_required",
                     "required_confirm": REQUIRED_CONFIRM,
+                },
+                indent=2,
+            )
+        )
+        return 2
+
+    if not is_sqlite_url(config.DATABASE_URL):
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": "sqlite_only_dev_reset",
+                    "message": "This destructive reset is limited to local SQLite. Use a reviewed Postgres runbook instead.",
                 },
                 indent=2,
             )

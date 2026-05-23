@@ -4,6 +4,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from server.database_config import resolve_database_url
+
 # ── .env file loader (no python-dotenv needed) ───────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,7 +30,7 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(_PROJECT_ROOT / ".env")
 
 # ── Environment ───────────────────────────────────────────────
-ENV = os.environ.get("OPS_ENV", "local")  # local | prod
+ENV = os.environ.get("OPS_ENV", "local")  # local | staging | prod
 
 
 def _env_flag(name: str, default: str = "false") -> bool:
@@ -139,7 +141,12 @@ FORUM_FEEDBACK_MAX_TASKS = max(1, int(os.environ.get("OPS_FORUM_FEEDBACK_MAX_TAS
 
 # ── Database ──────────────────────────────────────────────────
 DB_PATH = os.environ.get("OPS_DB_PATH", str(PROJECT_ROOT / "server" / "ops.db"))
-DATABASE_URL = os.environ.get("OPS_DATABASE_URL", f"sqlite:///{DB_PATH}")
+_DB_RESOLUTION = resolve_database_url(
+    env=ENV,
+    explicit_database_url=os.environ.get("OPS_DATABASE_URL"),
+    sqlite_fallback_url=f"sqlite:///{DB_PATH}",
+)
+DATABASE_URL = _DB_RESOLUTION.url
 DB_POOL_SIZE = int(os.environ.get("OPS_DB_POOL_SIZE", "12"))
 DB_MAX_OVERFLOW = int(os.environ.get("OPS_DB_MAX_OVERFLOW", "24"))
 DB_POOL_TIMEOUT = int(os.environ.get("OPS_DB_POOL_TIMEOUT", "60"))
@@ -172,6 +179,7 @@ X_OAUTH_CLIENT_ID_SECRET = os.environ.get("X_OAUTH_CLIENT_ID_SECRET", "x-officia
 X_OAUTH_CLIENT_SECRET_SECRET = os.environ.get("X_OAUTH_CLIENT_SECRET_SECRET", "x-official-oauth2-client-secret").strip() or "x-official-oauth2-client-secret"
 X_OAUTH_REFRESH_TOKEN_SECRET = os.environ.get("X_OAUTH_REFRESH_TOKEN_SECRET", "x-official-oauth2-refresh-token").strip() or "x-official-oauth2-refresh-token"
 X_OAUTH_REDIRECT_URI = os.environ.get("X_OAUTH_REDIRECT_URI", "http://127.0.0.1:9600/api/social/x/oauth/callback").strip() or "http://127.0.0.1:9600/api/social/x/oauth/callback"
+X_AI_REPLY_APPROVAL_REF = os.environ.get("X_AI_REPLY_APPROVAL_REF", "").strip()
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 

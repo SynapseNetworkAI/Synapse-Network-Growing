@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+from sqlalchemy.orm import object_session
+
+from server.database import SocialReplyItemRow
 from server import schemas_social_distribution as dist_schema
 from server.database_social_distribution import (
     SocialContentAssetRow,
@@ -46,7 +49,37 @@ def _asset_detail_out(
         tasks=[_task_out(task) for task in row.tasks],
         events=[_event_out(event) for event in row.events],
         documents=[_document_out(document) for document in row.documents],
+        reply_items=_reply_items_for_asset(row),
     )
+
+
+def _reply_items_for_asset(row: SocialContentAssetRow) -> list[dist_schema.SocialReplyItemOut]:
+    reply_ids = _reply_ids_from_asset(row)
+    session = object_session(row)
+    if not reply_ids or session is None:
+        return []
+    rows = (
+        session.query(SocialReplyItemRow)
+        .filter(SocialReplyItemRow.id.in_(reply_ids))
+        .order_by(SocialReplyItemRow.id.asc())
+        .all()
+    )
+    order = {reply_id: index for index, reply_id in enumerate(reply_ids)}
+    return [_reply_out(reply) for reply in sorted(rows, key=lambda item: order.get(int(item.id), 9999))]
+
+
+def _reply_ids_from_asset(row: SocialContentAssetRow) -> list[int]:
+    metadata = _json_object(row.agent_metadata_json)
+    reply_block = metadata.get("reply_block")
+    if not isinstance(reply_block, dict):
+        return []
+    ids: list[int] = []
+    for value in reply_block.get("reply_ids") or []:
+        if isinstance(value, int):
+            ids.append(value)
+        elif isinstance(value, str) and value.isdigit():
+            ids.append(int(value))
+    return ids
 
 
 def _task_out(row: SocialDistributionTaskRow) -> dist_schema.SocialDistributionTaskOut:
@@ -72,6 +105,32 @@ def _task_out(row: SocialDistributionTaskRow) -> dist_schema.SocialDistributionT
         external_post_id=row.external_post_id,
         failure_summary=row.failure_summary,
         manual_result_note=row.manual_result_note,
+        metadata=_json_object(row.metadata_json),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _reply_out(row: SocialReplyItemRow) -> dist_schema.SocialReplyItemOut:
+    return dist_schema.SocialReplyItemOut(
+        id=int(row.id),
+        platform=row.platform,
+        external_reply_id=row.external_reply_id,
+        source_candidate_id=int(row.source_candidate_id) if row.source_candidate_id else None,
+        source_post_id=row.source_post_id,
+        source_author_handle=row.source_author_handle,
+        source_text=row.source_text,
+        author_handle=row.author_handle,
+        incoming_text=row.incoming_text,
+        intent=row.intent,
+        suggested_reply=row.suggested_reply,
+        generation_reason=row.generation_reason,
+        risk_level=row.risk_level,
+        status=row.status,
+        source_url=row.source_url,
+        published_external_post_id=row.published_external_post_id,
+        reviewed_by=row.reviewed_by,
+        failure_summary=row.failure_summary,
         metadata=_json_object(row.metadata_json),
         created_at=row.created_at,
         updated_at=row.updated_at,

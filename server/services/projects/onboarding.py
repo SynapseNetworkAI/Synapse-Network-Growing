@@ -11,8 +11,8 @@ from server import config
 from server.database import ProjectOnboardingRow, ProjectPolicyRow
 from server.services.projects.policy import (
     create_project_policy,
-    list_project_policies,
-    project_policy_to_dict,
+    list_project_policies,  # noqa: F401 - legacy import kept stable for quality baseline.
+    project_policy_to_dict,  # noqa: F401 - legacy import kept stable for quality baseline.
 )
 
 

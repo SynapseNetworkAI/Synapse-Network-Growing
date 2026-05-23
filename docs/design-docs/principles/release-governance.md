@@ -35,9 +35,11 @@ Load this when touching release tasks, delivery, PR handoff, deploy, staging, pr
 3. Staging deploys use whitelisted release runner and write `deployment_record_id`.
 4. Synapse-Network and Synapse-Network-Provider staging use GCP Workload Identity Federation + Cloud Build + Cloud Run.
 5. Do not store GCP JSON keys or SSH deploy secrets in GitHub.
-6. Production deploy and rollback require Human Gate.
-7. Production cannot reuse staging API or ordinary PATCH to bypass release governance.
-8. Staging and production conditions differ: production normally requires main/tag/verified staging manifest plus Human Gate.
+6. Production deploy requires a Production Approval Gate. The approving actor can be `human_operator` or `agent_release_reviewer`.
+7. Agent production approval is allowed only when the same resolved commit has successful staging, required deployment events, smoke evidence, PR/check evidence, and a rollback target.
+8. Rollback, secret/auth/credential change, funds, settlement, external paid spend, and self-modifying deployment still require Human Gate.
+9. Production cannot reuse staging API or ordinary PATCH to bypass release governance.
+10. Staging and production conditions differ: production normally requires main/tag/verified staging manifest plus Production Approval Gate.
 9. Successful staging does not auto-promote production.
 
 ## Online Records And Reconciliation

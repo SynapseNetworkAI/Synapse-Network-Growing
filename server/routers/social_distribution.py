@@ -25,6 +25,8 @@ from server.schemas_social_distribution import (
     SocialDistributionMarkLiveRequest,
     SocialDistributionMarkRemovedRequest,
     SocialDistributionPublishXRequest,
+    SocialXReplyBlockGenerateRequest,
+    SocialXReplyBlockGenerateOut,
     SocialDistributionXAuthStatusOut,
     SocialDistributionTaskListOut,
     SocialDistributionTaskOut,
@@ -52,6 +54,9 @@ from server.services.social.distribution_documents import (
 from server.services.social.distribution_generation import (
     approve_and_generate_distribution_tasks,
     generate_distribution_tasks,
+)
+from server.services.social.distribution_reply_blocks import (
+    generate_x_reply_block_candidates,
 )
 from server.services.social.distribution_tasks import (
     mark_distribution_task_live,
@@ -215,6 +220,31 @@ def approve_and_generate_distribution_tasks_endpoint(
 ):
     try:
         return approve_and_generate_distribution_tasks(db, asset_id, body)
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/assets/{asset_id}/generate-x-reply-block",
+    response_model=SocialXReplyBlockGenerateOut,
+)
+def generate_x_reply_block_endpoint(
+    asset_id: int,
+    body: SocialXReplyBlockGenerateRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_x_reply_block_candidates(
+            db,
+            asset_id=asset_id,
+            source_posts=[item.model_dump() for item in body.source_posts],
+            target_count=body.target_count,
+            actor=body.actor,
+            agent_review=body.agent_review,
+            max_seconds=body.max_seconds or 90,
+            per_reply_timeout_seconds=body.per_reply_timeout_seconds or 30,
+            auto_publish=body.auto_publish,
+        )
     except ValueError as exc:
         raise _http_error(exc) from exc
 

@@ -1,6 +1,7 @@
 import type {
   SocialContentAssetDetail,
   SocialDistributionAccount,
+  SocialReplyItem,
   SocialDistributionTask,
 } from '../api'
 import type { SocialDistributionDocument } from '../apiSocialDistribution'
@@ -21,6 +22,7 @@ import {
   copyCombinedLabel,
   xPublishButtonLabel,
 } from './SocialDistributionXDraft'
+import { ReplyTaskDetailView } from './SocialReplyTaskDetail'
 
 export function TaskDetailModal({
   task,
@@ -145,22 +147,34 @@ export function ContentTaskDetailModal({
   onExpandCanonicalArticle,
   onApproveCanonicalArticle,
   onApproveGenerate,
+  onGenerateXReplyBlock,
+  onMarkReplyManualPublished,
+  onPublishReplyToX,
+  onRegenerateReply,
   onOpenTask,
+  toast,
 }: {
   asset: SocialContentAssetDetail | null
   accounts: SocialDistributionAccount[]
   selectedAccountIds: number[]
   formatDateTime: (value: string | null | undefined) => string
   busy: boolean
+  toast: ReturnType<typeof useToast>
   onToggleAccount: (id: number) => void
   onClose: () => void
   onGeneratePlan: () => void
   onExpandCanonicalArticle: () => void
   onApproveCanonicalArticle: (documentId: number | null) => void
   onApproveGenerate: () => void
+  onGenerateXReplyBlock: () => void
+  onMarkReplyManualPublished: (reply: SocialReplyItem) => void
+  onPublishReplyToX: (reply: SocialReplyItem) => void
+  onRegenerateReply: (reply: SocialReplyItem) => void
   onOpenTask: (task: SocialDistributionTask) => void
 }) {
   const documents = asset?.documents ?? []
+  const metadata = asset?.agent_metadata ?? {}
+  const isReplyBlock = metadata.post_intent === 'engagement_reply'
   const sourcePlan = documents.find((doc) => doc.document_kind === 'source_plan')
   const canonicalArticle = latestDocument(documents, 'canonical_article')
   const canonicalApproved = canonicalArticle?.status === 'approved'
@@ -176,7 +190,11 @@ export function ContentTaskDetailModal({
           <button type="button" disabled={!asset || busy} className="rounded-2xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={onGeneratePlan}>
             {busy ? '生成中…' : '重新生成方案'}
           </button>
-          {!canonicalArticle ? (
+          {isReplyBlock ? (
+            <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
+              {busy ? '生成中…' : '生成 5 条 X 回复候选'}
+            </button>
+          ) : !canonicalArticle ? (
             <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onExpandCanonicalArticle}>
               {busy ? '扩写中…' : '扩写母稿'}
             </button>
@@ -194,6 +212,18 @@ export function ContentTaskDetailModal({
       onClose={onClose}
     >
       {asset ? (
+        isReplyBlock ? (
+          <ReplyTaskDetailView
+            asset={asset}
+            formatDateTime={formatDateTime}
+            busy={busy}
+            toast={toast}
+            onGenerateXReplyBlock={onGenerateXReplyBlock}
+            onMarkManualPublished={onMarkReplyManualPublished}
+            onPublishReplyToX={onPublishReplyToX}
+            onRegenerateReply={onRegenerateReply}
+          />
+        ) : (
         <div className="space-y-5">
           <section className="grid gap-3 md:grid-cols-3">
             <InfoBlock title="状态">{asset.status}</InfoBlock>
@@ -291,6 +321,7 @@ export function ContentTaskDetailModal({
             </div>
           </section>
         </div>
+        )
       ) : null}
     </OverlayModal>
   )

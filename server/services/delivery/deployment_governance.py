@@ -10,7 +10,8 @@ import httpx
 from sqlalchemy.orm import Session
 
 from server import config
-from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseRecordRow, ReleaseTaskRow, RequirementRow, utcnow
+from server.database import DeploymentRecordRow, ProjectPolicyRow, ReleaseTaskRow, RequirementRow, utcnow
+from server.services.delivery import deployment_governance_events as _deployment_events
 from server.schemas import (
     DeliveryStateOut,
     DeploymentOverviewOut,
@@ -20,12 +21,19 @@ from server.schemas import (
     EnvironmentStatusOut,
     OnlineReleaseRecordOut,
 )
+from server.services.delivery.production_agent_approval import (
+    apply_production_agent_gate,
+    review_production_agent_approval,
+)
+from server.services.delivery.deployment_release_evidence import (
+    requirement_delivery_payload,
+    resolve_commit_sha,
+)
 from server.services.projects.policy import (
     list_project_policies,
     project_policy_to_dict,
     resolve_project_policies_for_target,
 )
-
 
 def _json_load(raw: str | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
     if not raw:
@@ -38,10 +46,8 @@ def _json_load(raw: str | None, fallback: dict[str, Any] | None = None) -> dict[
         return dict(fallback or {})
     return dict(data)
 
-
 def _json_dump(value: dict[str, Any] | None) -> str:
     return json.dumps(value or {}, ensure_ascii=False)
-
 
 def _github_token() -> str:
     explicit_token = config.GH_TOKEN.strip() or config.GITHUB_TOKEN.strip()
@@ -65,7 +71,6 @@ def _github_token() -> str:
         config.COPILOT_GITHUB_TOKEN.strip()
         or config.COPILOT_OAUTH_TOKEN.strip()
     )
-
 
 def _github_headers() -> dict[str, str]:
     token = _github_token()
@@ -297,23 +302,6 @@ def _latest_environment_row(db: Session, project_key: str, environment: str) -> 
     )
 
 
-def _latest_success_row(
-    db: Session,
-    project_key: str,
-    environment: str,
-    *,
-    commit_sha: str | None = None,
-) -> DeploymentRecordRow | None:
-    query = db.query(DeploymentRecordRow).filter(
-        DeploymentRecordRow.project_key == project_key,
-        DeploymentRecordRow.environment == environment,
-        DeploymentRecordRow.status == "succeeded",
-    )
-    if commit_sha:
-        query = query.filter(DeploymentRecordRow.commit_sha == commit_sha)
-    return query.order_by(DeploymentRecordRow.id.desc()).first()
-
-
 def build_project_environment_statuses(db: Session, policy: ProjectPolicyRow) -> list[EnvironmentStatusOut]:
     data = project_policy_to_dict(policy)
     statuses: list[EnvironmentStatusOut] = []
@@ -337,38 +325,6 @@ def build_project_environment_statuses(db: Session, policy: ProjectPolicyRow) ->
             )
         )
     return statuses
-
-
-def _requirement_delivery_payload(db: Session, requirement_id: int) -> dict[str, Any]:
-    release = (
-        db.query(ReleaseRecordRow)
-        .filter(ReleaseRecordRow.requirement_id == requirement_id)
-        .order_by(ReleaseRecordRow.id.desc())
-        .first()
-    )
-    if release is None:
-        return {}
-    metadata = _json_load(getattr(release, "metadata_json", None), {})
-    return {
-        **metadata,
-        "latest_remote_sha": str(getattr(release, "commit_sha", "") or "").strip() or None,
-        "latest_commit_sha": str(getattr(release, "commit_sha", "") or "").strip() or None,
-        "head_branch": str(getattr(release, "actual_branch_name", "") or getattr(release, "branch_name", "") or "").strip() or None,
-        "branch_name": str(getattr(release, "branch_name", "") or "").strip() or None,
-    }
-
-
-def _resolve_commit_sha(db: Session, requirement: RequirementRow, explicit_commit_sha: str | None = None) -> str:
-    if explicit_commit_sha and explicit_commit_sha.strip():
-        return explicit_commit_sha.strip()
-    payload = _requirement_delivery_payload(db, int(requirement.id))
-    commit_sha = (
-        str(payload.get("latest_remote_sha") or "").strip()
-        or str(payload.get("latest_commit_sha") or "").strip()
-    )
-    if commit_sha:
-        return commit_sha
-    raise ValueError("Requirement is missing a deliverable commit SHA. Sync branch delivery before deploy.")
 
 
 def _callback_url(record_id: int) -> str | None:
@@ -440,22 +396,25 @@ def trigger_requirement_deployment(
     action = "rollback" if rollback_target_sha else ("promote" if env_name == "production" else "deploy")
     source_ref_type = (source_ref_type or "branch").strip().lower() or "branch"
     deploy_scope = (deploy_scope or "auto").strip() or "auto"
-    delivery_payload = _requirement_delivery_payload(db, requirement_id)
+    delivery_payload = requirement_delivery_payload(db, requirement_id)
     branch_name = str(delivery_payload.get("head_branch") or delivery_payload.get("branch_name") or "").strip() or None
     effective_source_ref = (source_ref or "").strip() or branch_name
     if source_ref_type not in {"branch", "tag", "commit"}:
         raise ValueError("source_ref_type must be branch, tag, or commit")
     if deploy_scope not in {"auto", "gateway", "gateway-admin", "user-front", "admin-front", "docs-front", "all"}:
         raise ValueError("deploy_scope must be auto, gateway, gateway-admin, user-front, admin-front, docs-front, or all")
-    if env_name == "production" and source_ref_type == "branch" and effective_source_ref not in {"main", "master"}:
-        raise ValueError("Production deploy cannot target a feature branch; promote a verified main/tag/staging manifest instead.")
+    production_branch_blocker = (
+        env_name == "production"
+        and source_ref_type == "branch"
+        and effective_source_ref not in {"main", "master"}
+    )
     effective_commit_sha = ""
     if rollback_target_sha or commit_sha or env_name == "production" or source_ref_type == "commit":
-        effective_commit_sha = _resolve_commit_sha(db, requirement, rollback_target_sha or commit_sha or effective_source_ref)
-    if env_name == "production" and not rollback_target_sha:
-        staging_success = _latest_success_row(db, policy_data["project_key"], "staging", commit_sha=effective_commit_sha)
-        if staging_success is None:
-            raise ValueError("Production promotion requires a successful staging deployment for the same commit.")
+        effective_commit_sha = resolve_commit_sha(
+            db,
+            requirement,
+            rollback_target_sha or commit_sha or effective_source_ref,
+        )
 
     workflow_file = (
         str(policy_data.get("production_workflow_file") or "deploy-production.yml")
@@ -491,6 +450,29 @@ def trigger_requirement_deployment(
     db.add(record)
     db.commit()
     db.refresh(record)
+    _deployment_events.record_requested(db, record)
+    db.commit()
+
+    if env_name == "production" and not rollback_target_sha:
+        _deployment_events.record_production_agent_review_started(db, record)
+        approval = review_production_agent_approval(
+            db,
+            project_key=str(policy_data["project_key"]),
+            commit_sha=effective_commit_sha,
+            source_ref_type=source_ref_type,
+            source_ref=effective_source_ref,
+            requirement_id=requirement_id,
+        )
+        if not apply_production_agent_gate(
+            db,
+            record=record,
+            approval=approval,
+            production_branch_blocker=production_branch_blocker,
+        ):
+            db.commit()
+            db.refresh(record)
+            return DeploymentRecordOut(**_deployment_record_to_dict(record))
+        db.commit()
 
     inputs = {
         "requirement_id": str(requirement_id),
@@ -511,18 +493,26 @@ def trigger_requirement_deployment(
         inputs["rollback_target_sha"] = rollback_target_sha.strip()
 
     try:
+        if env_name == "production" and not rollback_target_sha:
+            _deployment_events.record_production_dispatch_started(db, record)
+            db.commit()
         record.external_url = _dispatch_github_workflow(
             repo_full_name=repo_full_name,
             workflow_file=workflow_file,
             ref="main",
             inputs=inputs,
         )
+        _deployment_events.record_dispatched(db, record)
         db.commit()
         db.refresh(record)
     except Exception as exc:  # noqa: BLE001
-        record.status = "blocked"
+        record.status = "failed" if env_name == "production" and not rollback_target_sha else "blocked"
         record.notes = str(exc)
         record.finished_at = utcnow()
+        if env_name == "production" and not rollback_target_sha:
+            _deployment_events.record_production_dispatch_failed(db, record, exc)
+        else:
+            _deployment_events.record_blocked(db, record, exc)
         db.commit()
         db.refresh(record)
         raise
@@ -546,7 +536,7 @@ def mark_requirement_no_deploy(
         raise ValueError("Requirement not found.")
     policy = _require_policy_for_requirement(db, requirement)
     policy_data = project_policy_to_dict(policy)
-    delivery_payload = _requirement_delivery_payload(db, requirement_id)
+    delivery_payload = requirement_delivery_payload(db, requirement_id)
     branch_name = str(delivery_payload.get("head_branch") or delivery_payload.get("branch_name") or "").strip() or None
     effective_source_ref = (source_ref or "").strip() or branch_name or (commit_sha or "").strip() or None
     effective_commit_sha = (commit_sha or "").strip() or None
@@ -655,7 +645,7 @@ def build_requirement_deployment_summary(db: Session, requirement: RequirementRo
         .order_by(DeploymentRecordRow.id.desc())
         .first()
     )
-    requirement_payload = _requirement_delivery_payload(db, int(requirement.id))
+    requirement_payload = requirement_delivery_payload(db, int(requirement.id))
     deliverable_commit = (
         str(requirement_payload.get("latest_remote_sha") or "").strip()
         or str(requirement_payload.get("latest_commit_sha") or "").strip()

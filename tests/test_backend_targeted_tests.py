@@ -46,6 +46,17 @@ def test_changed_test_file_runs_itself():
     assert plan.tests == ["tests/test_weekly_repo_hygiene_review.py"]
 
 
+def test_database_helpers_map_to_database_tests():
+    plan = backend_targeted_tests.plan_targeted_tests(["server/database_retry.py"])
+
+    assert plan.tests == [
+        "tests/test_database_config.py",
+        "tests/test_database_retry.py",
+        "tests/test_postgres_migration.py",
+    ]
+    assert plan.unmapped_files == []
+
+
 def test_unmapped_backend_file_keeps_static_quality_only_plan():
     plan = backend_targeted_tests.plan_targeted_tests(
         ["server/services/social/example.py"]
