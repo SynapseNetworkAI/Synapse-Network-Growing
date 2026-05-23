@@ -40,6 +40,7 @@ from server.services.releases.sdk_packages import (
     retry_sdk_package_release,
     sync_sdk_package_release_statuses,
 )
+from server.services.releases.sdk_package_history import query_sdk_package_release_history
 from server.services.releases.sdk_package_platforms import (
     list_sdk_package_platforms,
     update_sdk_package_platform,
@@ -49,6 +50,7 @@ from server.services.releases.sdk_package_schemas import (
     SdkPackagePlatformPatchRequest,
     SdkPackageReleaseActionRequest,
     SdkPackageReleaseEventOut,
+    SdkPackageReleaseHistoryPageOut,
     SdkPackageReleaseInitializeRequest,
     SdkPackageReleaseOut,
     SdkPackageReleasePageOut,
@@ -322,6 +324,13 @@ def get_sdk_package_release_endpoint(release_id: int, db: Session = Depends(get_
 def list_sdk_package_release_events_endpoint(release_id: int, db: Session = Depends(get_db)):
     try:
         return list_sdk_package_release_events(db, release_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.get("/sdk-packages/{release_id}/history", response_model=SdkPackageReleaseHistoryPageOut)
+def query_sdk_package_release_history_endpoint(release_id: int, q: str | None = None, status: str | None = None, channel: str | None = None, limit: int = 10, offset: int = 0, db: Session = Depends(get_db)):
+    try:
+        return query_sdk_package_release_history(db, release_id, q=q, status=status, channel=channel, limit=limit, offset=offset)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

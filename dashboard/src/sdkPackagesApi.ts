@@ -34,6 +34,32 @@ export interface SdkPackageReleaseEvent {
   created_at: string | null
 }
 
+export interface SdkPackageReleaseHistoryItem {
+  id: number
+  release_train_version: string
+  sdk_language: string
+  package_name: string
+  registry: string
+  channel: string
+  package_version: string
+  status: string
+  package_url: string | null
+  repo_url: string
+  git_tag: string | null
+  git_tag_url: string | null
+  workflow_run_url: string | null
+  failure_summary: string | null
+  published_at: string | null
+  updated_at: string | null
+}
+
+export interface SdkPackageReleaseHistoryPage {
+  items: SdkPackageReleaseHistoryItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface SdkPackageReleasePage {
   items: SdkPackageRelease[]
   total: number
@@ -99,6 +125,16 @@ export const sdkPackagesApi = {
   },
   getSdkPackageRelease: (id: number) => request<SdkPackageRelease>(`/releases/sdk-packages/${id}`),
   getSdkPackageReleaseEvents: (id: number) => request<SdkPackageReleaseEvent[]>(`/releases/sdk-packages/${id}/events`),
+  getSdkPackageReleaseHistory: (id: number, filters?: { q?: string; status?: string; channel?: string; limit?: number; offset?: number }) => {
+    const params = new URLSearchParams()
+    if (filters?.q) params.set('q', filters.q)
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.channel) params.set('channel', filters.channel)
+    if (typeof filters?.limit === 'number') params.set('limit', String(filters.limit))
+    if (typeof filters?.offset === 'number') params.set('offset', String(filters.offset))
+    const q = params.toString() ? `?${params.toString()}` : ''
+    return request<SdkPackageReleaseHistoryPage>(`/releases/sdk-packages/${id}/history${q}`)
+  },
   getSdkReleaseTrains: () => request<SdkReleaseTrain[]>('/releases/sdk-trains'),
   getSdkReleaseTrain: (version: string) => request<SdkReleaseTrain>(`/releases/sdk-trains/${encodeURIComponent(version)}`),
   initializeSdkReleaseTrain: (data: {

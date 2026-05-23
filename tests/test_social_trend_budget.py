@@ -1,4 +1,5 @@
 from server.database import SocialTrendItemRow, SocialWatchlistAccountRow, utcnow
+from server.database_social_budget import social_x_read_budget_events
 from server.services.social import publishing as social_publishing
 
 
@@ -20,6 +21,13 @@ class FakeXReadClient:
                 public_metrics={"like_count": 120, "retweet_count": 12},
             )
         ]
+
+
+def test_social_x_read_budget_table_uses_sqlalchemy_autoincrement_schema():
+    id_column = social_x_read_budget_events.c.id
+
+    assert id_column.primary_key is True
+    assert id_column.autoincrement is True
 
 
 def test_x_social_trend_radar_stops_when_daily_read_budget_is_exhausted(
