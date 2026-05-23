@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type MouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { SdkPackageRelease, SdkPackageReleaseEvent, sdkPackagesApi } from '../sdkPackagesApi'
+import { SdkPackageRelease, SdkPackageReleaseEvent, SdkPackageReleaseHistoryItem, SdkPackageReleaseHistoryPage, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
 import { SDK_CHANNEL_OPTIONS, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkInstallCommand, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
+
+const HISTORY_PAGE_SIZE = 10
+const HISTORY_STATUS_OPTIONS = ['', 'planned', 'building', 'ready_to_publish', 'publishing', 'published', 'failed', 'cancelled']
+const HISTORY_CHANNEL_OPTIONS = ['', ...SDK_CHANNEL_OPTIONS]
 
 export default function SdkPackageReleaseDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -11,11 +15,18 @@ export default function SdkPackageReleaseDetailPage() {
   const releaseId = Number(id)
   const [item, setItem] = useState<SdkPackageRelease | null>(null)
   const [events, setEvents] = useState<SdkPackageReleaseEvent[]>([])
+  const [history, setHistory] = useState<SdkPackageReleaseHistoryPage | null>(null)
   const [loading, setLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [packageVersion, setPackageVersion] = useState('')
   const [channel, setChannel] = useState('preview')
   const [note, setNote] = useState('')
+  const [historySearchDraft, setHistorySearchDraft] = useState('')
+  const [historyStatusDraft, setHistoryStatusDraft] = useState('')
+  const [historyChannelDraft, setHistoryChannelDraft] = useState('')
+  const [historyFilters, setHistoryFilters] = useState({ q: '', status: '', channel: '' })
+  const [historyOffset, setHistoryOffset] = useState(0)
   const [confirmPhrase, setConfirmPhrase] = useState('')
 
   const load = async () => {
@@ -34,10 +45,32 @@ export default function SdkPackageReleaseDetailPage() {
     }
   }
 
+  const loadHistory = async (nextOffset = historyOffset, filters = historyFilters) => {
+    setHistoryLoading(true)
+    try {
+      const nextHistory = await sdkPackagesApi.getSdkPackageReleaseHistory(releaseId, {
+        q: filters.q || undefined,
+        status: filters.status || undefined,
+        channel: filters.channel || undefined,
+        limit: HISTORY_PAGE_SIZE,
+        offset: nextOffset,
+      })
+      setHistory(nextHistory)
+      setHistoryOffset(nextHistory.offset)
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!Number.isFinite(releaseId)) return
     load().catch((error) => toast.error(error instanceof Error ? error.message : '加载 SDK package 失败'))
   }, [releaseId])
+
+  useEffect(() => {
+    if (!Number.isFinite(releaseId)) return
+    loadHistory(historyOffset).catch((error) => toast.error(error instanceof Error ? error.message : '加载 SDK package 发布历史失败'))
+  }, [releaseId, historyOffset, historyFilters])
 
   const runAction = async (action: 'dry-run' | 'publish' | 'retry') => {
     if (!item) return
@@ -53,6 +86,7 @@ export default function SdkPackageReleaseDetailPage() {
       if (action === 'retry') await sdkPackagesApi.retrySdkPackageRelease(item.id, payload)
       toast.success(action === 'dry-run' ? 'Dry run 已触发' : action === 'publish' ? 'Publish 已触发' : 'Retry 已触发')
       await load()
+      await loadHistory()
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'SDK package action failed')
     } finally {
@@ -61,7 +95,16 @@ export default function SdkPackageReleaseDetailPage() {
   }
 
   const sync = async () => {
-    await syncSdkStatuses({ load, setBusyAction, toast, busyKey: 'sync' })
+    await syncSdkStatuses({ load: async () => { await load(); await loadHistory() }, setBusyAction, toast, busyKey: 'sync' })
+  }
+
+  const applyHistoryFilters = () => {
+    setHistoryFilters({
+      q: historySearchDraft.trim(),
+      status: historyStatusDraft,
+      channel: historyChannelDraft,
+    })
+    setHistoryOffset(0)
   }
 
   if (loading || !item) {
@@ -71,6 +114,10 @@ export default function SdkPackageReleaseDetailPage() {
   const isGo = item.sdk_language === 'go'
   const terminal = item.status === 'published' || item.status === 'cancelled'
   const canRetry = item.status === 'failed'
+  const historyTotal = history?.total ?? 0
+  const historyPage = Math.floor((history?.offset ?? 0) / HISTORY_PAGE_SIZE) + 1
+  const canPrevHistory = (history?.offset ?? 0) > 0
+  const canNextHistory = (history?.offset ?? 0) + HISTORY_PAGE_SIZE < historyTotal
   const expectedConfirmPhrase = `PUBLISH_SDK_${item.package_version}`
   const installCommand = sdkInstallCommand(item.sdk_language, item.package_name, item.package_version)
 
@@ -187,7 +234,55 @@ export default function SdkPackageReleaseDetailPage() {
         </SectionFrame>
       </div>
 
-      <SectionFrame eyebrow="History" title="发布历史">
+      <SectionFrame
+        eyebrow="Release Result History"
+        title="发布结果历史"
+        description="同一个 SDK package 的版本结果账本。这里展示 version/status/registry/tag/workflow，操作流水保留在下方时间线。"
+        actions={
+          <button type="button" className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-60" disabled={historyLoading} onClick={() => loadHistory()}>
+            {historyLoading ? '刷新中…' : '刷新历史'}
+          </button>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr),180px,180px,auto]">
+          <input
+            className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-transparent px-4 py-3 text-sm"
+            value={historySearchDraft}
+            placeholder="搜索版本 / train / 状态 / registry / failure summary"
+            onChange={(event) => setHistorySearchDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyHistoryFilters()
+            }}
+          />
+          <select className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm" value={historyStatusDraft} onChange={(event) => setHistoryStatusDraft(event.target.value)}>
+            {HISTORY_STATUS_OPTIONS.map((status) => <option key={status || 'all'} value={status}>{status ? SDK_STATUS_LABEL[status] || status : '全部状态'}</option>)}
+          </select>
+          <select className="rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm" value={historyChannelDraft} onChange={(event) => setHistoryChannelDraft(event.target.value)}>
+            {HISTORY_CHANNEL_OPTIONS.map((option) => <option key={option || 'all'} value={option}>{option || '全部 Channel'}</option>)}
+          </select>
+          <button type="button" className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white disabled:opacity-60" disabled={historyLoading} onClick={applyHistoryFilters}>
+            搜索
+          </button>
+        </div>
+        {history?.items.length ? (
+          <div className="mt-5 space-y-3">
+            {history.items.map((release) => (
+              <HistoryResultRow key={release.id} release={release} active={release.id === item.id} navigate={navigate} />
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5"><EmptyPane>{historyLoading ? '正在加载发布结果历史…' : '暂无匹配的发布结果历史。'}</EmptyPane></div>
+        )}
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-sm text-[color:var(--ops-text-muted)]">
+          <span>第 {historyPage} 页 · 共 {historyTotal} 条结果</span>
+          <div className="flex gap-2">
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40" disabled={!canPrevHistory || historyLoading} onClick={() => setHistoryOffset(Math.max(0, historyOffset - HISTORY_PAGE_SIZE))}>上一页</button>
+            <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-soft)] px-4 py-2 disabled:opacity-40" disabled={!canNextHistory || historyLoading} onClick={() => setHistoryOffset(historyOffset + HISTORY_PAGE_SIZE)}>下一页</button>
+          </div>
+        </div>
+      </SectionFrame>
+
+      <SectionFrame eyebrow="Operation Timeline" title="操作时间线">
         {events.length ? (
           <div className="space-y-3">
             {events.map((event) => (
@@ -206,9 +301,65 @@ export default function SdkPackageReleaseDetailPage() {
             ))}
           </div>
         ) : (
-          <EmptyPane>暂无发布历史。</EmptyPane>
+          <EmptyPane>暂无操作时间线。</EmptyPane>
         )}
       </SectionFrame>
     </div>
+  )
+}
+
+function HistoryResultRow({
+  release,
+  active,
+  navigate,
+}: Readonly<{
+  release: SdkPackageReleaseHistoryItem
+  active: boolean
+  navigate: (to: string) => void
+}>) {
+  const openLink = (event: MouseEvent<HTMLButtonElement>, url: string | null) => {
+    event.stopPropagation()
+    openExternalUrl(url)
+  }
+  const openDetail = () => navigate(`/releases/sdk-packages/${release.id}`)
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4 transition hover:border-[color:var(--ops-stroke-strong)]"
+      onClick={openDetail}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') openDetail()
+      }}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-lg font-semibold text-[color:var(--ops-text-title)]">{release.package_version}</span>
+            <StateBadge tone={sdkReleaseTone(release.status)}>{SDK_STATUS_LABEL[release.status] || release.status}</StateBadge>
+            {active ? <StateBadge tone="running">当前</StateBadge> : null}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs text-[color:var(--ops-text-muted)]">
+            <span>train <span className="font-mono">{release.release_train_version}</span></span>
+            <span>channel <span className="font-mono">{release.channel}</span></span>
+            <span>{release.registry}</span>
+            <span>{release.git_tag || 'no tag'}</span>
+          </div>
+        </div>
+        <div className="text-right text-xs text-[color:var(--ops-text-caption)]">
+          <div>updated {formatSdkTime(release.updated_at)}</div>
+          <div className="mt-1">published {formatSdkTime(release.published_at)}</div>
+        </div>
+      </div>
+      {release.failure_summary ? <div className="mt-3 text-sm text-[color:var(--ops-state-blocked-text)]">{release.failure_summary}</div> : null}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={(event) => { event.stopPropagation(); openDetail() }}>
+          查看详情
+        </button>
+        {release.package_url ? <button type="button" className="rounded-xl border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={(event) => openLink(event, release.package_url)}>打开 Registry</button> : null}
+        {release.git_tag_url ? <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={(event) => openLink(event, release.git_tag_url)}>打开 GitHub Tag</button> : null}
+        {release.workflow_run_url ? <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={(event) => openLink(event, release.workflow_run_url)}>打开 Workflow</button> : null}
+      </div>
+    </article>
   )
 }
