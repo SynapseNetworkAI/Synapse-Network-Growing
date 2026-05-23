@@ -38,8 +38,9 @@ export function DistributionBoard({
 
 function DistributionBoardCard({ card, formatDateTime, onOpen }: { card: BoardCard; formatDateTime: (value: string | null | undefined) => string; onOpen: () => void }) {
   const taskCounts = Object.entries(card.status_counts ?? {}).map(([status, count]) => `${count} ${status}`).join(' / ')
-  const failed = card.failed_count > 0
   const metrics = cardMetrics(card)
+  const visibilityIssue = card.visibility_issue_count > 0
+  const failed = card.failed_count > 0 || visibilityIssue
   return (
     <button
       type="button"
@@ -55,6 +56,11 @@ function DistributionBoardCard({ card, formatDateTime, onOpen }: { card: BoardCa
         <StateBadge tone={failed ? 'blocked' : statusTone(card.asset.status)}>{card.asset.status}</StateBadge>
       </div>
       <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-[color:var(--ops-text-muted)]">{card.next_action}</p>
+      {visibilityIssue ? (
+        <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+          Live but not visible: {card.visibility_issue_count} platform audit issue{card.visibility_issue_count > 1 ? 's' : ''}.
+        </div>
+      ) : null}
       <div className="mt-4 grid grid-cols-3 gap-2 text-center text-xs">
         {metrics.map((metric) => (
           <div key={metric.label} className="rounded-xl bg-[color:var(--ops-panel-strong)] px-2 py-2"><b>{metric.value}</b><span className="block text-[10px] text-[color:var(--ops-text-caption)]">{metric.label}</span></div>

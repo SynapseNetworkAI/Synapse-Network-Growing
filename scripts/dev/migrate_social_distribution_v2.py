@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -20,9 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from server import config
-from server.database import SessionLocal, engine, utcnow
-from server.database_config import is_sqlite_url
+from server.database import SessionLocal, engine
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionAccountRow,
@@ -48,31 +45,16 @@ def main() -> int:
     if args.confirm != CONFIRMATION:
         raise SystemExit(f"Refusing to run. Pass --confirm {CONFIRMATION}")
 
-    backup = _backup_db()
     migrated = _migrate_rows()
     if args.drop_legacy:
         _drop_legacy_tables()
     print(
         json.dumps(
-            {"backup": str(backup), "migrated": migrated, "dropped": args.drop_legacy},
+            {"migrated": migrated, "dropped": args.drop_legacy},
             indent=2,
         )
     )
     return 0
-
-
-def _backup_db() -> Path | None:
-    if not is_sqlite_url(config.DATABASE_URL):
-        print("[social-distribution-v2] backup skipped: non-SQLite database URL")
-        return None
-    db_path = Path(config.DATABASE_URL.replace("sqlite:///", ""))
-    if not db_path.exists():
-        return None
-    backup = db_path.with_suffix(
-        f".social-distribution-v2-backup-{utcnow().strftime('%Y%m%d%H%M%S')}.db"
-    )
-    shutil.copy2(db_path, backup)
-    return backup
 
 
 def _migrate_rows() -> dict[str, int]:

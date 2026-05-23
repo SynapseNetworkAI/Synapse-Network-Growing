@@ -31,8 +31,8 @@ const EMPTY_DRAFT: ProjectDraft = {
   deploy_trigger_enabled: false,
   staging_host_label: '',
   production_host_label: '',
-  staging_workflow_file: 'deploy-staging.yml',
-  production_workflow_file: 'deploy-production.yml',
+  staging_workflow_file: 'local_deploy_runner',
+  production_workflow_file: 'local_deploy_runner',
   notes: '',
 }
 

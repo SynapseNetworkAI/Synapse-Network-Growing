@@ -1,15 +1,38 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from server.services.releases import sdk_packages as sdk_release_service
-from server.services.releases.sdk_package_helpers import package_url_for
+import pytest
+
+from server.services.releases.sdk_package_models import SdkPackagePlatformRow
 from server.services.releases.sdk_package_models import SdkPackageReleaseRow
+from server.services.releases.sdk_package_platforms import (
+    _catalog_for_platform,
+    _language_for_platform,
+    get_sdk_package_platform,
+)
+from server.services.releases.sdk_package_runner import process_sdk_package_release
+from server.services.releases.sdk_package_runner import (
+    _manifest_version,
+    _runner_env,
+    _steps,
+    _verification_step,
+)
+
+
+def enable_platform(synced_client, platform_key: str):
+    response = synced_client.patch(
+        f"/api/releases/sdk-packages/platforms/{platform_key}",
+        json={"enabled": True},
+    )
+    assert response.status_code == 200
+    return response.json()
 
 
 def test_initialize_sdk_release_train_creates_default_package_records(synced_client):
     response = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
-            "release_train_version": "0.1.0",
+            "release_train_version": "1.0.0",
             "channel": "preview",
             "release_notes": "First SDK train.",
         },
@@ -24,56 +47,86 @@ def test_initialize_sdk_release_train_creates_default_package_records(synced_cli
         "java",
         "dotnet",
     ]
-    assert {item["package_version"] for item in payload} == {"0.1.0"}
+    assert {item["package_version"] for item in payload} == {"1.0.0"}
+    ts_record = next(item for item in payload if item["sdk_language"] == "typescript")
+    assert ts_record["package_name"] == "@synapse-network-ai/sdk"
     go_record = next(item for item in payload if item["sdk_language"] == "go")
-    assert go_record["git_tag"] == "go/v0.1.0"
+    assert go_record["git_tag"] == "go/v1.0.0"
     assert go_record["registry"] == "go-module"
+    java_record = next(item for item in payload if item["sdk_language"] == "java")
+    assert java_record["package_name"] == "ai.synapse-network:synapse-network-sdk"
 
-    list_response = synced_client.get("/api/releases/sdk-packages")
-    assert list_response.status_code == 200
-    assert len(list_response.json()) == 5
 
-    train_response = synced_client.get("/api/releases/sdk-trains/0.1.0")
-    assert train_response.status_code == 200
-    train_payload = train_response.json()
-    assert train_payload["package_count"] == 5
-    assert train_payload["status_counts"] == {"planned": 5}
-    assert [item["sdk_language"] for item in train_payload["packages"]] == [
-        "python",
-        "typescript",
-        "go",
-        "java",
-        "dotnet",
+def test_sdk_package_platforms_can_be_configured(synced_client):
+    response = synced_client.get("/api/releases/sdk-packages/platforms")
+    assert response.status_code == 200
+    payload = response.json()
+    assert {item["platform_key"] for item in payload} == {
+        "pypi",
+        "npm",
+        "go-module",
+        "maven-central",
+        "nuget",
+    }
+    assert not next(item for item in payload if item["platform_key"] == "pypi")[
+        "enabled"
     ]
 
-    package_response = synced_client.get(
-        f"/api/releases/sdk-packages/{payload[0]['id']}"
+    updated = enable_platform(synced_client, "pypi")
+
+    assert updated["enabled"] is True
+    assert updated["configured"] is True
+    assert updated["credential_env_var"] == "PYPI_API_TOKEN"
+
+
+def test_sdk_package_platform_patch_updates_optional_fields(synced_client, monkeypatch):
+    monkeypatch.setenv("CUSTOM_PYPI_TOKEN", "token")
+
+    response = synced_client.patch(
+        "/api/releases/sdk-packages/platforms/pypi",
+        json={
+            "enabled": True,
+            "registry_url": "https://upload.pypi.example/legacy/",
+            "package_name": "custom-synapse-sdk",
+            "package_url_template": "https://example.test/{version}",
+            "credential_env_var": "CUSTOM_PYPI_TOKEN",
+            "notes": "custom registry smoke",
+        },
     )
-    assert package_response.status_code == 200
-    assert package_response.json()["package_name"] == "synapse-client"
 
-    events_response = synced_client.get(
-        f"/api/releases/sdk-packages/{payload[0]['id']}/events"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["registry_url"] == "https://upload.pypi.example/legacy/"
+    assert payload["package_name"] == "custom-synapse-sdk"
+    assert payload["package_url_template"] == "https://example.test/{version}"
+    assert payload["credential_env_var"] == "CUSTOM_PYPI_TOKEN"
+    assert payload["credential_present"] is True
+    assert payload["notes"] == "custom registry smoke"
+
+
+def test_sdk_package_platform_unknown_key_and_invalid_metadata(db_session):
+    assert _language_for_platform("pypi") == "python"
+    assert _catalog_for_platform("npm")["package_name"] == "@synapse-network-ai/sdk"
+    with pytest.raises(ValueError):
+        _language_for_platform("unknown-registry")
+
+    row = SdkPackagePlatformRow(
+        platform_key="pypi",
+        sdk_language="python",
+        registry="pypi",
+        package_name="synapse-network-ai-sdk",
+        registry_url="https://upload.pypi.org/legacy/",
+        package_url_template="https://pypi.org/project/synapse-network-ai-sdk/{version}/",
+        credential_env_var="PYPI_API_TOKEN",
+        enabled=1,
+        metadata_json="{not-json",
     )
-    assert events_response.status_code == 200
-    assert events_response.json()[0]["action"] == "initialize_train"
+    db_session.add(row)
+    db_session.commit()
 
+    platform = get_sdk_package_platform(db_session, "pypi")
 
-def test_sdk_release_train_initialization_is_idempotent(synced_client):
-    body = {
-        "release_train_version": "0.1.0",
-        "channel": "preview",
-        "packages": ["python", "go"],
-    }
-    first = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train", json=body
-    ).json()
-    second = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train", json=body
-    ).json()
-
-    assert [item["id"] for item in second] == [item["id"] for item in first]
-    assert len(synced_client.get("/api/releases/sdk-packages").json()) == 2
+    assert platform.metadata == {}
 
 
 def test_sdk_package_list_filters_and_missing_resources(synced_client):
@@ -90,11 +143,34 @@ def test_sdk_package_list_filters_and_missing_resources(synced_client):
         "/api/releases/sdk-packages?sdk_language=python"
     )
     assert language_response.status_code == 200
-    assert [item["sdk_language"] for item in language_response.json()] == ["python"]
+    language_payload = language_response.json()
+    assert language_payload["total"] == 1
+    assert language_payload["page"] == 1
+    assert language_payload["page_size"] == 10
+    assert [item["sdk_language"] for item in language_payload["items"]] == ["python"]
 
     status_response = synced_client.get("/api/releases/sdk-packages?status=planned")
     assert status_response.status_code == 200
-    assert len(status_response.json()) == 2
+    assert status_response.json()["total"] == 2
+
+    registry_response = synced_client.get("/api/releases/sdk-packages?registry=npm")
+    assert registry_response.status_code == 200
+    assert [item["registry"] for item in registry_response.json()["items"]] == ["npm"]
+
+    search_response = synced_client.get(
+        "/api/releases/sdk-packages?search=synapse-network-ai-sdk"
+    )
+    assert search_response.status_code == 200
+    assert [item["sdk_language"] for item in search_response.json()["items"]] == [
+        "python"
+    ]
+
+    page_response = synced_client.get("/api/releases/sdk-packages?page=2&page_size=1")
+    assert page_response.status_code == 200
+    assert page_response.json()["total"] == 2
+    assert page_response.json()["page"] == 2
+    assert page_response.json()["total_pages"] == 2
+    assert len(page_response.json()["items"]) == 1
 
     assert synced_client.get("/api/releases/sdk-trains/9.9.9").status_code == 404
     assert synced_client.get("/api/releases/sdk-trains/not-semver").status_code == 400
@@ -118,12 +194,12 @@ def test_sdk_package_list_filters_and_missing_resources(synced_client):
         ).status_code
         == 404
     )
-    assert synced_client.get("/api/releases/sdk-packages/999/history").status_code == 404
+    assert (
+        synced_client.get("/api/releases/sdk-packages/999/history").status_code == 404
+    )
 
 
-def test_sdk_package_release_history_filters_pages_and_links(
-    synced_client, db_session
-):
+def test_sdk_package_release_history_filters_pages_and_links(synced_client, db_session):
     records = []
     for index, version in enumerate(["0.1.0", "0.2.0", "0.3.0", "0.4.0"]):
         payload = synced_client.post(
@@ -144,11 +220,11 @@ def test_sdk_package_release_history_filters_pages_and_links(
         )
         if version == "0.2.0":
             db_row.status = "published"
-            db_row.package_url = "https://pypi.org/project/synapse-client/0.2.0/"
-            db_row.published_at = db_row.updated_at
-            db_row.workflow_run_url = (
-                "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/202"
+            db_row.package_url = (
+                "https://pypi.org/project/synapse-network-ai-sdk/0.2.0/"
             )
+            db_row.published_at = db_row.updated_at
+            db_row.workflow_run_url = "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/202"
         if version == "0.4.0":
             db_row.status = "failed"
             db_row.failure_summary = "registry rejected version"
@@ -164,7 +240,9 @@ def test_sdk_package_release_history_filters_pages_and_links(
     ).json()[0]
     db_session.commit()
 
-    anchor_id = next(item["id"] for item in records if item["package_version"] == "0.2.0")
+    anchor_id = next(
+        item["id"] for item in records if item["package_version"] == "0.2.0"
+    )
     response = synced_client.get(f"/api/releases/sdk-packages/{anchor_id}/history")
 
     assert response.status_code == 200
@@ -177,10 +255,18 @@ def test_sdk_package_release_history_filters_pages_and_links(
         "0.1.0",
     ]
     assert other_package["id"] not in [item["id"] for item in payload["items"]]
-    published = next(item for item in payload["items"] if item["package_version"] == "0.2.0")
+    published = next(
+        item for item in payload["items"] if item["package_version"] == "0.2.0"
+    )
     assert published["status"] == "published"
-    assert published["package_url"] == "https://pypi.org/project/synapse-client/0.2.0/"
-    assert published["repo_url"] == "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk"
+    assert (
+        published["package_url"]
+        == "https://pypi.org/project/synapse-network-ai-sdk/0.2.0/"
+    )
+    assert (
+        published["repo_url"]
+        == "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk"
+    )
     assert (
         published["git_tag_url"]
         == "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/tree/sdk/v0.2.0"
@@ -211,16 +297,36 @@ def test_sdk_package_release_history_filters_pages_and_links(
     assert [item["package_version"] for item in channel["items"]] == ["0.3.0"]
 
 
-def test_sdk_package_publish_dispatches_workflow_and_records_inputs(
-    monkeypatch, synced_client, db_session
+def test_sdk_package_dry_run_records_local_runner_reference(synced_client):
+    enable_platform(synced_client, "pypi")
+    row = synced_client.post(
+        "/api/releases/sdk-packages/initialize-train",
+        json={
+            "release_train_version": "1.0.0",
+            "channel": "preview",
+            "packages": ["python"],
+        },
+    ).json()[0]
+
+    response = synced_client.post(
+        f"/api/releases/sdk-packages/{row['id']}/dry-run",
+        json={"actor": "operator", "note": "check package"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "dry_running"
+    assert payload["workflow_run_url"].startswith("local-sdk-run:dry-run:")
+    assert payload["metadata"]["platform_key"] == "pypi"
+    events = synced_client.get(f"/api/releases/sdk-packages/{row['id']}/events").json()
+    assert events[-1]["action"] == "dry_run"
+
+
+def test_sdk_package_publish_records_local_runner_reference(
+    synced_client, db_session, monkeypatch
 ):
-    calls = []
-
-    def fake_dispatch(**kwargs):
-        calls.append(kwargs)
-        return "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
-
-    monkeypatch.setattr(sdk_release_service, "_dispatch_github_workflow", fake_dispatch)
+    enable_platform(synced_client, "go-module")
+    monkeypatch.setenv("SDK_GITHUB_TOKEN", "test-token")
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
@@ -238,85 +344,36 @@ def test_sdk_package_publish_dispatches_workflow_and_records_inputs(
     db_session.commit()
 
     response = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/publish", json={"actor": "operator"}
+        f"/api/releases/sdk-packages/{row['id']}/publish",
+        json={"actor": "operator", "confirm_phrase": "PUBLISH_SDK_0.1.0"},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "publishing"
-    assert calls[0]["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-Sdk"
-    assert calls[0]["workflow_file"] == "publish-sdk.yml"
-    assert calls[0]["inputs"] == {
-        "release_train_version": "0.1.0",
-        "package": "go",
-        "package_version": "0.1.0",
-        "channel": "preview",
-        "dry_run": "false",
-    }
-
+    assert payload["workflow_run_url"].startswith("local-sdk-run:publish:")
     events = synced_client.get(f"/api/releases/sdk-packages/{row['id']}/events").json()
     assert [event["action"] for event in events] == ["initialize_train", "publish"]
-    assert events[-1]["from_status"] == "ready_to_publish"
-    assert events[-1]["to_status"] == "publishing"
 
 
-def test_sdk_package_dry_run_records_dispatch_failure(monkeypatch, synced_client):
-    def fail_dispatch(**kwargs):
-        raise ValueError("workflow dispatch failed")
-
-    monkeypatch.setattr(sdk_release_service, "_dispatch_github_workflow", fail_dispatch)
+def test_sdk_package_publish_requires_successful_dry_run(synced_client):
+    enable_platform(synced_client, "pypi")
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
-            "release_train_version": "0.1.0",
+            "release_train_version": "1.0.0",
             "channel": "preview",
             "packages": ["python"],
         },
     ).json()[0]
 
     response = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/dry-run",
-        json={"actor": "operator", "note": "check package"},
+        f"/api/releases/sdk-packages/{row['id']}/publish",
+        json={"actor": "operator"},
     )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "failed"
-    assert payload["failure_summary"] == "workflow dispatch failed"
-    events = synced_client.get(f"/api/releases/sdk-packages/{row['id']}/events").json()
-    assert events[-1]["action"] == "dry_run"
-    assert events[-1]["error_summary"] == "workflow dispatch failed"
-
-
-def test_sdk_package_release_allows_patch_version_before_publish(
-    monkeypatch, synced_client
-):
-    monkeypatch.setattr(
-        sdk_release_service,
-        "_dispatch_github_workflow",
-        lambda **kwargs: (
-            "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/workflows/publish-sdk.yml"
-        ),
-    )
-    row = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train",
-        json={
-            "release_train_version": "0.1.0",
-            "channel": "preview",
-            "packages": ["python"],
-        },
-    ).json()[0]
-
-    response = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/dry-run",
-        json={"package_version": "0.1.1", "channel": "next"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["package_version"] == "0.1.1"
-    assert payload["release_train_version"] == "0.1.0"
-    assert payload["channel"] == "next"
+    assert response.status_code == 400
+    assert "dry-run" in response.json()["detail"].lower()
 
 
 def test_sdk_package_release_blocks_published_version_overwrite(
@@ -336,7 +393,7 @@ def test_sdk_package_release_blocks_published_version_overwrite(
         .one()
     )
     db_row.status = "published"
-    db_row.package_url = "https://pypi.org/project/synapse-client/0.1.0/"
+    db_row.package_url = "https://pypi.org/project/synapse-network-ai-sdk/0.1.0/"
     db_session.commit()
 
     response = synced_client.post(
@@ -348,7 +405,7 @@ def test_sdk_package_release_blocks_published_version_overwrite(
     assert "already published" in response.json()["detail"]
 
 
-def test_sdk_package_publish_requires_successful_dry_run(synced_client):
+def test_sdk_package_dry_run_requires_enabled_platform(synced_client):
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
@@ -359,17 +416,19 @@ def test_sdk_package_publish_requires_successful_dry_run(synced_client):
     ).json()[0]
 
     response = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/publish",
+        f"/api/releases/sdk-packages/{row['id']}/dry-run",
         json={"actor": "operator"},
     )
 
     assert response.status_code == 400
-    assert "dry-run" in response.json()["detail"]
+    assert "platform_config_missing" in response.json()["detail"]
 
 
-def test_sdk_package_release_rejects_terminal_and_invalid_actions(
-    synced_client, db_session
+def test_sdk_package_publish_requires_confirm_phrase_and_credential(
+    synced_client, db_session, monkeypatch
 ):
+    monkeypatch.delenv("PYPI_API_TOKEN", raising=False)
+    enable_platform(synced_client, "pypi")
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
@@ -383,210 +442,220 @@ def test_sdk_package_release_rejects_terminal_and_invalid_actions(
         .filter(SdkPackageReleaseRow.id == row["id"])
         .one()
     )
-
-    db_row.status = "published"
+    db_row.status = "ready_to_publish"
     db_session.commit()
-    dry_run = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/dry-run", json={"actor": "operator"}
+
+    bad_confirm = synced_client.post(
+        f"/api/releases/sdk-packages/{row['id']}/publish",
+        json={"actor": "operator", "confirm_phrase": "YES"},
     )
-    assert dry_run.status_code == 400
-    assert "Terminal" in dry_run.json()["detail"]
+    assert bad_confirm.status_code == 400
+    assert "confirm_phrase" in bad_confirm.json()["detail"]
 
-    db_row.status = "cancelled"
-    db_session.commit()
-    publish = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/publish", json={"actor": "operator"}
+    missing_credential = synced_client.post(
+        f"/api/releases/sdk-packages/{row['id']}/publish",
+        json={"actor": "operator", "confirm_phrase": "PUBLISH_SDK_0.1.0"},
     )
-    assert publish.status_code == 400
-    assert "Cancelled" in publish.json()["detail"]
-
-    db_row.status = "planned"
-    db_session.commit()
-    retry = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/retry", json={"actor": "operator"}
-    )
-    assert retry.status_code == 400
-    assert "Only failed" in retry.json()["detail"]
-
-    db_row.status = "failed"
-    db_session.commit()
-    bad_channel = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/retry",
-        json={"actor": "operator", "channel": "nightly"},
-    )
-    assert bad_channel.status_code == 400
-    assert "channel must be one of" in bad_channel.json()["detail"]
+    assert missing_credential.status_code == 400
+    assert "credential_missing" in missing_credential.json()["detail"]
 
 
-def test_sdk_package_retry_allows_patch_after_failure(
-    monkeypatch, synced_client, db_session
+def test_sdk_package_local_runner_marks_dry_run_ready(
+    synced_client, db_session, monkeypatch
 ):
-    monkeypatch.setattr(
-        sdk_release_service,
-        "_dispatch_github_workflow",
-        lambda **kwargs: (
-            "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/123"
-        ),
-    )
+    enable_platform(synced_client, "pypi")
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
-            "release_train_version": "0.1.0",
-            "channel": "preview",
-            "packages": ["typescript"],
-        },
-    ).json()[0]
-    db_row = (
-        db_session.query(SdkPackageReleaseRow)
-        .filter(SdkPackageReleaseRow.id == row["id"])
-        .one()
-    )
-    db_row.status = "failed"
-    db_row.failure_summary = "previous publish failed"
-    db_session.commit()
-
-    response = synced_client.post(
-        f"/api/releases/sdk-packages/{row['id']}/retry",
-        json={"actor": "operator", "package_version": "0.1.1", "channel": "latest"},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["status"] == "publishing"
-    assert payload["package_version"] == "0.1.1"
-    assert payload["channel"] == "latest"
-    assert payload["failure_summary"] is None
-
-
-def test_sdk_package_sync_statuses_handles_ready_published_failed_and_pending(
-    monkeypatch, synced_client, db_session
-):
-    rows = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train",
-        json={
-            "release_train_version": "0.1.0",
-            "channel": "preview",
-            "packages": ["python", "typescript", "go", "java", "dotnet"],
-        },
-    ).json()
-    db_rows = (
-        db_session.query(SdkPackageReleaseRow)
-        .order_by(SdkPackageReleaseRow.id.asc())
-        .all()
-    )
-    statuses = ["building", "publishing", "publishing", "building", "publishing"]
-    urls = [
-        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/101",
-        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/102",
-        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/103",
-        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/104",
-        None,
-    ]
-    for row, status, url in zip(db_rows, statuses, urls, strict=True):
-        row.status = status
-        row.workflow_run_url = url
-    db_session.commit()
-
-    def fake_run_view(repo_full_name, run_id):
-        payloads = {
-            "101": {"status": "completed", "conclusion": "success"},
-            "102": {"status": "completed", "conclusion": "success"},
-            "103": {"status": "completed", "conclusion": "failure"},
-            "104": {"status": "in_progress", "conclusion": None},
-        }
-        return payloads[run_id], None
-
-    monkeypatch.setattr(sdk_release_service, "_github_actions_run_view", fake_run_view)
-
-    response = synced_client.post("/api/releases/sdk-packages/sync-statuses")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["processed_count"] == 5
-    assert payload["ready_ids"] == [rows[0]["id"]]
-    assert payload["published_ids"] == [rows[1]["id"]]
-    assert payload["failed_ids"] == [rows[2]["id"]]
-    assert set(payload["publishing_ids"]) == {rows[3]["id"], rows[4]["id"]}
-
-    updated = synced_client.get(f"/api/releases/sdk-packages/{rows[1]['id']}").json()
-    assert updated["status"] == "published"
-    assert (
-        updated["package_url"]
-        == "https://www.npmjs.com/package/@synapse-network/sdk/v/0.1.0"
-    )
-
-    failed = synced_client.get(f"/api/releases/sdk-packages/{rows[2]['id']}").json()
-    assert failed["status"] == "failed"
-    assert failed["failure_summary"] == "GitHub Actions concluded with failure."
-
-
-def test_sdk_package_sync_statuses_records_github_lookup_error(
-    monkeypatch, synced_client, db_session
-):
-    row = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train",
-        json={
-            "release_train_version": "0.1.0",
+            "release_train_version": "1.0.0",
             "channel": "preview",
             "packages": ["python"],
         },
     ).json()[0]
-    db_row = (
-        db_session.query(SdkPackageReleaseRow)
-        .filter(SdkPackageReleaseRow.id == row["id"])
-        .one()
-    )
-    db_row.status = "building"
-    db_row.workflow_run_url = (
-        "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/501"
-    )
-    db_session.commit()
-
-    monkeypatch.setattr(
-        sdk_release_service,
-        "_github_actions_run_view",
-        lambda repo_full_name, run_id: (None, "not found"),
-    )
-
-    response = synced_client.post("/api/releases/sdk-packages/sync-statuses")
-
-    assert response.status_code == 200
-    assert response.json()["error_ids"] == [row["id"]]
-
-
-def test_sdk_package_urls_cover_all_registries(synced_client, db_session):
     synced_client.post(
-        "/api/releases/sdk-packages/initialize-train",
-        json={"release_train_version": "0.1.0", "channel": "preview"},
-    )
-    rows = (
-        db_session.query(SdkPackageReleaseRow).order_by(SdkPackageReleaseRow.id).all()
+        f"/api/releases/sdk-packages/{row['id']}/dry-run",
+        json={"actor": "operator"},
     )
 
-    urls = {row.sdk_language: package_url_for(row) for row in rows}
+    class Result:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
 
-    assert urls == {
-        "python": "https://pypi.org/project/synapse-client/0.1.0/",
-        "typescript": "https://www.npmjs.com/package/@synapse-network/sdk/v/0.1.0",
-        "go": "https://pkg.go.dev/github.com/SynapseNetworkAI/Synapse-Network-Sdk/go@v0.1.0",
-        "java": "https://repo1.maven.org/maven2/ai/synapsenetwork/synapse-network-sdk/0.1.0/",
-        "dotnet": "https://www.nuget.org/packages/SynapseNetwork.Sdk/0.1.0",
+    monkeypatch.setattr(
+        "server.services.releases.sdk_package_runner.subprocess.run",
+        lambda *args, **kwargs: Result(),
+    )
+
+    assert process_sdk_package_release(db_session, release_id=row["id"]) == 1
+
+    db_session.expire_all()
+    db_row = (
+        db_session.query(SdkPackageReleaseRow)
+        .filter(SdkPackageReleaseRow.id == row["id"])
+        .one()
+    )
+    assert db_row.status == "ready_to_publish"
+    assert "artifact_manifest" in db_row.metadata_json
+
+
+def test_sdk_package_runner_templates_and_env(monkeypatch, tmp_path):
+    dotnet_root = tmp_path / "dotnet-root"
+    dotnet_root.mkdir()
+    (dotnet_root / "dotnet").write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("PYPI_API_TOKEN", "pypi-token")
+    monkeypatch.setenv("NPM_TOKEN", "npm-token")
+    monkeypatch.setenv("NUGET_API_KEY", "nuget-token")
+    monkeypatch.setenv("SYNAPSE_E2E_DOTNET_DIR", str(dotnet_root))
+
+    assert "python_twine_upload" in {
+        step.key
+        for step in _steps("python", publish=True, version="1.0.0", channel="latest")
+    }
+    assert {"npm_write_auth_config", "npm_publish"}.issubset(
+        {
+            step.key
+            for step in _steps(
+                "typescript", publish=True, version="1.0.0", channel="latest"
+            )
+        }
+    )
+    assert "go_tag_push" in {
+        step.key
+        for step in _steps("go", publish=True, version="1.0.0", channel="latest")
+    }
+    assert "maven_central_deploy" in {
+        step.key
+        for step in _steps("java", publish=True, version="1.0.0", channel="latest")
+    }
+    assert "dotnet_push" in {
+        step.key
+        for step in _steps("dotnet", publish=True, version="1.0.0", channel="latest")
     }
 
+    assert "synapse-network-ai-sdk" in _verification_step("python", "1.0.0").command
+    assert (
+        "--registry https://registry.npmjs.org"
+        in _verification_step("typescript", "1.0.0").command
+    )
+    assert "go list -m -json" in _verification_step("go", "1.0.0").command
+    assert "mvn -q dependency:get" in _verification_step("java", "1.0.0").command
+    assert "ai.synapse-network:synapse-network-sdk" in _verification_step(
+        "java", "1.0.0"
+    ).command
+    assert "dotnet add" in _verification_step("dotnet", "1.0.0").command
 
-def test_sdk_package_release_rejects_invalid_version_and_unknown_language(
-    synced_client,
+    pypi_env = _runner_env("pypi", "PYPI_API_TOKEN")
+    assert pypi_env["TWINE_USERNAME"] == "__token__"
+    assert pypi_env["TWINE_PASSWORD"] == "pypi-token"
+    npm_env = _runner_env("npm", "NPM_TOKEN")
+    assert npm_env["NODE_AUTH_TOKEN"] == "npm-token"
+    assert npm_env["NPM_CONFIG_REGISTRY"] == "https://registry.npmjs.org"
+    monkeypatch.setenv("MAVEN_TOKEN", "central-user:central-password")
+    maven_env = _runner_env("maven-central", "MAVEN_TOKEN")
+    assert maven_env["MAVEN_CENTRAL_USERNAME"] == "central-user"
+    assert maven_env["MAVEN_CENTRAL_PASSWORD"] == "central-password"
+    dotnet_env = _runner_env("nuget", "NUGET_API_KEY")
+    assert dotnet_env["DOTNET_ROOT"] == str(dotnet_root)
+    assert str(dotnet_root) in dotnet_env["PATH"]
+
+
+def test_sdk_package_runner_reads_manifest_versions():
+    sdk_repo = Path("/Users/cliff/workspace/agent/Synapse-Network-Sdk")
+    if not sdk_repo.exists():
+        pytest.skip("SDK repo checkout is required for manifest version smoke.")
+
+    assert _manifest_version("python") == "1.0.0"
+    assert _manifest_version("typescript") == "1.0.0"
+    assert _manifest_version("java") == "1.0.0"
+    assert _manifest_version("dotnet") == "1.0.0"
+    assert _manifest_version("go") is None
+
+
+def test_sdk_package_retry_and_sync_statuses(synced_client, db_session):
+    row = synced_client.post(
+        "/api/releases/sdk-packages/initialize-train",
+        json={
+            "release_train_version": "0.2.0",
+            "channel": "preview",
+            "packages": ["python", "typescript", "go"],
+        },
+    ).json()
+    failed_without_url = row[0]
+    failed_with_url = row[1]
+    publishing = row[2]
+
+    for item, status in [
+        (failed_without_url, "failed"),
+        (failed_with_url, "failed"),
+        (publishing, "publishing"),
+    ]:
+        db_row = (
+            db_session.query(SdkPackageReleaseRow)
+            .filter(SdkPackageReleaseRow.id == item["id"])
+            .one()
+        )
+        db_row.status = status
+        db_row.failure_summary = "previous failure"
+        if item["id"] == failed_with_url["id"]:
+            db_row.package_url = "https://registry.example/sdk/0.2.0"
+        db_session.commit()
+
+    retry_dry_run = synced_client.post(
+        f"/api/releases/sdk-packages/{failed_without_url['id']}/retry",
+        json={"actor": "operator", "note": "retry dry run"},
+    )
+    assert retry_dry_run.status_code == 200
+    assert retry_dry_run.json()["status"] == "dry_running"
+
+    retry_publish_ready = synced_client.post(
+        f"/api/releases/sdk-packages/{failed_with_url['id']}/retry",
+        json={"actor": "operator", "note": "retry publish"},
+    )
+    assert retry_publish_ready.status_code == 200
+    assert retry_publish_ready.json()["status"] == "ready_to_publish"
+
+    sync_response = synced_client.post("/api/releases/sdk-packages/sync-statuses")
+    assert sync_response.status_code == 200
+    payload = sync_response.json()
+    assert failed_without_url["id"] in payload["ready_ids"]
+    assert publishing["id"] in payload["publishing_ids"]
+
+    db_session.expire_all()
+    events = synced_client.get(
+        f"/api/releases/sdk-packages/{publishing['id']}/events"
+    ).json()
+    assert events[-1]["action"] == "sync_status"
+
+
+def test_sdk_package_local_runner_fails_on_manifest_version_mismatch(
+    synced_client, db_session, monkeypatch
 ):
-    bad_version = synced_client.post(
+    enable_platform(synced_client, "pypi")
+    row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
-        json={"release_train_version": "v0.1", "channel": "preview"},
+        json={
+            "release_train_version": "9.9.9",
+            "channel": "preview",
+            "packages": ["python"],
+        },
+    ).json()[0]
+    synced_client.post(
+        f"/api/releases/sdk-packages/{row['id']}/dry-run",
+        json={"actor": "operator"},
     )
-    assert bad_version.status_code == 400
-    assert "SemVer" in bad_version.json()["detail"]
+    monkeypatch.setattr(
+        "server.services.releases.sdk_package_runner._manifest_version",
+        lambda _language: "1.0.0",
+    )
 
-    bad_language = synced_client.post(
-        "/api/releases/sdk-packages/initialize-train",
-        json={"release_train_version": "0.1.0", "packages": ["ruby"]},
+    assert process_sdk_package_release(db_session, release_id=row["id"]) == 1
+
+    db_session.expire_all()
+    db_row = (
+        db_session.query(SdkPackageReleaseRow)
+        .filter(SdkPackageReleaseRow.id == row["id"])
+        .one()
     )
-    assert bad_language.status_code == 400
-    assert "Unsupported SDK package language" in bad_language.json()["detail"]
+    assert db_row.status == "failed"
+    assert "manifest_version_mismatch" in db_row.failure_summary

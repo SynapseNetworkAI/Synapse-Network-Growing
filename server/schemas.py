@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
-
-
 # ── Agent ─────────────────────────────────────────────────────
 
 class AgentOut(BaseModel):
@@ -687,12 +685,12 @@ class ProjectPolicyCreate(BaseModel):
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
 
 
@@ -744,12 +742,12 @@ class ProjectPolicyOut(BaseModel):
     max_parallel_requirements: int = 1
     portfolio_budget_points: int = 100
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -767,8 +765,8 @@ class ProjectCreate(BaseModel):
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
 
 
@@ -802,8 +800,8 @@ class ProjectOut(BaseModel):
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
-    staging_workflow_file: str = "deploy-staging.yml"
-    production_workflow_file: str = "deploy-production.yml"
+    staging_workflow_file: str = "local_deploy_runner"
+    production_workflow_file: str = "local_deploy_runner"
     notes: Optional[str] = None
     policy_id: Optional[int] = None
     created_at: Optional[datetime] = None
@@ -1269,6 +1267,10 @@ class ReleaseTaskPrGateOut(BaseModel):
     checks_summary: Optional[str] = None
     can_create_pr: bool = False
     can_deploy_staging: bool = False
+    can_deploy_production: bool = False
+    resolved_commit_sha: Optional[str] = None
+    staging_deployment_record_id: Optional[int] = None
+    environment_gate_summary: Optional[str] = None
     blocked_reason: Optional[str] = None
 
 
@@ -1281,6 +1283,7 @@ class ReleaseTaskOut(BaseModel):
     project_display_name: Optional[str] = None
     service_key: Optional[str] = None
     branch_name: str
+    target_commit_sha: Optional[str] = None
     environment: str
     status: str = "requested"
     actor: Optional[str] = None
@@ -1296,6 +1299,7 @@ class ReleaseTaskOut(BaseModel):
     deployment_started_at: Optional[datetime] = None
     deployment_finished_at: Optional[datetime] = None
     deployment_metadata: dict[str, object] = {}
+    task_metadata: dict[str, object] = {}
     pr_gate: ReleaseTaskPrGateOut = Field(default_factory=ReleaseTaskPrGateOut)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -1330,6 +1334,7 @@ class ReleaseTaskPatchRequest(BaseModel):
 class ReleaseTaskDeployRequest(BaseModel):
     actor: str = "operator"
     note: Optional[str] = None
+    confirm_phrase: Optional[str] = None
 
 
 class ReleaseRollbackRequest(BaseModel):
@@ -1848,7 +1853,7 @@ class EnvironmentStatusOut(BaseModel):
     project_key: str
     deploy_repo_full_name: Optional[str] = None
     host_label: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     trigger_enabled: bool = False
     current_commit_sha: Optional[str] = None
     current_branch: Optional[str] = None
@@ -1864,7 +1869,7 @@ class DeploymentProjectOverviewOut(BaseModel):
     project_key: str
     display_name: str
     deploy_repo_full_name: Optional[str] = None
-    deploy_strategy: str = "github_actions_ssh"
+    deploy_strategy: str = "local_deploy_runner"
     deploy_trigger_enabled: bool = False
     staging_host_label: Optional[str] = None
     production_host_label: Optional[str] = None
@@ -2162,6 +2167,11 @@ class RecurringWorkflowOut(BaseModel):
     is_due: bool = False
     health_status: str = "unknown"
     last_result: dict[str, object] = {}
+    handler_key: Optional[str] = None
+    category: Optional[str] = None
+    risk_level: Optional[str] = None
+    editable: bool = False
+    deletable: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

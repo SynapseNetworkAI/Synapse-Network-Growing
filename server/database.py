@@ -12,7 +12,6 @@ from sqlalchemy import (
     Index,
     UniqueConstraint,
     create_engine,
-    event,
     inspect,
     text,
 )
@@ -25,58 +24,20 @@ from server.config import (
     DB_POOL_RECYCLE,
     DB_POOL_SIZE,
     DB_POOL_TIMEOUT,
-    DB_SQLITE_BUSY_TIMEOUT,
-    DB_SQLITE_JOURNAL_MODE,
-    DB_SQLITE_SYNCHRONOUS,
 )
 
 from server.database_social_budget import migrate_social_x_read_budget
 logger = logging.getLogger("ops-dashboard.db")
-_IS_SQLITE = DATABASE_URL.startswith("sqlite")
-_IS_IN_MEMORY = ":memory:" in DATABASE_URL
 
 _engine_kwargs = {
     "pool_pre_ping": DB_POOL_PRE_PING,
+    "pool_size": DB_POOL_SIZE,
+    "max_overflow": DB_MAX_OVERFLOW,
+    "pool_timeout": DB_POOL_TIMEOUT,
+    "pool_recycle": DB_POOL_RECYCLE,
 }
-if _IS_SQLITE:
-    _engine_kwargs["connect_args"] = {
-        "check_same_thread": False,
-        "timeout": float(max(5, DB_SQLITE_BUSY_TIMEOUT)),
-    }
-
-if not _IS_IN_MEMORY:
-    _engine_kwargs.update({
-        "pool_size": DB_POOL_SIZE,
-        "max_overflow": DB_MAX_OVERFLOW,
-        "pool_timeout": DB_POOL_TIMEOUT,
-        "pool_recycle": DB_POOL_RECYCLE,
-    })
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
-
-
-@event.listens_for(engine, "connect")
-def _configure_sqlite(dbapi_conn, _):
-    if not _IS_SQLITE:
-        return
-    cursor = dbapi_conn.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-        if not _IS_IN_MEMORY:
-            try:
-                cursor.execute(f"PRAGMA journal_mode={DB_SQLITE_JOURNAL_MODE}")
-                cursor.fetchone()
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to enforce SQLite journal_mode=%s: %s", DB_SQLITE_JOURNAL_MODE, exc)
-        if DB_SQLITE_SYNCHRONOUS:
-            try:
-                cursor.execute(f"PRAGMA synchronous={DB_SQLITE_SYNCHRONOUS}")
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning("Failed to enforce SQLite synchronous=%s: %s", DB_SQLITE_SYNCHRONOUS, exc)
-        busy_timeout_ms = max(1000, int(DB_SQLITE_BUSY_TIMEOUT * 1000))
-        cursor.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
-    finally:
-        cursor.close()
 
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -85,44 +46,6 @@ Base = declarative_base()
 
 def utcnow():
     return datetime.now(timezone.utc)
-
-
-def _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_) -> None:  # pragma: no cover
-    """SQLite cannot drop a NOT NULL constraint in place."""
-    if not _IS_SQLITE:
-        return
-    columns = [column.name for column in DeploymentRecordRow.__table__.columns]
-    column_sql = ", ".join(columns)
-    with engine_.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-        conn.commit()
-        conn.execute(text("ALTER TABLE deployment_records RENAME TO deployment_records_old"))
-        conn.commit()
-        DeploymentRecordRow.__table__.create(bind=conn, checkfirst=True)
-        conn.execute(text(f"INSERT INTO deployment_records ({column_sql}) SELECT {column_sql} FROM deployment_records_old"))
-        conn.execute(text("DROP TABLE deployment_records_old"))
-        conn.commit()
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-        conn.commit()
-
-
-def _rebuild_sqlite_release_tasks_with_current_fks(engine_) -> None:  # pragma: no cover
-    """Repair release_tasks FKs after SQLite table rebuilds rename referenced tables."""
-    if not _IS_SQLITE:
-        return
-    columns = [column.name for column in ReleaseTaskRow.__table__.columns]
-    column_sql = ", ".join(columns)
-    with engine_.connect() as conn:
-        conn.execute(text("PRAGMA foreign_keys=OFF"))
-        conn.commit()
-        conn.execute(text("ALTER TABLE release_tasks RENAME TO release_tasks_old"))
-        conn.commit()
-        ReleaseTaskRow.__table__.create(bind=conn, checkfirst=True)
-        conn.execute(text(f"INSERT INTO release_tasks ({column_sql}) SELECT {column_sql} FROM release_tasks_old"))
-        conn.execute(text("DROP TABLE release_tasks_old"))
-        conn.commit()
-        conn.execute(text("PRAGMA foreign_keys=ON"))
-        conn.commit()
 
 
 # ── ORM Models ────────────────────────────────────────────────
@@ -238,12 +161,12 @@ class ProjectPolicyRow(Base):
     max_parallel_requirements = Column(Integer, nullable=False, default=1)
     portfolio_budget_points = Column(Integer, nullable=False, default=100)
     deploy_repo_full_name = Column(Text)
-    deploy_strategy = Column(Text, nullable=False, default="github_actions_ssh")
+    deploy_strategy = Column(Text, nullable=False, default="local_deploy_runner")
     deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
     staging_host_label = Column(Text)
     production_host_label = Column(Text)
-    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
-    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
+    staging_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
+    production_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -271,8 +194,8 @@ class ProjectRow(Base):
     deploy_trigger_enabled = Column(Boolean, nullable=False, default=False)
     staging_host_label = Column(Text)
     production_host_label = Column(Text)
-    staging_workflow_file = Column(Text, nullable=False, default="deploy-staging.yml")
-    production_workflow_file = Column(Text, nullable=False, default="deploy-production.yml")
+    staging_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
+    production_workflow_file = Column(Text, nullable=False, default="local_deploy_runner")
     notes = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
@@ -487,6 +410,8 @@ class SchedulerLockRow(Base):
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class CodexSessionRow(Base):
     __tablename__ = "codex_sessions"
     __table_args__ = (
@@ -547,6 +472,65 @@ class DeploymentRecordRow(Base):
     requirement = relationship("RequirementRow")
     project_policy = relationship("ProjectPolicyRow")
 
+
+class DeploymentEventRow(Base):
+    __tablename__ = "deployment_events"
+    __table_args__ = (
+        UniqueConstraint("deployment_record_id", "sequence", name="deployment_events_record_sequence_uq"),
+        Index("deployment_events_record_sequence_idx", "deployment_record_id", "sequence"),
+        Index("deployment_events_record_created_idx", "deployment_record_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    deployment_record_id = Column(Integer, ForeignKey("deployment_records.id"), nullable=False)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(Text, nullable=False)
+    step_key = Column(Text)
+    message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    deployment_record = relationship("DeploymentRecordRow")
+
+
+class LocalCiRunRow(Base):
+    __tablename__ = "local_ci_runs"
+    __table_args__ = (
+        Index("local_ci_runs_status_idx", "status"),
+        Index("local_ci_runs_repo_status_idx", "repo_path", "status"),
+        Index("local_ci_runs_created_at_idx", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    repo_path = Column(Text, nullable=False)
+    branch_name = Column(Text, nullable=False)
+    commit_sha = Column(Text, nullable=False)
+    base_ref = Column(Text, nullable=False, default="origin/main")
+    scope = Column(Text, nullable=False, default="auto")
+    status = Column(Text, nullable=False, default="requested")
+    actor = Column(Text, nullable=False, default="operator")
+    exit_code = Column(Integer)
+    summary = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    started_at = Column(DateTime)
+    finished_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class LocalCiEventRow(Base):
+    __tablename__ = "local_ci_events"
+    __table_args__ = (
+        UniqueConstraint("ci_run_id", "sequence", name="local_ci_events_run_sequence_uq"),
+        Index("local_ci_events_run_sequence_idx", "ci_run_id", "sequence"),
+        Index("local_ci_events_run_created_idx", "ci_run_id", "created_at"),
+    )
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ci_run_id = Column(Integer, ForeignKey("local_ci_runs.id"), nullable=False)
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(Text, nullable=False)
+    step_key = Column(Text)
+    message = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    ci_run = relationship("LocalCiRunRow")
+
+
 class ReleaseTaskRow(Base):
     __tablename__ = "release_tasks"
     __table_args__ = (
@@ -564,11 +548,13 @@ class ReleaseTaskRow(Base):
     project_display_name = Column(Text)
     service_key = Column(Text)
     branch_name = Column(Text, nullable=False)
+    target_commit_sha = Column(Text)
     environment = Column(Text, nullable=False)
     status = Column(Text, nullable=False, default="requested")
     actor = Column(Text)
     operator = Column(Text)
     note = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
     requirement = relationship("RequirementRow")
@@ -815,13 +801,16 @@ class SocialPostMetricRow(Base):
     reposts = Column(Integer, nullable=False, default=0)
     follows = Column(Integer, nullable=False, default=0)
     link_clicks = Column(Integer, nullable=False, default=0)
+    profile_visits = Column(Integer, nullable=False, default=0)
+    bookmarks = Column(Integer, nullable=False, default=0)
+    format_kind = Column(Text)
+    posted_at = Column(DateTime)
     summary = Column(Text)
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_deployments, server.database_scheduled_jobs, server.database_social_distribution  # noqa: E402,F401
-
-
+import server.database_social_distribution  # noqa: E402,F401
+import server.database_scheduled_jobs  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -1601,20 +1590,20 @@ def _migrate(engine_):
         project_policy_cols = {
             "project_id": "INTEGER",
             "autonomy_mode": "TEXT DEFAULT 'recommend'",
-            "allow_rebalance": "BOOLEAN DEFAULT 1",
-            "allow_preemption": "BOOLEAN DEFAULT 0",
+            "allow_rebalance": "BOOLEAN DEFAULT true",
+            "allow_preemption": "BOOLEAN DEFAULT false",
             "capability_matrix_json": "TEXT DEFAULT '{}'",
             "interrupt_policy_json": "TEXT DEFAULT '{}'",
             "scheduler_weight": "FLOAT DEFAULT 1.0",
             "max_parallel_requirements": "INTEGER DEFAULT 1",
             "portfolio_budget_points": "INTEGER DEFAULT 100",
             "deploy_repo_full_name": "TEXT",
-            "deploy_strategy": "TEXT DEFAULT 'github_actions_ssh'",
-            "deploy_trigger_enabled": "BOOLEAN DEFAULT 0",
+            "deploy_strategy": "TEXT DEFAULT 'local_deploy_runner'",
+            "deploy_trigger_enabled": "BOOLEAN DEFAULT false",
             "staging_host_label": "TEXT",
             "production_host_label": "TEXT",
-            "staging_workflow_file": "TEXT DEFAULT 'deploy-staging.yml'",
-            "production_workflow_file": "TEXT DEFAULT 'deploy-production.yml'",
+            "staging_workflow_file": "TEXT DEFAULT 'local_deploy_runner'",
+            "production_workflow_file": "TEXT DEFAULT 'local_deploy_runner'",
         }
         for col, col_type in project_policy_cols.items():
             if col not in existing:
@@ -1635,7 +1624,7 @@ def _migrate(engine_):
             "scorecard_json": "TEXT DEFAULT '{}'",
             "discovery_status": "TEXT DEFAULT 'pending'",
             "discovery_recommendation_json": "TEXT DEFAULT '{}'",
-            "last_discovery_at": "DATETIME",
+            "last_discovery_at": "TIMESTAMP",
         }
         for col, col_type in bug_cols.items():
             if col not in existing:
@@ -1653,7 +1642,7 @@ def _migrate(engine_):
         CodexSessionRow.__table__.create(bind=engine_, checkfirst=True)
     else:  # pragma: no cover - startup migration for already-created local DBs
         existing = {c["name"] for c in insp.get_columns("codex_sessions")}
-        session_cols = (("workspace_trust_state", "TEXT DEFAULT 'clean'"), ("requires_workspace_recovery", "BOOLEAN DEFAULT 0"), ("killed_at", "DATETIME"), ("kill_signal", "TEXT"), ("trusted_checkpoint_json", "TEXT DEFAULT '{}'"))
+        session_cols = (("workspace_trust_state", "TEXT DEFAULT 'clean'"), ("requires_workspace_recovery", "BOOLEAN DEFAULT false"), ("killed_at", "TIMESTAMP"), ("kill_signal", "TEXT"), ("trusted_checkpoint_json", "TEXT DEFAULT '{}'"))
         for col, col_type in session_cols:
             if col not in existing:
                 logger.info("Migrating: adding '%s' column to codex_sessions table", col)
@@ -1669,17 +1658,21 @@ def _migrate(engine_):
         requirement_col = deployment_columns.get("requirement_id")
         if requirement_col is not None and requirement_col.get("nullable") is False:
             logger.info("Migrating: making deployment_records.requirement_id nullable")
-            if _IS_SQLITE:
-                _rebuild_sqlite_deployment_records_with_nullable_requirement(engine_)
-                insp = inspect(engine_)
-            else:
-                with engine_.connect() as conn:
-                    conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
-                    conn.commit()
+            with engine_.connect() as conn:
+                conn.execute(text("ALTER TABLE deployment_records ALTER COLUMN requirement_id DROP NOT NULL"))
+                conn.commit()
 
     if "deployment_events" not in tables:
         logger.info("Migrating: creating 'deployment_events' table")
-        server.database_deployments.DeploymentEventRow.__table__.create(bind=engine_, checkfirst=True)
+        DeploymentEventRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "local_ci_runs" not in tables:
+        logger.info("Migrating: creating 'local_ci_runs' table")
+        LocalCiRunRow.__table__.create(bind=engine_, checkfirst=True)
+
+    if "local_ci_events" not in tables:
+        logger.info("Migrating: creating 'local_ci_events' table")
+        LocalCiEventRow.__table__.create(bind=engine_, checkfirst=True)
 
     if "release_tasks" not in tables:
         logger.info("Migrating: creating 'release_tasks' table")
@@ -1688,6 +1681,8 @@ def _migrate(engine_):
         existing = {c["name"] for c in insp.get_columns("release_tasks")}
         release_task_cols = {
             "service_key": "TEXT",
+            "target_commit_sha": "TEXT",
+            "metadata_json": "TEXT DEFAULT '{}'",
         }
         for col, col_type in release_task_cols.items():
             if col not in existing:
@@ -1695,17 +1690,25 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE release_tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
-        release_task_fks = insp.get_foreign_keys("release_tasks")
-        if any(fk.get("referred_table") == "deployment_records_old" for fk in release_task_fks):
-            logger.info("Migrating: repairing release_tasks deployment_record foreign key")
-            _rebuild_sqlite_release_tasks_with_current_fks(engine_)
-            insp = inspect(engine_)
-
     social_tables = {"social_campaign_goals": SocialCampaignGoalRow, "social_oauth_sessions": SocialOAuthSessionRow, "social_trend_items": SocialTrendItemRow, "social_watchlist_accounts": SocialWatchlistAccountRow, "social_reply_items": SocialReplyItemRow, "social_repost_candidates": SocialRepostCandidateRow, "social_post_metrics": SocialPostMetricRow}
     for table_name, row_class in social_tables.items():
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+    if "social_post_metrics" in tables:
+        existing = {c["name"] for c in insp.get_columns("social_post_metrics")}
+        metric_cols = {
+            "profile_visits": "INTEGER DEFAULT 0 NOT NULL",
+            "bookmarks": "INTEGER DEFAULT 0 NOT NULL",
+            "format_kind": "TEXT",
+            "posted_at": "TIMESTAMP",
+        }
+        for col, col_type in metric_cols.items():
+            if col not in existing:
+                logger.info("Migrating: adding '%s' column to social_post_metrics table", col)
+                with engine_.connect() as conn:
+                    conn.execute(text(f"ALTER TABLE social_post_metrics ADD COLUMN {col} {col_type}"))
+                    conn.commit()
     migrate_social_x_read_budget(engine_, tables)
 
     if "social_reply_items" in tables:
@@ -1756,7 +1759,7 @@ def _migrate(engine_):
             "risk_level": "TEXT DEFAULT 'normal'",
             "retry_counters_json": "TEXT DEFAULT '{}'",
             "blackboard_json": "TEXT DEFAULT '{}'",
-            "archived_at": "DATETIME",
+            "archived_at": "TIMESTAMP",
             "archived_by": "TEXT",
             "archive_reason": "TEXT",
             "delivery_pr_url": "TEXT",
@@ -1764,8 +1767,8 @@ def _migrate(engine_):
             "delivery_branch": "TEXT",
             "delivery_base_branch": "TEXT",
             "delivery_status": "TEXT",
-            "delivery_is_simulated": "BOOLEAN DEFAULT 0",
-            "delivery_synced_at": "DATETIME",
+            "delivery_is_simulated": "BOOLEAN DEFAULT false",
+            "delivery_synced_at": "TIMESTAMP",
         }
         for col, col_type in workflow_run_cols.items():
             if col not in existing:
@@ -1786,11 +1789,9 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
-
     if "recurring_workflow_runs" not in tables:
         logger.info("Migrating: creating 'recurring_workflow_runs' table")
         RecurringWorkflowRunRow.__table__.create(bind=engine_, checkfirst=True)
-
     if "scheduler_locks" not in tables:
         logger.info("Migrating: creating 'scheduler_locks' table")
         SchedulerLockRow.__table__.create(bind=engine_, checkfirst=True)
@@ -1841,7 +1842,7 @@ def _migrate(engine_):
             "delivery_failure_excerpt": "TEXT",
             "delivery_failure_raw_output": "TEXT",
             "failed_gate_name": "TEXT",
-            "repairable": "BOOLEAN DEFAULT 0",
+            "repairable": "BOOLEAN DEFAULT false",
             "repairability": "TEXT DEFAULT 'manual_only'",
             "repair_attempt_count": "INTEGER DEFAULT 0",
             "next_action": "TEXT",
@@ -1861,7 +1862,7 @@ def _migrate(engine_):
         fingerprint_cols = {
             "discovery_status": "TEXT DEFAULT 'pending'",
             "discovery_recommendation_json": "TEXT DEFAULT '{}'",
-            "last_discovery_at": "DATETIME",
+            "last_discovery_at": "TIMESTAMP",
         }
         for col, col_type in fingerprint_cols.items():
             if col not in existing:

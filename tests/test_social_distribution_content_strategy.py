@@ -6,7 +6,7 @@ from server.services.social.distribution_documents import _source_plan_metadata
 
 def test_platform_length_strategy_covers_channel_shapes():
     assert strategy.x_weighted_character_count("A https://example.com/abc 超") == 28
-    assert strategy.platform_format_kind("x") == "single_x_post"
+    assert strategy.platform_format_kind("x") == "x_long_post"
     assert strategy.platform_format_kind("hacker_news") == "hn_submission"
     assert strategy.platform_format_kind("reddit") == "discussion_post"
     assert strategy.platform_format_kind("hashnode") == "long_article"
@@ -14,6 +14,36 @@ def test_platform_length_strategy_covers_channel_shapes():
     assert "800-2000" in strategy.platform_target_length("v2ex")
     assert strategy.text_length_metadata("x", "Hello")["weighted_counts"] == [5]
     assert strategy.text_length_metadata("hashnode", "one two")["word_count"] == 2
+
+
+def test_normalize_x_payload_accepts_long_post():
+    text = "A one-person company needs a control plane before it needs more features."
+
+    title, body, metadata = strategy.normalize_x_payload(
+        {
+            "x_format": "long_post",
+            "post_text": text,
+            "rationale": "Premium long-form technical note",
+        },
+        fallback_title="Solo company system",
+    )
+
+    assert title == "Solo company system"
+    assert body == text
+    assert metadata["x_format"] == "long_post"
+    assert metadata["format_kind"] == "x_long_post"
+    assert metadata["long_post_text"] == text
+    assert metadata["premium_required"] is True
+    assert metadata["soft_max_chars"] == 4000
+    assert metadata["rationale"] == "Premium long-form technical note"
+
+
+def test_x_long_post_soft_limit_fails_closed():
+    with pytest.raises(ValueError, match="long post exceeds 4000"):
+        strategy.normalize_x_payload(
+            {"x_format": "long_post", "post_text": "a" * 4001},
+            fallback_title="Too long",
+        )
 
 
 def test_normalize_x_payload_infers_single_and_thread_shapes():

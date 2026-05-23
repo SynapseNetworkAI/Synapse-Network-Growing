@@ -4,53 +4,33 @@ title: Postgres Migration and E2E Runbook
 role: dev_rel
 status: ready
 created_at: 2026-05-04
-updated_at: 2026-05-15
+updated_at: 2026-05-17
 author: codex
 target_repo: /Users/cliff/workspace/agent/Synapse-Network-Growing
 ---
 
 # Postgres Migration and E2E Runbook
 
-This runbook moves the Ops Console from `server/ops.db` SQLite into Postgres, then validates API, frontend, release, and scheduled-job flows against Postgres. Local can still use SQLite as a fallback, but staging and production must set an explicit PostgreSQL `OPS_DATABASE_URL`; the app fails closed otherwise.
-
-## Environment Policy
-
-1. Local/dev: Docker Postgres is recommended. SQLite remains a lightweight fallback when `OPS_DATABASE_URL` is unset.
-2. Test: fast unit tests keep in-memory SQLite; DB-sensitive integration tests use `OPS_TEST_POSTGRES_URL`.
-3. Staging/prod: SQLite is forbidden. `OPS_ENV=staging|prod|production` requires an explicit Postgres URL.
-4. Do not dual-write. After cutover, SQLite is an archive/rollback source only, not a hot database.
+This runbook archives the old `server/ops.db` SQLite database into Docker Postgres once, then runs the Ops Console exclusively on PostgreSQL. Runtime, local dev, tests, and CI must not connect to SQLite. SQLite is only an input to the one-time import tools in `scripts/db/`.
 
 ## Target Database
 
-Recommended local DSN:
+Recommended local app database:
 
 ```bash
-export OPS_DATABASE_URL="postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing"
+export OPS_DATABASE_URL="postgresql+psycopg://synapse_growing:synapse_growing_dev@127.0.0.1:54329/synapse_growing_local"
 ```
 
 Docker service:
 
 ```bash
 docker-compose -f docker-compose.postgres.yml up -d
-docker exec synapse-growing-postgres pg_isready -U synapse_growing -d synapse_growing
-```
-
-For CI/local integration tests:
-
-```bash
-export OPS_TEST_POSTGRES_URL="$OPS_DATABASE_URL"
-PYTHONPATH=. python -m pytest -q tests/test_postgres_migration.py
+docker exec synapse-growing-postgres pg_isready -U synapse_growing -d synapse_growing_local
 ```
 
 ## Full Data Migration
 
-The migration copies every SQLite table, including legacy, social, release, scheduled-job, and SDK package tables.
-
-Before copying, stop write-producing loops and checkpoint SQLite WAL:
-
-```bash
-sqlite3 server/ops.db "PRAGMA wal_checkpoint(TRUNCATE);"
-```
+The migration copies every archived SQLite table, including legacy, social, release, scheduled-job, and SDK package tables. It is an operator-run import step, not an application startup path.
 
 ```bash
 PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python \
@@ -67,12 +47,6 @@ Safety behavior:
 3. Copies rows table-by-table.
 4. Resets Postgres sequences after copy.
 5. Creates `schema_migrations` for future idempotent SQL.
-
-Cutover rules:
-
-1. Validate row counts and core smoke tests before switching `OPS_DATABASE_URL`.
-2. Restart backend workers only after validation passes.
-3. If cutover has accepted new Postgres writes, roll back from a Postgres snapshot/backup rather than returning to SQLite and creating split-brain data.
 
 Validate row counts:
 
@@ -107,9 +81,9 @@ Rules:
 3. SQL must be idempotent where possible, using `IF NOT EXISTS` / `ON CONFLICT` patterns.
 4. Do not put destructive data rewrites in the shared migrations folder without a dedicated operator runbook.
 
-## Postgres App Smoke
+## Postgres-Only App Smoke
 
-Run backend/API checks with Postgres:
+Run backend/API checks with PostgreSQL. Missing `OPS_DATABASE_URL` or a `sqlite://` URL must fail closed.
 
 ```bash
 OPS_DATABASE_URL="$OPS_DATABASE_URL" PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python - <<'PY'
@@ -127,7 +101,7 @@ PY
 
 ## Frontend E2E Against Postgres
 
-The Playwright webserver reads `OPS_E2E_DATABASE_URL` and starts the backend against Postgres:
+The Playwright webserver reads `OPS_E2E_DATABASE_URL` and starts the backend against PostgreSQL:
 
 ```bash
 cd dashboard
@@ -146,9 +120,9 @@ Required UI coverage:
 
 Each checked page must render without uncaught browser errors or 5xx API responses, and core modals/tabs must be usable.
 
-## Full Staging Release E2E
+## Full Local Runner Release E2E
 
-This step performs real staging writes through GitHub Actions + WIF. It creates release tasks and immediately deploys them sequentially.
+This step performs real GCP writes through the local deploy runner. It creates release tasks, writes local `DeploymentRecord` rows, and executes the runner sequentially. GitHub is code hosting only; it is not the CI/CD executor.
 
 ```bash
 PYTHONPATH=. /Users/cliff/workspace/agent/.venv/bin/python \
@@ -173,8 +147,8 @@ Success criteria:
 1. Service `ReleaseTask.status=completed`.
 2. Linked `DeploymentRecord.status=succeeded`.
 3. Health is `passed` / `healthy`.
-4. GitHub Actions URL is recorded.
+4. Local runner events are readable from `deployment_events`.
 5. Successful deployment appears in `/releases -> 上线记录`.
-6. Scheduled job task reaches `completed` with an Actions URL.
+6. Scheduled job task reaches `completed` with local runner evidence.
 
-If any publish fails, do not mark it manually complete. Open the Actions link, fix the root cause, then rerun from the failed target or create a new proof run.
+If any publish fails, do not mark it manually complete. Open the deployment detail logs, fix the root cause, then rerun from the failed target or create a new proof run.

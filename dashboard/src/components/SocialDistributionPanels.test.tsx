@@ -12,6 +12,7 @@ const apiMock = vi.hoisted(() => ({
   getSocialDistributionTasks: vi.fn(),
   markSocialDistributionTaskLive: vi.fn(),
   markSocialDistributionTaskRemoved: vi.fn(),
+  auditSocialDistributionPublishedPage: vi.fn(),
   updateSocialDistributionTask: vi.fn(),
   getSocialContentAssets: vi.fn(),
   getSocialContentAsset: vi.fn(),
@@ -24,12 +25,15 @@ const apiMock = vi.hoisted(() => ({
   approveAndGenerateSocialDistributionTasks: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
   getSocialDistributionTaskXAuthStatus: vi.fn(),
+  getDistributionAccountAuthStatuses: vi.fn(),
   startSocialXOAuth: vi.fn(),
   runSocialAssetPlanner: vi.fn(),
   getDistributionAccounts: vi.fn(),
   updateDistributionAccount: vi.fn(),
   getSocialTrends: vi.fn(),
   getSocialPostMetricSummary: vi.fn(),
+  createManualSocialPostMetric: vi.fn(),
+  createXBrandWeekCampaignTemplate: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -53,6 +57,9 @@ function account(overrides: Record<string, unknown> = {}) {
     two_factor_status: 'enabled',
     read_automation_mode: 'manual_only',
     human_publish_required: true,
+    publish_mode: 'manual_only',
+    credential_ref_configured: false,
+    api_capability: 'none',
     notes: 'Long-form developer tutorial distribution.',
     created_at: '2026-05-01T00:00:00Z',
     updated_at: '2026-05-01T00:00:00Z',
@@ -70,6 +77,9 @@ function task(overrides: Record<string, unknown> = {}) {
     action: 'post',
     account_display_name: 'DEV Community',
     signup_url: 'https://dev.to/enter',
+    publish_mode: 'manual_only',
+    api_capability: 'article',
+    credential_ref_configured: false,
     status: 'draft_ready',
     platform_title: 'How AI agents should pay for APIs',
     platform_body: 'A practical developer guide to agent-native payment rails.',
@@ -184,6 +194,7 @@ describe('SocialDistributionPanels v2', () => {
             failed_count: 0,
             ready_to_publish_count: 1,
             live_count: 0,
+            visibility_issue_count: 0,
             status_counts: { draft_ready: 1 },
             document_status_counts: { generated: 2, approved: 1 },
             next_action: 'Publish manually.',
@@ -204,6 +215,15 @@ describe('SocialDistributionPanels v2', () => {
     })
     apiMock.markSocialDistributionTaskLive.mockResolvedValue(task({ status: 'live', published_url: 'https://dev.to/synapsenetwork/agent-payments' }))
     apiMock.markSocialDistributionTaskRemoved.mockResolvedValue(task({ status: 'removed', manual_result_note: 'Moderator removed duplicate post.' }))
+    apiMock.auditSocialDistributionPublishedPage.mockResolvedValue(task({
+      status: 'live',
+      published_url: 'https://dev.to/synapsenetwork/agent-payments',
+      metadata: {
+        visibility_status: 'visible',
+        layout_status: 'passed',
+        last_publish_audit: { source: 'operator_audit', note: 'Looks good.' },
+      },
+    }))
     apiMock.updateSocialDistributionTask.mockResolvedValue(task({ status: 'skipped' }))
     apiMock.publishSocialDistributionTaskToX.mockResolvedValue(task({ platform: 'x', channel_key: 'official', status: 'live', external_post_id: '1234567890' }))
     apiMock.getSocialDistributionTaskXAuthStatus.mockResolvedValue({
@@ -215,6 +235,25 @@ describe('SocialDistributionPanels v2', () => {
       requires_authorization: false,
       refresh_token_rotated: false,
     })
+    apiMock.getDistributionAccountAuthStatuses.mockResolvedValue({
+      generated_at: '2026-05-01T00:00:00Z',
+      items: [{
+        account_id: 101,
+        platform: 'devto',
+        channel_key: 'dev.to',
+        display_name: 'DEV Community',
+        login_url: 'https://dev.to/enter',
+        publish_path: 'browser_assisted',
+        api_status: 'manual_only',
+        browser_status: 'browser_session_ready',
+        api_supported: true,
+        can_publish_via_api: false,
+        can_use_browser_assist: true,
+        private_web_adapter_enabled: false,
+        blockers: [],
+        next_action: 'Use browser-assisted publishing; operator must confirm final submit.',
+      }],
+    })
     apiMock.startSocialXOAuth.mockResolvedValue({
       auth_url: 'https://twitter.com/i/oauth2/authorize?state=test',
       state: 'test',
@@ -223,6 +262,12 @@ describe('SocialDistributionPanels v2', () => {
     apiMock.getSocialContentAssets.mockResolvedValue([asset()])
     apiMock.getSocialContentAsset.mockResolvedValue(asset())
     apiMock.createSocialContentTask.mockResolvedValue(asset({ source_type: 'manual_task' }))
+    apiMock.createXBrandWeekCampaignTemplate.mockResolvedValue({
+      campaign_key: 'x_brand_awareness_week_1',
+      created_count: 12,
+      existing_count: 0,
+      assets: [asset({ goal_key: 'x_brand_awareness_week_1' })],
+    })
     apiMock.createSocialContentAsset.mockResolvedValue(asset())
     apiMock.generateSocialDistributionContentPlan.mockResolvedValue(asset())
     apiMock.expandSocialDistributionCanonicalArticle.mockResolvedValue(asset({
@@ -281,6 +326,87 @@ describe('SocialDistributionPanels v2', () => {
     })
   })
 
+  it('checks account login status and shows browser-assisted publishing guidance', async () => {
+    const user = userEvent.setup()
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboardWrite } })
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await screen.findByText('How AI agents should pay for APIs')
+    await user.click(screen.getByRole('button', { name: '检查登录状态' }))
+    await user.click(screen.getByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '复制并打开平台' }))
+
+    expect(apiMock.getDistributionAccountAuthStatuses).toHaveBeenCalled()
+    expect(screen.getAllByText(/浏览器辅助/).length).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: '复制浏览器辅助 CLI' }))
+    await waitFor(() => {
+      expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining('browser_publish_task.py --task-id 201 --platform devto'))
+    })
+  })
+
+  it('shows a view-post action for live platform tasks with published URLs', async () => {
+    const user = userEvent.setup()
+    const liveTask = task({
+      status: 'live',
+      published_url: 'https://dev.to/synapsenetwork/agent-payments',
+      external_post_id: 'agent-payments',
+    })
+    const liveAsset = asset({
+      tasks: [liveTask],
+      status_counts: { live: 1 },
+    })
+    apiMock.getSocialContentAsset.mockResolvedValue(liveAsset)
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    const dialog = screen.getByRole('dialog', { name: 'How AI agents should pay for APIs' })
+    const viewLinks = within(dialog).getAllByRole('link', { name: '查看帖子' })
+    expect(viewLinks[0]).toHaveAttribute('href', 'https://dev.to/synapsenetwork/agent-payments')
+    await user.click(within(dialog).getByRole('button', { name: '详情' }))
+
+    expect(screen.getByRole('dialog', { name: 'DEV Community' })).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: '查看帖子' })[0]).toHaveAttribute(
+      'href',
+      'https://dev.to/synapsenetwork/agent-payments',
+    )
+    expect(screen.queryByRole('button', { name: '标记为已发布' })).not.toBeInTheDocument()
+  })
+
+  it('records published-page audit status for live platform tasks', async () => {
+    const user = userEvent.setup()
+    const liveTask = task({
+      status: 'live',
+      published_url: 'https://www.reddit.com/r/AI_Agents/comments/1tiav5c/',
+      metadata: {
+        visibility_status: 'removed_by_filter',
+        layout_status: 'unknown',
+        last_publish_audit: { source: 'operator_audit', note: 'Removed by filters.' },
+      },
+    })
+    const liveAsset = asset({ tasks: [liveTask], status_counts: { live: 1 } })
+    apiMock.getSocialContentAsset.mockResolvedValue(liveAsset)
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '详情' }))
+    expect(screen.getAllByText(/removed_by_filter/).length).toBeGreaterThan(0)
+    await user.selectOptions(screen.getByLabelText('页面可见性'), 'removed_by_filter')
+    await user.selectOptions(screen.getByLabelText('页面排版'), 'unknown')
+    await user.click(screen.getByRole('button', { name: '检查页面状态' }))
+
+    await waitFor(() => {
+      expect(apiMock.auditSocialDistributionPublishedPage).toHaveBeenCalledWith(201, {
+        visibility_status: 'removed_by_filter',
+        layout_status: 'unknown',
+        audit_note: '',
+        actor: 'operator',
+      })
+    })
+  })
+
   it('creates a content task from the Tasks board', async () => {
     const user = userEvent.setup()
     renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
@@ -294,8 +420,20 @@ describe('SocialDistributionPanels v2', () => {
     await waitFor(() => {
       expect(apiMock.createSocialContentTask).toHaveBeenCalledWith(expect.objectContaining({
         title: '第 1 篇：一人公司最大的问题',
-        target_platforms: ['x', 'v2ex', 'hacker_news', 'devto', 'hashnode', 'reddit'],
+        target_platforms: ['x'],
       }))
+    })
+  })
+
+  it('creates the X brand week campaign bundle from the Tasks board', async () => {
+    const user = userEvent.setup()
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+
+    await screen.findByText('How AI agents should pay for APIs')
+    await user.click(screen.getByRole('button', { name: '创建 X 品牌周任务' }))
+
+    await waitFor(() => {
+      expect(apiMock.createXBrandWeekCampaignTemplate).toHaveBeenCalled()
     })
   })
 
@@ -363,6 +501,7 @@ describe('SocialDistributionPanels v2', () => {
             failed_count: 0,
             ready_to_publish_count: 1,
             live_count: 0,
+            visibility_issue_count: 0,
             status_counts: { needs_review: 1 },
             document_status_counts: { needs_review: 1 },
             next_action: 'Publish X thread.',
@@ -386,6 +525,70 @@ describe('SocialDistributionPanels v2', () => {
     expect(screen.getByRole('button', { name: '一键发布 Thread' })).toBeEnabled()
   })
 
+  it('does not show a success toast when X publish returns failed state', async () => {
+    const user = userEvent.setup()
+    const xTask = task({
+      id: 202,
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      account_display_name: 'X Official Account',
+      publish_mode: 'api_human_gated',
+      api_capability: 'post,long_post',
+      status: 'needs_review',
+      platform_title: 'Long post',
+      platform_body: 'A technical long post.',
+      metadata: {
+        format_kind: 'x_long_post',
+        x_format: 'long_post',
+        long_post_text: 'A technical long post.',
+        character_count: 22,
+        soft_max_chars: 4000,
+      },
+    })
+    const xAsset = asset({ tasks: [xTask], status_counts: { needs_review: 1 } })
+    apiMock.getSocialContentAsset.mockResolvedValue(xAsset)
+    apiMock.publishSocialDistributionTaskToX.mockResolvedValue(task({
+      ...xTask,
+      status: 'failed',
+      failure_summary: 'X OAuth token exchange failed.',
+    }))
+    apiMock.getSocialDistributionBoard.mockResolvedValueOnce({
+      columns: [
+        { key: 'backlog', title: '待计划', description: 'Needs plan.', count: 0, cards: [] },
+        { key: 'needs_review', title: '待审核', description: 'Plan.', count: 1, cards: [{
+          id: 'asset:301',
+          asset: xAsset,
+          column_key: 'needs_review',
+          task_count: 1,
+          document_count: 1,
+          platform_count: 1,
+          failed_count: 0,
+          ready_to_publish_count: 1,
+          live_count: 0,
+          visibility_issue_count: 0,
+          status_counts: { needs_review: 1 },
+          document_status_counts: {},
+          next_action: 'Publish X long post.',
+          updated_at: '2026-05-01T00:00:00Z',
+        }] },
+        { key: 'ready_to_publish', title: '待发布', description: 'Ready.', count: 0, cards: [] },
+        { key: 'live', title: '已发布', description: 'Live.', count: 0, cards: [] },
+        { key: 'blocked', title: '异常', description: 'Blocked.', count: 0, cards: [] },
+      ],
+      summary: { total_assets: 1, total_tasks: 1, total_documents: 1 },
+      generated_at: '2026-05-01T00:00:00Z',
+    })
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    await user.click(screen.getByRole('button', { name: '发布到 X / 详情' }))
+    await user.click(screen.getByRole('button', { name: '发布长文到 X' }))
+
+    expect(await screen.findByText('X OAuth token exchange failed.')).toBeInTheDocument()
+    expect(screen.queryByText('已发布到 X')).not.toBeInTheDocument()
+  })
+
   it('opens X OAuth authorization instead of publishing when login expired', async () => {
     const user = userEvent.setup()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
@@ -396,7 +599,7 @@ describe('SocialDistributionPanels v2', () => {
       channel_key: 'official',
       account_display_name: 'X Official Account',
       publish_mode: 'api_human_gated',
-      api_capability: 'write_post',
+      api_capability: 'post,long_post',
       status: 'needs_review',
       platform_title: 'X Premium long post',
       platform_body: 'A substantial X long post about solo-company operating systems.',
@@ -446,7 +649,7 @@ describe('SocialDistributionPanels v2', () => {
       channel_key: 'official',
       account_display_name: 'X Official Account',
       publish_mode: 'api_human_gated',
-      api_capability: 'write_post',
+      api_capability: 'post,long_post',
       status: 'needs_review',
       platform_title: 'X Premium long post',
       platform_body: 'A substantial X long post about solo-company operating systems.',
@@ -529,5 +732,20 @@ describe('SocialDistributionPanels v2', () => {
         expect.objectContaining({ profile_url: 'https://dev.to/synapsenetwork' }),
       )
     })
+  })
+
+  it('checks account auth status from settings and exposes login links', async () => {
+    const user = userEvent.setup()
+    renderWithToast(<DistributionSettingsPanel formatDateTime={formatDateTime} />)
+
+    expect(await screen.findByText('DEV Community')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '检查登录状态' }))
+
+    await waitFor(() => {
+      expect(apiMock.getDistributionAccountAuthStatuses).toHaveBeenCalled()
+    })
+    expect(screen.getByText('浏览器辅助')).toBeInTheDocument()
+    expect(screen.getByText(/API supported/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '登录 / 打开平台' })).toHaveAttribute('href', 'https://dev.to/enter')
   })
 })

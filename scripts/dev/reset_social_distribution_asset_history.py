@@ -5,13 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
-from datetime import datetime, timezone
-from pathlib import Path
 
-from server import config
 from server.database import SessionLocal
-from server.database_config import is_sqlite_url
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionEventRow,
@@ -38,20 +33,6 @@ def main() -> int:
         )
         return 2
 
-    if not is_sqlite_url(config.DATABASE_URL):
-        print(
-            json.dumps(
-                {
-                    "ok": False,
-                    "error": "sqlite_only_dev_reset",
-                    "message": "This destructive reset is limited to local SQLite. Use a reviewed Postgres runbook instead.",
-                },
-                indent=2,
-            )
-        )
-        return 2
-
-    backup_path = _backup_db()
     db = SessionLocal()
     try:
         counts = {
@@ -69,7 +50,6 @@ def main() -> int:
         json.dumps(
             {
                 "ok": True,
-                "backup_path": str(backup_path) if backup_path else None,
                 "deleted": counts,
                 "preserved": [
                     "social_distribution_accounts",
@@ -85,18 +65,6 @@ def main() -> int:
         )
     )
     return 0
-
-
-def _backup_db() -> Path | None:
-    db_path = Path(config.DATABASE_URL.replace("sqlite:///", ""))
-    if not db_path.exists():
-        return None
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_dir = config.PROJECT_ROOT / "runtime" / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / f"ops-social-distribution-reset-{timestamp}.db"
-    shutil.copy2(db_path, backup_path)
-    return backup_path
 
 
 if __name__ == "__main__":

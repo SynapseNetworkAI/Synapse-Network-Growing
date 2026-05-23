@@ -1,10 +1,7 @@
 import json
-from datetime import timedelta
 
-from server.database import DeploymentRecordRow, utcnow
+from server.database import DeploymentRecordRow
 from server.database_scheduled_jobs import ScheduledJobReleaseTaskRow
-from server.services.releases.github_actions_logs import GitHubFailureLogResult
-from server.services.releases import scheduled_job_sync
 from server.services.releases import scheduled_job_tasks
 
 
@@ -27,8 +24,6 @@ def _record_for_task(
     task: ScheduledJobReleaseTaskRow,
     *,
     status: str = "requested",
-    run_id: str | None = "555",
-    started_at=None,
 ) -> DeploymentRecordRow:
     return DeploymentRecordRow(
         project_key="synapse-network",
@@ -37,14 +32,9 @@ def _record_for_task(
         status=status,
         health_status="checking",
         branch_name="main",
-        workflow_file="deploy-staging-jobs.yml",
-        external_run_id=run_id,
-        external_url=f"https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/{run_id}"
-        if run_id
-        else None,
+        workflow_file="local_scheduled_job_runner",
         actor="operator",
-        trigger_source="scheduled_job_release",
-        started_at=started_at,
+        trigger_source="local_deploy_runner",
         metadata_json=json.dumps(
             {
                 "scheduledJobReleaseTaskId": int(task.id),
@@ -93,30 +83,13 @@ def test_scheduled_job_task_detail_cancel_and_transition_guards(synced_client):
     )
 
 
-def test_scheduled_jobs_sync_updates_parent_task_on_success(
-    monkeypatch, synced_client, db_session
-):
+def test_scheduled_jobs_sync_updates_parent_task_on_success(synced_client, db_session):
     task = _task_row()
     db_session.add(task)
     db_session.commit()
-    record = _record_for_task(task)
+    record = _record_for_task(task, status="succeeded")
     db_session.add(record)
     db_session.commit()
-
-    monkeypatch.setattr(
-        scheduled_job_sync,
-        "run_gh_json",
-        lambda args, timeout=30: (
-            "ok",
-            {
-                "databaseId": 555,
-                "status": "completed",
-                "conclusion": "success",
-                "url": record.external_url,
-            },
-            None,
-        ),
-    )
 
     response = synced_client.post("/api/releases/scheduled-jobs/sync")
 
@@ -127,24 +100,16 @@ def test_scheduled_jobs_sync_updates_parent_task_on_success(
     assert task.deployment_record_id == int(record.id)
 
 
-def test_scheduled_jobs_sync_times_out_missing_run_and_updates_task(
-    monkeypatch, synced_client, db_session
+def test_scheduled_jobs_sync_marks_failed_local_record_on_task(
+    synced_client, db_session
 ):
     task = _task_row()
     db_session.add(task)
     db_session.commit()
-    record = _record_for_task(
-        task,
-        run_id=None,
-        started_at=utcnow() - timedelta(minutes=16),
-    )
+    record = _record_for_task(task, status="failed")
+    record.notes = "local scheduled job publish failed"
     db_session.add(record)
     db_session.commit()
-    monkeypatch.setattr(
-        scheduled_job_sync,
-        "run_gh_json",
-        lambda args, timeout=30: ("ok", [], None),
-    )
 
     response = synced_client.post("/api/releases/scheduled-jobs/sync")
 
@@ -152,42 +117,16 @@ def test_scheduled_jobs_sync_times_out_missing_run_and_updates_task(
     assert response.json()["failed_ids"] == [int(record.id)]
     db_session.refresh(task)
     assert task.status == "failed"
-    assert "run id not found after 15m" in (task.failure_summary or "")
+    assert "local scheduled job publish failed" in (task.failure_summary or "")
 
 
-def test_scheduled_jobs_sync_keeps_terminal_task_terminal(
-    monkeypatch, synced_client, db_session
-):
+def test_scheduled_jobs_sync_keeps_terminal_task_terminal(synced_client, db_session):
     task = _task_row(status="completed")
     db_session.add(task)
     db_session.commit()
-    record = _record_for_task(task, run_id="777")
+    record = _record_for_task(task, status="failed")
     db_session.add(record)
     db_session.commit()
-
-    monkeypatch.setattr(
-        scheduled_job_sync,
-        "run_gh_json",
-        lambda args, timeout=30: (
-            "ok",
-            {
-                "databaseId": 777,
-                "status": "completed",
-                "conclusion": "failure",
-                "url": record.external_url,
-            },
-            None,
-        ),
-    )
-    monkeypatch.setattr(
-        scheduled_job_sync,
-        "github_failure_log_result",
-        lambda *args, **kwargs: GitHubFailureLogResult(
-            excerpt="failed",
-            metadata={},
-            note="GitHub Actions scheduled jobs publish failure.",
-        ),
-    )
 
     response = synced_client.post("/api/releases/scheduled-jobs/sync")
 
@@ -205,12 +144,10 @@ def test_scheduled_job_task_output_falls_back_to_deployment_record(db_session):
         status="failed",
         health_status="failed",
         branch_name="main",
-        workflow_file="deploy-staging-jobs.yml",
-        external_run_id="888",
-        external_url="https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/888",
+        workflow_file="local_scheduled_job_runner",
         actor="operator",
-        trigger_source="scheduled_job_release",
-        notes="workflow failed",
+        trigger_source="local_deploy_runner",
+        notes="local runner failed",
         metadata_json='{"jobFamily":"gateway","jobs":["synapse-staging-deposit-indexer"]}',
     )
     db_session.add(record)
@@ -225,5 +162,4 @@ def test_scheduled_job_task_output_falls_back_to_deployment_record(db_session):
 
     assert out.status == "failed"
     assert out.health_status == "failed"
-    assert out.failure_summary == "workflow failed"
-    assert out.external_run_id == "888"
+    assert out.failure_summary == "local runner failed"

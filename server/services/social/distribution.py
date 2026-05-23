@@ -50,6 +50,22 @@ def ensure_default_distribution_accounts(
             if existing.api_capability in {"", None}:
                 existing.api_capability = seed.api_capability
                 changed = True
+            if platform == "x" and seed.channel_key == "official":
+                if existing.publish_mode != "api_human_gated":
+                    existing.publish_mode = "api_human_gated"
+                    changed = True
+                capabilities = {
+                    item.strip()
+                    for item in str(existing.api_capability or "").split(",")
+                    if item.strip()
+                }
+                if "long_post" not in capabilities:
+                    capabilities.update({"post", "long_post"})
+                    existing.api_capability = ",".join(sorted(capabilities))
+                    changed = True
+                if not str(existing.notes or "").strip():
+                    existing.notes = seed.notes
+                    changed = True
             continue
         db.add(
             SocialDistributionAccountRow(

@@ -117,6 +117,8 @@ export function ContentTaskForm({
     target_platforms: string
     canonical_url: string
     source_doc_path: string
+    campaign_key: string
+    post_intent: string
   }
   onChange: (value: {
     title: string
@@ -125,6 +127,8 @@ export function ContentTaskForm({
     target_platforms: string
     canonical_url: string
     source_doc_path: string
+    campaign_key: string
+    post_intent: string
   }) => void
 }) {
   return (
@@ -137,6 +141,18 @@ export function ContentTaskForm({
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Canonical URL"><input className={inputClass} value={form.canonical_url} onChange={(event) => onChange({ ...form, canonical_url: event.target.value })} /></Field>
         <Field label="Source doc path"><input className={inputClass} value={form.source_doc_path} onChange={(event) => onChange({ ...form, source_doc_path: event.target.value })} /></Field>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Campaign key"><input className={inputClass} value={form.campaign_key} onChange={(event) => onChange({ ...form, campaign_key: event.target.value })} placeholder="x_brand_awareness_week_1" /></Field>
+        <Field label="Post intent">
+          <select className={inputClass} value={form.post_intent} onChange={(event) => onChange({ ...form, post_intent: event.target.value })}>
+            <option value="brand_positioning">brand_positioning</option>
+            <option value="technical_explainer">technical_explainer</option>
+            <option value="build_in_public">build_in_public</option>
+            <option value="engagement_reply">engagement_reply</option>
+            <option value="weekly_log">weekly_log</option>
+          </select>
+        </Field>
       </div>
       <Field label="来源材料 / Markdown"><textarea className={`${textareaClass} min-h-[260px]`} value={form.source_material} onChange={(event) => onChange({ ...form, source_material: event.target.value })} /></Field>
     </div>

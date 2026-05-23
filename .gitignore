@@ -247,6 +247,8 @@ runtime-events.json
 file-changes.json
 
 # Agent runtime task output directories (keep named deliverables under outputs/)
+.local-runner/
+smoke-*.json
 roles/*/outputs/task-*/
 runtime/
 !server/services/runtime/

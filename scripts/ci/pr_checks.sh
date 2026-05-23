@@ -47,7 +47,7 @@ run_backend_phase() {
     echo "[ci:pr] backend tests with diff coverage for ${#changed_python_files[@]} changed Python file(s)"
     if ! command -v uvx >/dev/null 2>&1; then
       echo "FATAL DIFF-COVERAGE-TOOL-001: uvx is required to run diff-cover." >&2
-      echo "Install uv/uvx locally or use GitHub Actions, which installs uv before pr_checks." >&2
+      echo "Install uv/uvx locally before running pr_checks." >&2
       exit 1
     fi
     PYTHONPATH=. "${PYTEST_CMD[@]}" -q \

@@ -90,7 +90,7 @@ with psycopg.connect(dsn) as conn:
                 channel = "latest"
                 published_at = base + dt.timedelta(minutes=patch, seconds=30)
             workflow = f"https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/{9000 + patch}"
-            package_url = f"https://pypi.org/project/synapse-client/{row['package_version']}/"
+            package_url = f"https://pypi.org/project/synapse-network-ai-sdk/{row['package_version']}/"
             cur.execute(
                 """
                 update sdk_package_releases
@@ -139,7 +139,7 @@ with psycopg.connect(dsn) as conn:
               from sdk_package_releases
              where sdk_language = 'python'
                and registry = 'pypi'
-               and package_name = 'synapse-client'
+               and package_name = 'synapse-network-ai-sdk'
             """
         )
         count, ordered_versions = cur.fetchone()

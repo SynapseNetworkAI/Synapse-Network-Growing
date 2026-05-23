@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from server.database import SocialPostDraftRow, SocialPostMetricRow, utcnow
 from server.schemas_social_metrics import (
+    SocialPostMetricManualCreateRequest,
     SocialPostMetricOut,
     SocialPostMetricSummaryOut,
     SocialPostMetricTopPostOut,
@@ -23,19 +24,12 @@ from server.services.social.publishing import (
     ensure_default_social_account,
     x_oauth_token_provider,
 )
-from server.services.social.post_metric_projection import (
-    metric_base_out,
-    metric_engagement,
-    metric_post_index,
-    metric_top_post_out,
-)
 from server.services.social.x_client import (
     XApiAuthError,
     XApiClient,
     XApiRateLimitError,
     XApiTransientError,
 )
-
 
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
     rows = (
@@ -44,7 +38,27 @@ def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
         .limit(100)
         .all()
     )
-    return [metric_base_out(row) for row in rows]
+    return [metric_row_out(row) for row in rows]
+
+
+def metric_row_out(row: SocialPostMetricRow) -> SocialPostMetricOut:
+    return SocialPostMetricOut(
+        id=int(row.id),
+        post_id=row.post_id,
+        external_post_id=row.external_post_id,
+        impressions=int(row.impressions or 0),
+        likes=int(row.likes or 0),
+        replies=int(row.replies or 0),
+        reposts=int(row.reposts or 0),
+        follows=int(row.follows or 0),
+        link_clicks=int(row.link_clicks or 0),
+        profile_visits=int(row.profile_visits or 0),
+        bookmarks=int(row.bookmarks or 0),
+        format_kind=row.format_kind,
+        posted_at=row.posted_at,
+        summary=row.summary,
+        observed_at=row.observed_at,
+    )
 
 
 def _latest_social_metric_rows(
@@ -64,27 +78,74 @@ def _latest_social_metric_rows(
     return list(latest.values())
 
 
+def _metric_engagement(row: SocialPostMetricRow) -> int:
+    return (
+        int(row.likes or 0)
+        + int(row.replies or 0)
+        + int(row.reposts or 0)
+        + int(row.link_clicks or 0)
+        + int(row.bookmarks or 0)
+    )
+
+
+def _posts_by_id(
+    db: Session, rows: list[SocialPostMetricRow]
+) -> dict[int, SocialPostDraftRow]:
+    post_ids = [int(row.post_id) for row in rows if row.post_id is not None]
+    if not post_ids:
+        return {}
+    return {
+        int(row.id): row
+        for row in db.query(SocialPostDraftRow)
+        .filter(SocialPostDraftRow.id.in_(post_ids))
+        .all()
+    }
+
+
+def _metric_top_post_out(
+    row: SocialPostMetricRow, posts_by_id: dict[int, SocialPostDraftRow]
+) -> SocialPostMetricTopPostOut:
+    post = posts_by_id.get(int(row.post_id)) if row.post_id is not None else None
+    payload = metric_top_post_out(row).model_dump()
+    payload["title"] = post.title if post else None
+    return SocialPostMetricTopPostOut(**payload)
+
+
+def metric_top_post_out(row: SocialPostMetricRow) -> SocialPostMetricTopPostOut:
+    return SocialPostMetricTopPostOut(
+        post_id=int(row.post_id) if row.post_id is not None else None,
+        external_post_id=row.external_post_id,
+        title=None,
+        impressions=int(row.impressions or 0),
+        likes=int(row.likes or 0),
+        replies=int(row.replies or 0),
+        reposts=int(row.reposts or 0),
+        link_clicks=int(row.link_clicks or 0),
+        profile_visits=int(row.profile_visits or 0),
+        bookmarks=int(row.bookmarks or 0),
+        engagement_total=_metric_engagement(row),
+        observed_at=row.observed_at,
+    )
+
+
 def _metric_summary_counts(
     rows: list[SocialPostMetricRow],
-) -> tuple[int, int, int, int]:
+) -> tuple[int, int, int, int, int, int]:
     return (
         sum(int(row.likes or 0) for row in rows),
         sum(int(row.replies or 0) for row in rows),
         sum(int(row.reposts or 0) for row in rows),
         sum(int(row.link_clicks or 0) for row in rows),
+        sum(int(row.profile_visits or 0) for row in rows),
+        sum(int(row.bookmarks or 0) for row in rows),
     )
 
 
 def _metric_summary_top_posts(
     rows: list[SocialPostMetricRow], posts_by_id: dict[int, SocialPostDraftRow]
 ) -> list[SocialPostMetricTopPostOut]:
-    top_rows = sorted(rows, key=metric_engagement, reverse=True)[:3]
-    return [
-        metric_top_post_out(
-            row, posts_by_id.get(int(row.post_id)) if row.post_id is not None else None
-        )
-        for row in top_rows
-    ]
+    top_rows = sorted(rows, key=_metric_engagement, reverse=True)[:3]
+    return [_metric_top_post_out(row, posts_by_id) for row in top_rows]
 
 
 def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
@@ -93,11 +154,24 @@ def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
         return SocialPostMetricSummaryOut(
             diagnostic="No X post metrics recorded yet. Run x_social_post_observer_sweep after at least one published post has an external X post id."
         )
-    posts_by_id = metric_post_index(db, rows).posts_by_id
-    total_likes, total_replies, total_reposts, total_link_clicks = (
+    posts_by_id = _posts_by_id(db, rows)
+    (
+        total_likes,
+        total_replies,
+        total_reposts,
+        total_link_clicks,
+        total_profile_visits,
+        total_bookmarks,
+    ) = (
         _metric_summary_counts(rows)
     )
-    engagement_total = total_likes + total_replies + total_reposts + total_link_clicks
+    engagement_total = (
+        total_likes
+        + total_replies
+        + total_reposts
+        + total_link_clicks
+        + total_bookmarks
+    )
     return SocialPostMetricSummaryOut(
         observed_post_count=len(rows),
         metric_row_count=db.query(SocialPostMetricRow).count(),
@@ -106,6 +180,8 @@ def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
         total_replies=total_replies,
         total_reposts=total_reposts,
         total_link_clicks=total_link_clicks,
+        total_profile_visits=total_profile_visits,
+        total_bookmarks=total_bookmarks,
         average_engagement=round(engagement_total / max(1, len(rows)), 2),
         top_posts=_metric_summary_top_posts(rows, posts_by_id),
         last_observed_at=max(
@@ -235,9 +311,40 @@ def _metric_row_from_x_post(
         link_clicks=_metric_value(
             owner, organic, keys=("url_link_clicks", "link_clicks")
         ),
+        profile_visits=_metric_value(
+            owner, organic, keys=("user_profile_clicks", "profile_visits")
+        ),
+        bookmarks=_metric_value(public, owner, organic, keys=("bookmark_count", "bookmarks")),
         summary=summary,
         observed_at=observed_at,
     )
+
+
+def create_manual_social_post_metric(
+    db: Session, body: SocialPostMetricManualCreateRequest
+) -> SocialPostMetricOut:
+    """Record operator-entered X metrics without triggering any X read."""
+
+    observed_at = body.observed_at or utcnow()
+    row = SocialPostMetricRow(
+        external_post_id=str(body.external_post_id or "").strip() or None,
+        impressions=max(0, int(body.impressions or 0)),
+        likes=max(0, int(body.likes or 0)),
+        replies=max(0, int(body.replies or 0)),
+        reposts=max(0, int(body.reposts or 0)),
+        follows=max(0, int(body.follows or 0)),
+        link_clicks=max(0, int(body.link_clicks or 0)),
+        profile_visits=max(0, int(body.profile_visits or 0)),
+        bookmarks=max(0, int(body.bookmarks or 0)),
+        format_kind=str(body.format_kind or "").strip() or None,
+        posted_at=body.posted_at,
+        summary=str(body.summary or "").strip() or "Manual X metrics entry.",
+        observed_at=observed_at,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return metric_row_out(row)
 
 
 @service_object_result

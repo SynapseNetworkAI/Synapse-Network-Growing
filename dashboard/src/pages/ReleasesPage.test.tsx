@@ -10,13 +10,16 @@ const apiMock = vi.hoisted(() => ({
   getReleaseCandidates: vi.fn(),
   getReleaseTasks: vi.fn(),
   getReleaseTasksPage: vi.fn(),
+  getReleaseTaskGateStatus: vi.fn(),
   getOnlineReleaseRecords: vi.fn(),
   createReleaseTask: vi.fn(),
   getReleaseTaskBranchOptions: vi.fn(),
   updateReleaseTask: vi.fn(),
   createReleaseTaskPr: vi.fn(),
   deployReleaseTaskToStaging: vi.fn(),
+  deployReleaseTask: vi.fn(),
   syncReleaseTaskDeploymentStatuses: vi.fn(),
+  attachReleaseTaskPrebuiltImage: vi.fn(),
   getProjectPolicies: vi.fn(),
   prepareRelease: vi.fn(),
   openReleasePr: vi.fn(),
@@ -39,6 +42,9 @@ vi.mock('../api', () => ({
 
 vi.mock('../apiReleaseTasks', () => ({
   getReleaseTasksPage: apiMock.getReleaseTasksPage,
+  getReleaseTaskGateStatus: apiMock.getReleaseTaskGateStatus,
+  deployReleaseTask: apiMock.deployReleaseTask,
+  attachReleaseTaskPrebuiltImage: apiMock.attachReleaseTaskPrebuiltImage,
 }))
 
 vi.mock('../apiDeployments', () => ({
@@ -157,10 +163,10 @@ function onlineRecord(overrides: Record<string, unknown> = {}) {
     branch_name: 'codex/staging-release',
     commit_sha: 'abc123456789',
     actor: 'operator',
-    trigger_source: 'release_task',
-    workflow_file: 'deploy-staging.yml',
+    trigger_source: 'local_deploy_runner',
+    workflow_file: 'local_deploy_runner',
     external_run_id: '24919553458',
-    external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
+    external_url: 'https://ops.example/deployments/88/logs',
     rollback_target_sha: null,
     health_status: 'passed',
     notes: 'staging deploy succeeded',
@@ -245,6 +251,10 @@ describe('ReleasesPage', () => {
       const items = await apiMock.getReleaseTasks()
       return { items, total: items.length, limit: 10, offset: 0 }
     })
+    apiMock.getReleaseTaskGateStatus.mockImplementation(async (id: number) => {
+      const items = await apiMock.getReleaseTasks()
+      return (items.find((item: { id: number }) => item.id === id) || items[0] || releaseTask()).pr_gate
+    })
     apiMock.getOnlineReleaseRecords.mockResolvedValue([
       onlineRecord(),
     ])
@@ -274,8 +284,8 @@ describe('ReleasesPage', () => {
         deploy_trigger_enabled: false,
         staging_host_label: null,
         production_host_label: null,
-        staging_workflow_file: 'deploy-staging.yml',
-        production_workflow_file: 'deploy-production.yml',
+        staging_workflow_file: 'local_deploy_runner',
+        production_workflow_file: 'local_deploy_runner',
         notes: null,
         created_at: null,
         updated_at: null,
@@ -447,7 +457,7 @@ describe('ReleasesPage', () => {
         deployment_record_id: 40,
         deployment_status: 'succeeded',
         deployment_health_status: 'passed',
-        deployment_failure_summary: 'staging deploy succeeded; GitHub Actions run passed.',
+        deployment_failure_summary: 'staging deploy succeeded; local runner passed.',
         deployment_external_run_id: '25274187647',
         deployment_external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/25274187647',
         deployment_metadata: {
@@ -470,7 +480,7 @@ describe('ReleasesPage', () => {
     const dialog = await screen.findByRole('dialog', { name: '发布任务 #42' })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(within(dialog).getByText('Run ID：25274187647')).toBeTruthy()
-    expect(within(dialog).queryByText(/GitHub Actions failed step/)).toBeNull()
+    expect(within(dialog).queryByText(/Local runner failed step/)).toBeNull()
     expect(within(dialog).queryByText(/attribute condition/)).toBeNull()
   })
 
@@ -584,15 +594,15 @@ describe('ReleasesPage', () => {
     expect(screen.getByRole('button', { name: '发布到 staging' })).toBeDisabled()
   })
 
-  it('opens release task details with deployment record and GitHub Actions link', async () => {
+  it('opens release task details with deployment record and external log link', async () => {
     apiMock.getReleaseTasks.mockResolvedValue([
       releaseTask({
         deployment_record_id: 88,
         deployment_status: 'requested',
         deployment_external_run_id: '123456',
-        deployment_external_url: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123456',
+        deployment_external_url: 'https://ops.example/deployments/88/logs',
         deployment_health_status: 'pending',
-        deployment_workflow_file: 'deploy-staging.yml',
+        deployment_workflow_file: 'local_deploy_runner',
         deployment_commit_sha: 'abc123',
         deployment_started_at: '2026-04-22T01:02:00Z',
         deployment_metadata: { deployScope: 'gateway' },
@@ -618,10 +628,10 @@ describe('ReleasesPage', () => {
 
     expect(screen.getByText('Deployment Record')).toBeTruthy()
     expect(screen.getByText('Record ID：88')).toBeTruthy()
-    expect(screen.getByText('Workflow：deploy-staging.yml')).toBeTruthy()
-    expect(screen.getByRole('link', { name: '打开 GitHub Actions 日志' })).toHaveAttribute(
+    expect(screen.getByText('Runner：local_deploy_runner')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '打开外部日志' })).toHaveAttribute(
       'href',
-      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/123456',
+      'https://ops.example/deployments/88/logs',
     )
   })
 
@@ -637,7 +647,7 @@ describe('ReleasesPage', () => {
     expect(screen.getByText('abc1234567')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Run 24919553458' })).toHaveAttribute(
       'href',
-      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
+      'https://ops.example/deployments/88/logs',
     )
   })
 
@@ -651,14 +661,14 @@ describe('ReleasesPage', () => {
 
     expect(screen.getByText('上线记录 #88')).toBeTruthy()
     expect(screen.getByText('Deployment Evidence')).toBeTruthy()
-    expect(screen.getByText('Workflow：deploy-staging.yml')).toBeTruthy()
+    expect(screen.getByText('Workflow：local_deploy_runner')).toBeTruthy()
     expect(screen.getByText('Release Task：#42')).toBeTruthy()
     expect(screen.getByText('回滚说明')).toBeTruthy()
     expect(screen.getByText(/Runtime rollback 应选择这里的历史成功上线记录/)).toBeTruthy()
     expect(screen.getAllByText(/gs:\/\/staging-evidence\/release.json/).length).toBeGreaterThan(0)
-    await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
+    await user.click(screen.getByRole('button', { name: '打开外部日志' }))
     expect(openSpy).toHaveBeenCalledWith(
-      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/24919553458',
+      'https://ops.example/deployments/88/logs',
       '_blank',
       'noopener,noreferrer',
     )
@@ -671,14 +681,14 @@ describe('ReleasesPage', () => {
     openSpy.mockRestore()
   })
 
-  it('falls back to metadata GitHub Actions URL for online record details', async () => {
+  it('falls back to metadata external log URL for online record details', async () => {
     apiMock.getOnlineReleaseRecords.mockResolvedValue([
       onlineRecord({
         external_run_id: null,
         external_url: null,
-        metadata_summary: { githubRunUrl: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555' },
+        metadata_summary: { githubRunUrl: 'https://ops.example/deployments/555/logs' },
         metadata: {
-          githubRunUrl: 'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555',
+          githubRunUrl: 'https://ops.example/deployments/555/logs',
           deploy_repo_full_name: 'SynapseNetworkAI/Synapse-Network',
           sourceRef: 'codex/staging-release',
         },
@@ -690,10 +700,10 @@ describe('ReleasesPage', () => {
 
     await user.click(await screen.findByRole('button', { name: '上线记录' }))
     await user.click(screen.getByRole('button', { name: '详情' }))
-    await user.click(screen.getByRole('button', { name: '打开 GitHub Actions 日志' }))
+    await user.click(screen.getByRole('button', { name: '打开外部日志' }))
 
     expect(openSpy).toHaveBeenCalledWith(
-      'https://github.com/SynapseNetworkAI/Synapse-Network/actions/runs/555',
+      'https://ops.example/deployments/555/logs',
       '_blank',
       'noopener,noreferrer',
     )
@@ -823,9 +833,17 @@ describe('ReleasesPage', () => {
 
   it('shows production safety copy and marks requested task failed', async () => {
     const user = userEvent.setup()
+    apiMock.updateReleaseTask.mockResolvedValueOnce(releaseTask({
+      status: 'failed',
+      operator: 'operator',
+      deployment_status: 'failed',
+      deployment_health_status: 'failed',
+      deployment_failure_summary: 'Manually marked failed.',
+    }))
     render(<ReleasesPage />, { wrapper: MemoryRouter })
 
     await user.click(await screen.findByRole('button', { name: '发布管理' }))
+    const initialTaskPageCalls = apiMock.getReleaseTasksPage.mock.calls.length
     await user.click(screen.getByRole('button', { name: '新建发布任务' }))
     await user.selectOptions(screen.getByLabelText('发布环境'), 'production')
     expect(screen.getByText(/不会自动部署生产/)).toBeTruthy()
@@ -839,6 +857,9 @@ describe('ReleasesPage', () => {
         note: 'Manual staging release',
       })
     })
+    expect(apiMock.getReleaseTasksPage).toHaveBeenCalledTimes(initialTaskPageCalls)
+    expect(screen.queryByText('正在更新发布任务...')).toBeNull()
+    expect(screen.getByText('Deploy: 失败')).toBeTruthy()
   })
 
   it('opens the task modal without project policies and triggers staging deploy separately', async () => {

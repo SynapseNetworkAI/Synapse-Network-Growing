@@ -106,7 +106,7 @@ def _apply_task_completed_state(
     if _clean(task.status).lower() != "completed":
         task.status = "completed"
         changed = True
-    task.operator = task.operator or "github_actions_sync"
+    task.operator = task.operator or "local_deploy_runner"
     if _task_note_looks_like_deployment_failure(task.note):
         task.note = success_note
         changed = True
@@ -121,7 +121,8 @@ def _apply_deployment_success_state(
     head_sha: str | None,
     now: datetime,
 ) -> bool:
-    success_note = "staging deploy succeeded; GitHub Actions run passed."
+    environment = _clean(getattr(record, "environment", None)).lower() or "deployment"
+    success_note = f"{environment} deploy succeeded; local runner passed."
     record_changed = _apply_record_success_state(
         record, head_sha=head_sha, now=now, success_note=success_note
     )

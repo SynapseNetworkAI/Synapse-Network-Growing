@@ -8,12 +8,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from server import config
 from server.database import CodexSessionRow, utcnow
-from server.database_retry import is_sqlite_lock_error, run_with_sqlite_lock_retry
 
 
 _SESSION_HEARTBEAT_WRITE_INTERVAL_SECONDS = max(
@@ -278,18 +276,6 @@ def update_session_state(
         row.metadata_json = json.dumps(payload, default=str)
     db.flush()
     return row
-
-
-def safe_update_session_state(
-    db: Session,
-    **kwargs: Any,
-) -> CodexSessionRow | None:
-    try:
-        return run_with_sqlite_lock_retry(db, lambda: update_session_state(db, **kwargs))
-    except OperationalError as exc:
-        if not is_sqlite_lock_error(exc):
-            raise
-        return None
 
 
 def _load_metadata(payload: str | None) -> dict[str, Any]:

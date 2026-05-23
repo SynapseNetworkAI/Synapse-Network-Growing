@@ -4,6 +4,7 @@ anyio==4.12.1
 certifi==2026.2.25
 charset-normalizer==3.4.7
 click==8.1.8
+cryptography==46.0.7
 fastapi==0.136.1
 h11==0.16.0
 google-cloud-secret-manager==2.27.0

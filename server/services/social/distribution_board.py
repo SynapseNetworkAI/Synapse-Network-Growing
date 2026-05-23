@@ -99,6 +99,7 @@ def _board_card(
         live_count=status_counts.get("live", 0)
         + status_counts.get("published", 0)
         + status_counts.get("published_manual", 0),
+        visibility_issue_count=_visibility_issue_count(tasks),
         status_counts=dict(status_counts),
         document_status_counts=dict(doc_status_counts),
         next_action=board_next_action(column_key, task_kind_code=task_kind.code),
@@ -274,3 +275,20 @@ def _json_object(value: str | None) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _visibility_issue_count(tasks: list[SocialDistributionTaskRow]) -> int:
+    issue_statuses = {"removed_by_filter", "flagged", "not_found", "blocked"}
+    count = 0
+    for task in tasks:
+        try:
+            metadata = json.loads(getattr(task, "metadata_json", None) or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            continue
+        if metadata.get("visibility_status") in issue_statuses:
+            count += 1
+        elif metadata.get("layout_status") == "needs_fix":
+            count += 1
+    return count

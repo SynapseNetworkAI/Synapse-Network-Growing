@@ -29,6 +29,8 @@ const apiMock = vi.hoisted(() => ({
   updateDistributionAccount: vi.fn(),
   getSocialTrends: vi.fn(),
   getSocialPostMetricSummary: vi.fn(),
+  createManualSocialPostMetric: vi.fn(),
+  createXBrandWeekCampaignTemplate: vi.fn(),
 }))
 
 vi.mock('../api', () => ({
@@ -169,11 +171,16 @@ describe('PublishingPage v2 distribution workbench', () => {
     apiMock.getSocialTrends.mockResolvedValue([])
     apiMock.getSocialPostMetricSummary.mockResolvedValue({
       observed_post_count: 0,
+      metric_row_count: 0,
       total_impressions: 0,
       total_likes: 0,
       total_replies: 0,
       total_reposts: 0,
       total_link_clicks: 0,
+      total_profile_visits: 0,
+      total_bookmarks: 0,
+      average_engagement: 0,
+      top_posts: [],
       last_observed_at: null,
       diagnostic: 'No metrics yet.',
     })

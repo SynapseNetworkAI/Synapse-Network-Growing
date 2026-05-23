@@ -56,6 +56,28 @@ export interface SocialDistributionXAuthStatus {
   refresh_token_rotated: boolean
 }
 
+export interface SocialDistributionAccountAuthStatus {
+  account_id: number
+  platform: string
+  channel_key: string
+  display_name: string
+  login_url: string | null
+  publish_path: 'official_api' | 'browser_assisted' | 'manual_only' | 'blocked' | string
+  api_status: string
+  browser_status: string
+  api_supported: boolean
+  can_publish_via_api: boolean
+  can_use_browser_assist: boolean
+  private_web_adapter_enabled: boolean
+  blockers: string[]
+  next_action: string
+}
+
+export interface SocialDistributionAccountAuthStatusList {
+  items: SocialDistributionAccountAuthStatus[]
+  generated_at: string | null
+}
+
 export interface SocialContentAsset {
   id: number
   asset_type: string
@@ -161,6 +183,7 @@ export interface SocialDistributionBoardCard {
   failed_count: number
   ready_to_publish_count: number
   live_count: number
+  visibility_issue_count: number
   status_counts: Record<string, number>
   document_status_counts: Record<string, number>
   next_action: string
@@ -230,12 +253,30 @@ export interface SocialAssetPlannerRun {
   }>
 }
 
+export interface SocialDistributionCampaignTemplateResult {
+  campaign_key: string
+  created_count: number
+  existing_count: number
+  assets: SocialContentAssetDetail[]
+}
+
 type RequestFn = <T>(path: string, options?: RequestInit, timeoutMs?: number) => Promise<T>
 
 export function createSocialDistributionApi(request: RequestFn) {
   return {
     getSocialDistributionBoard: () => request<SocialDistributionBoard>('/social/distribution/board'),
     getDistributionAccounts: () => request<SocialDistributionAccount[]>('/social/distribution/accounts'),
+    getDistributionAccountAuthStatuses: (filters?: { platform?: string | null; account_id?: number | null }) => {
+      const params = new URLSearchParams()
+      if (filters?.platform) params.set('platform', filters.platform)
+      if (filters?.account_id) params.set('account_id', String(filters.account_id))
+      const query = params.toString()
+      return request<SocialDistributionAccountAuthStatusList>(
+        `/social/distribution/accounts/auth-status${query ? `?${query}` : ''}`,
+        undefined,
+        60_000,
+      )
+    },
     updateDistributionAccount: (
       id: number,
       data: {
@@ -285,12 +326,20 @@ export function createSocialDistributionApi(request: RequestFn) {
       canonical_url?: string | null
       source_doc_path?: string | null
       goal_key?: string | null
+      campaign_key?: string | null
+      post_intent?: string | null
+      planned_publish_at?: string | null
       created_by?: string
     }) =>
       request<SocialContentAssetDetail>('/social/distribution/content-tasks', {
         method: 'POST',
         body: JSON.stringify(data),
       }),
+    createXBrandWeekCampaignTemplate: () =>
+      request<SocialDistributionCampaignTemplateResult>(
+        '/social/distribution/campaign-templates/x-brand-week-technical-builders',
+        { method: 'POST', body: JSON.stringify({}) },
+      ),
     updateSocialContentAsset: (
       id: number,
       data: {
@@ -430,6 +479,19 @@ export function createSocialDistributionApi(request: RequestFn) {
       data: { manual_result_note: string; actor?: string },
     ) =>
       request<SocialDistributionTask>(`/social/distribution/tasks/${id}/mark-removed`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    auditSocialDistributionPublishedPage: (
+      id: number,
+      data: {
+        visibility_status: string
+        layout_status?: string
+        audit_note?: string | null
+        actor?: string
+      },
+    ) =>
+      request<SocialDistributionTask>(`/social/distribution/tasks/${id}/audit-published-page`, {
         method: 'POST',
         body: JSON.stringify(data),
       }),
