@@ -66,6 +66,7 @@ export default function ReleaseDetailPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [note, setNote] = useState('')
   const [deployScope, setDeployScope] = useState<DeployScope>('auto')
+  const [rollbackSha, setRollbackSha] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -191,6 +192,10 @@ export default function ReleaseDetailPage() {
                 <option value="all">all</option>
               </select>
             </label>
+            <label className="flex min-w-[280px] items-center gap-2 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm">
+              <span className="text-[color:var(--ops-text-caption)]">Rollback SHA</span>
+              <input className="min-w-0 flex-1 bg-transparent text-[color:var(--ops-text-title)] outline-none" value={rollbackSha} onChange={(event) => setRollbackSha(event.target.value)} placeholder={release?.commit_sha || 'commit sha'} />
+            </label>
             <button
               className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm disabled:opacity-60"
               disabled={busyAction === 'prepare' || detail.validation?.status !== 'passed'}
@@ -258,12 +263,8 @@ export default function ReleaseDetailPage() {
             </button>
             <button
               className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] px-4 py-2 text-sm text-[color:var(--ops-state-blocked-text)] disabled:opacity-60"
-              disabled={busyAction === 'rollback'}
-              onClick={async () => {
-                const sha = window.prompt('输入要回滚到的 commit SHA', release?.commit_sha || '')
-                if (!sha?.trim()) return
-                await runAction('rollback', () => api.rollbackRelease(id, { actor: 'operator', note: note || null, rollback_target_sha: sha.trim() }))
-              }}
+              disabled={busyAction === 'rollback' || !rollbackSha.trim()}
+              onClick={() => runAction('rollback', () => api.rollbackRelease(id, { actor: 'operator', note: note || null, rollback_target_sha: rollbackSha.trim() }))}
             >
               回滚
             </button>

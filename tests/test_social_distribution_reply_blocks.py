@@ -94,9 +94,7 @@ def test_generate_x_reply_block_creates_agent_reviewed_candidates(
     assert payload["asset"]["reply_items"][0]["source_post_id"] == "101"
     assert payload["asset"]["reply_items"][0]["suggested_reply"]
     assert (
-        payload["asset"]["reply_items"][0]["metadata"]["agent_quality_review"][
-            "status"
-        ]
+        payload["asset"]["reply_items"][0]["metadata"]["agent_quality_review"]["status"]
         == "passed"
     )
     replies = db_session.query(SocialReplyItemRow).order_by(SocialReplyItemRow.id).all()

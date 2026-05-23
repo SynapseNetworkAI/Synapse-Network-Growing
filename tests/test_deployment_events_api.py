@@ -5,43 +5,7 @@ from server.database import (
     ReleaseRecordRow,
     RequirementRow,
 )
-from server.schemas import ReleaseTaskPrGateOut
 from server.services.delivery.deployment_events import record_deployment_event
-from server.services.delivery import deployment_governance
-from server.services.releases import tasks as release_tasks_service
-
-
-def _successful_pr_gate() -> ReleaseTaskPrGateOut:
-    return ReleaseTaskPrGateOut(
-        branch_exists=True,
-        pr_exists=True,
-        pr_url="https://github.com/SynapseNetworkAI/Synapse-Network/pull/99",
-        pr_number=99,
-        pr_state="open",
-        checks_status="success",
-        checks_summary="3 checks passed",
-        can_create_pr=False,
-        can_deploy_staging=True,
-    )
-
-
-def _patch_deploy_preflight(monkeypatch, *, dispatch):
-    monkeypatch.setattr(release_tasks_service, "_dispatch_github_workflow", dispatch)
-    monkeypatch.setattr(
-        release_tasks_service,
-        "_callback_url",
-        lambda record_id: f"https://ops.example/api/deployments/{record_id}/report",
-    )
-    monkeypatch.setattr(
-        release_tasks_service,
-        "_release_task_pr_gate_for",
-        lambda row, repo: _successful_pr_gate(),
-    )
-    monkeypatch.setattr(
-        release_tasks_service,
-        "_missing_required_staging_deploy_secrets",
-        lambda repo, **kwargs: ([], None),
-    )
 
 
 def _create_release_task(synced_client, branch: str = "codex/deployment-events"):
@@ -120,13 +84,7 @@ def _seed_requirement_release(
     return requirement
 
 
-def test_deploy_staging_writes_deployment_event_ledger(
-    monkeypatch, synced_client, db_session
-):
-    _patch_deploy_preflight(
-        monkeypatch,
-        dispatch=lambda **kwargs: "https://github.com/actions/runs/123",
-    )
+def test_deploy_staging_writes_deployment_event_ledger(synced_client, db_session):
     task = _create_release_task(synced_client)
 
     response = synced_client.post(
@@ -148,13 +106,7 @@ def test_deploy_staging_writes_deployment_event_ledger(
     ]
 
 
-def test_deploy_report_appends_deployment_reported_event(
-    monkeypatch, synced_client, db_session
-):
-    _patch_deploy_preflight(
-        monkeypatch,
-        dispatch=lambda **kwargs: "https://github.com/actions/runs/124",
-    )
+def test_deploy_report_appends_deployment_reported_event(synced_client, db_session):
     task = _create_release_task(synced_client, branch="codex/deployment-report-event")
     deployed = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy-staging", json={}
@@ -174,14 +126,8 @@ def test_deploy_report_appends_deployment_reported_event(
     assert _event_types(db_session, record_id)[-1] == "deployment_reported"
 
 
-def test_deploy_dispatch_failure_writes_failed_event(
-    monkeypatch, synced_client, db_session
-):
-    def failing_dispatch(**kwargs):
-        raise RuntimeError("GitHub workflow dispatch failed: missing workflow")
-
-    _patch_deploy_preflight(monkeypatch, dispatch=failing_dispatch)
-    task = _create_release_task(synced_client, branch="codex/deployment-failed-event")
+def test_deploy_staging_local_runner_starts_requested(synced_client, db_session):
+    task = _create_release_task(synced_client, branch="codex/deployment-local-runner")
 
     response = synced_client.post(
         f"/api/releases/tasks/{task['id']}/deploy-staging", json={}
@@ -189,18 +135,17 @@ def test_deploy_dispatch_failure_writes_failed_event(
 
     assert response.status_code == 200
     record_id = int(response.json()["deployment_record_id"])
-    assert _event_types(db_session, record_id)[-1] == "deployment_dispatch_failed"
+    record = db_session.get(DeploymentRecordRow, record_id)
+    assert record.status == "requested"
+    assert record.trigger_source == "local_deploy_runner"
+    assert _event_types(db_session, record_id) == [
+        "deployment_requested",
+        "deployment_dispatched",
+    ]
 
 
-def test_requirement_staging_deploy_writes_deployment_events(
-    monkeypatch, synced_client, db_session
-):
+def test_requirement_staging_deploy_writes_deployment_events(synced_client, db_session):
     requirement = _seed_requirement_release(db_session)
-    monkeypatch.setattr(
-        deployment_governance,
-        "_dispatch_github_workflow",
-        lambda **kwargs: "https://github.com/actions/runs/300",
-    )
 
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/staging",
@@ -226,7 +171,7 @@ def test_requirement_staging_deploy_writes_deployment_events(
 
 
 def test_requirement_production_promote_writes_deployment_events(
-    monkeypatch, synced_client, db_session
+    synced_client, db_session
 ):
     requirement = _seed_requirement_release(db_session, commit_sha="prod123")
     staging = DeploymentRecordRow(
@@ -265,12 +210,6 @@ def test_requirement_production_promote_writes_deployment_events(
             summary=f"staging {event_type}",
         )
     db_session.commit()
-    monkeypatch.setattr(
-        deployment_governance,
-        "_dispatch_github_workflow",
-        lambda **kwargs: "https://github.com/actions/runs/301",
-    )
-
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/production",
         json={
@@ -298,14 +237,9 @@ def test_requirement_production_promote_writes_deployment_events(
 
 
 def test_requirement_production_promote_blocks_without_staging_evidence(
-    monkeypatch, synced_client, db_session
+    synced_client, db_session
 ):
     requirement = _seed_requirement_release(db_session, commit_sha="missing-stage")
-    monkeypatch.setattr(
-        deployment_governance,
-        "_dispatch_github_workflow",
-        lambda **kwargs: "https://github.com/actions/runs/blocked",
-    )
 
     response = synced_client.post(
         f"/api/releases/{requirement.id}/deploy/production",

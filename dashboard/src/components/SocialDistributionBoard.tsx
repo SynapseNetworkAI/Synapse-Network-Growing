@@ -1,6 +1,12 @@
 import type { SocialContentAsset, SocialDistributionBoard as Board, SocialDistributionBoardCard as BoardCard } from '../apiSocialDistribution'
 import { StateBadge, statusTone } from './SocialDistributionWidgets'
 
+type ReplyBlockMetrics = {
+  source_candidate_ids?: unknown
+  processed_source_count?: unknown
+  reply_ids?: unknown
+}
+
 export function DistributionBoard({
   board,
   formatDateTime,
@@ -87,8 +93,8 @@ function cardMetrics(card: BoardCard) {
   ]
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+function objectValue(value: unknown): ReplyBlockMetrics {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as ReplyBlockMetrics : {}
 }
 
 function arrayLength(value: unknown): number {

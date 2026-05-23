@@ -15,6 +15,7 @@ from server.database_social_distribution import (
     SocialDistributionEventRow,
     SocialDistributionTaskRow,
 )
+from server.services.social.distribution_reply_metadata import reply_ids_from_asset
 
 
 def _asset_out(row: SocialContentAssetRow) -> dist_schema.SocialContentAssetOut:
@@ -54,7 +55,7 @@ def _asset_detail_out(
 
 
 def _reply_items_for_asset(row: SocialContentAssetRow) -> list[dist_schema.SocialReplyItemOut]:
-    reply_ids = _reply_ids_from_asset(row)
+    reply_ids = reply_ids_from_asset(row)
     session = object_session(row)
     if not reply_ids or session is None:
         return []
@@ -66,20 +67,6 @@ def _reply_items_for_asset(row: SocialContentAssetRow) -> list[dist_schema.Socia
     )
     order = {reply_id: index for index, reply_id in enumerate(reply_ids)}
     return [_reply_out(reply) for reply in sorted(rows, key=lambda item: order.get(int(item.id), 9999))]
-
-
-def _reply_ids_from_asset(row: SocialContentAssetRow) -> list[int]:
-    metadata = _json_object(row.agent_metadata_json)
-    reply_block = metadata.get("reply_block")
-    if not isinstance(reply_block, dict):
-        return []
-    ids: list[int] = []
-    for value in reply_block.get("reply_ids") or []:
-        if isinstance(value, int):
-            ids.append(value)
-        elif isinstance(value, str) and value.isdigit():
-            ids.append(int(value))
-    return ids
 
 
 def _task_out(row: SocialDistributionTaskRow) -> dist_schema.SocialDistributionTaskOut:

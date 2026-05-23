@@ -112,42 +112,16 @@ export function TaskDetailModal({
           ) : (
             <>
               <Field label="标题">
-                <textarea
-                  readOnly
-                  className={`${textareaClass} min-h-[64px]`}
-                  value={task.platform_title ?? ''}
-                />
+                <textarea readOnly className={`${textareaClass} min-h-[64px]`} value={task.platform_title ?? ''} />
               </Field>
               <Field label="正文">
-                <textarea
-                  readOnly
-                  className={`${textareaClass} min-h-[180px]`}
-                  value={task.platform_body ?? ''}
-                />
+                <textarea readOnly className={`${textareaClass} min-h-[180px]`} value={task.platform_body ?? ''} />
               </Field>
             </>
           )}
           <div className="flex flex-wrap gap-2">
-            {publishedUrl ? (
-              <a
-                className="rounded-xl border border-emerald-300/50 px-3 py-2 text-sm font-semibold text-emerald-100"
-                href={publishedUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                查看帖子
-              </a>
-            ) : null}
-            {task.submission_url ? (
-              <a
-                className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm"
-                href={task.submission_url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                打开平台
-              </a>
-            ) : null}
+            {publishedUrl ? <a className="rounded-xl border border-emerald-300/50 px-3 py-2 text-sm font-semibold text-emerald-100" href={publishedUrl} target="_blank" rel="noreferrer">查看帖子</a> : null}
+            {task.submission_url ? <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" href={task.submission_url} target="_blank" rel="noreferrer">打开平台</a> : null}
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_title ?? '', toast)}>复制标题</button>
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => copyText(task.platform_body ?? '', toast)}>复制正文</button>
             <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => copyText(combined, toast)}>{copyCombinedLabel(task.platform, xFormat, xRows.length)}</button>
@@ -166,9 +140,7 @@ export function TaskDetailModal({
               {xFormat === 'long_post' ? `X 长文超过 ${xLimit} chars，发布按钮已禁用。` : '有推文超过 280 weighted chars，发布按钮已禁用。'}
             </InfoBlock>
           ) : null}
-          {xAuthNotice ? (
-            <InfoBlock title="X 授权状态">{xAuthNotice}</InfoBlock>
-          ) : null}
+          {xAuthNotice ? <InfoBlock title="X 授权状态">{xAuthNotice}</InfoBlock> : null}
           {liveMissingUrl ? (
             <InfoBlock title="Published URL 缺失">
               这个任务已经是 live，但没有帖子地址。请补录真实 published URL 后再次标记，后续指标和查看按钮才有证据来源。
@@ -178,13 +150,7 @@ export function TaskDetailModal({
             <Field label="Published URL"><input className={inputClass} value={manualUrl} onChange={(event) => onManualUrlChange(event.target.value)} /></Field>
             <Field label="人工备注 / removed 原因"><input className={inputClass} value={manualNote} onChange={(event) => onManualNoteChange(event.target.value)} /></Field>
           </div>
-          <PublishAuditControls
-            visible={Boolean(publishedUrl)}
-            auditVisibility={auditVisibility}
-            auditLayout={auditLayout}
-            onAuditVisibilityChange={onAuditVisibilityChange}
-            onAuditLayoutChange={onAuditLayoutChange}
-          />
+          <PublishAuditControls visible={Boolean(publishedUrl)} auditVisibility={auditVisibility} auditLayout={auditLayout} onAuditVisibilityChange={onAuditVisibilityChange} onAuditLayoutChange={onAuditLayoutChange} />
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={onSkip}>跳过</button>
             <button type="button" className="rounded-xl border border-rose-300/40 px-3 py-2 text-sm text-rose-100" onClick={onMarkRemoved}>标记 removed</button>

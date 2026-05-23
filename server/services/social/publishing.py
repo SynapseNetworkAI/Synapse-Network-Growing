@@ -3161,8 +3161,6 @@ def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchReques
     db.commit()
     db.refresh(row)
     return _social_reply_out(row)
-
-
 def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPublishRequest) -> SocialReplyItemOut:
     row = db.get(SocialReplyItemRow, reply_id)
     if row is None:
@@ -3191,7 +3189,6 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     row.failure_summary = None
     row.updated_at = utcnow()
     db.commit()
-
     token_context = None
     try:
         token_result = x_oauth_token_provider.get_access_token(account.secret_ref)
@@ -3213,7 +3210,6 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     finally:
         if token_context is not None:
             _x_publish_access_token.reset(token_context)
-
     row = db.get(SocialReplyItemRow, reply_id)
     if row is None:
         raise ValueError("social reply item not found")
@@ -3223,13 +3219,7 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     row.failure_summary = None
     row.updated_at = utcnow()
     metadata = _json_loads(row.metadata_json, {})
-    metadata.update(
-        {
-            "published_by": body.actor,
-            "response_summary": result.response_summary,
-            "reply_to": source_post_id,
-        }
-    )
+    metadata.update({"published_by": body.actor, "response_summary": result.response_summary, "reply_to": source_post_id})
     row.metadata_json = _json_dumps(metadata)
     candidate_id = int(row.source_candidate_id or 0)
     if candidate_id:
@@ -3240,6 +3230,5 @@ def publish_social_reply_to_x(db: Session, reply_id: int, body: SocialReplyPubli
     db.commit()
     db.refresh(row)
     return _social_reply_out(row)
-
 for _name in "run_content_policy_check run_x_social_trend_radar_sweep run_x_social_repost_candidate_sweep run_x_social_reply_candidate_sweep regenerate_unpublished_social_replies_with_agent".split(): globals()[_name] = service_object_result(globals()[_name])
 list_social_accounts = service_list_result(list_social_accounts); del _name

@@ -22,6 +22,7 @@ from server.services.social.distribution_documents import (
     ensure_platform_documents_for_asset,
 )
 from server.services.social.distribution_projection import _asset_out
+from server.services.social.distribution_reply_metadata import reply_ids_from_asset
 from server.services.social.distribution_task_kinds import task_kind_for_asset
 
 
@@ -238,12 +239,12 @@ def _platform_count(
     task_kind_code: str,
 ) -> int:
     if task_kind_code == "x_reply_block":
-        return 1 if _reply_ids_from_asset(asset) else 0
+        return 1 if reply_ids_from_asset(asset) else 0
     return len({(task.platform, task.channel_key) for task in tasks})
 
 
 def _reply_status_counts(asset: SocialContentAssetRow) -> Counter[str]:
-    reply_ids = _reply_ids_from_asset(asset)
+    reply_ids = reply_ids_from_asset(asset)
     session = object_session(asset)
     if not reply_ids or session is None:
         return Counter()
@@ -253,28 +254,6 @@ def _reply_status_counts(asset: SocialContentAssetRow) -> Counter[str]:
         .all()
     )
     return Counter(str(row[0] or "needs_review") for row in rows)
-
-
-def _reply_ids_from_asset(asset: SocialContentAssetRow) -> list[int]:
-    metadata = _json_object(getattr(asset, "agent_metadata_json", None))
-    reply_block = metadata.get("reply_block")
-    if not isinstance(reply_block, dict):
-        return []
-    ids: list[int] = []
-    for value in reply_block.get("reply_ids") or []:
-        if isinstance(value, int):
-            ids.append(value)
-        elif isinstance(value, str) and value.isdigit():
-            ids.append(int(value))
-    return ids
-
-
-def _json_object(value: str | None) -> dict[str, object]:
-    try:
-        payload = json.loads(value or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _visibility_issue_count(tasks: list[SocialDistributionTaskRow]) -> int:

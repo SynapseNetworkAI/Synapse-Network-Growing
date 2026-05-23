@@ -463,11 +463,12 @@ def test_sdk_package_publish_requires_confirm_phrase_and_credential(
 def test_sdk_package_local_runner_marks_dry_run_ready(
     synced_client, db_session, monkeypatch
 ):
+    package_version = _manifest_version("python") or "1.0.0"
     enable_platform(synced_client, "pypi")
     row = synced_client.post(
         "/api/releases/sdk-packages/initialize-train",
         json={
-            "release_train_version": "1.0.0",
+            "release_train_version": package_version,
             "channel": "preview",
             "packages": ["python"],
         },
@@ -565,10 +566,11 @@ def test_sdk_package_runner_reads_manifest_versions():
     if not sdk_repo.exists():
         pytest.skip("SDK repo checkout is required for manifest version smoke.")
 
-    assert _manifest_version("python") == "1.0.0"
-    assert _manifest_version("typescript") == "1.0.0"
-    assert _manifest_version("java") == "1.0.0"
-    assert _manifest_version("dotnet") == "1.0.0"
+    package_version = _manifest_version("python")
+    assert package_version
+    assert _manifest_version("typescript") == package_version
+    assert _manifest_version("java") == package_version
+    assert _manifest_version("dotnet") == package_version
     assert _manifest_version("go") is None
 
 

@@ -3,6 +3,15 @@ import { InfoBlock, StateBadge, copyText, statusTone } from './SocialDistributio
 import type { useToast } from './workbench'
 
 type ReplyAction = (reply: SocialReplyItem) => void
+type ReplyBlockMetadata = {
+  target_count?: unknown
+  processed_source_count?: unknown
+  publish_mode?: unknown
+  approval_ref_configured?: unknown
+  auto_publish?: unknown
+  opt_in_evidence?: unknown
+  status?: unknown
+}
 
 export function ReplyTaskDetailView({
   asset,
@@ -271,8 +280,8 @@ function sourcePlanText(asset: SocialContentAssetDetail): string {
   return plan?.body_markdown || asset.summary || asset.body || 'No source plan yet.'
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+function objectValue(value: unknown): ReplyBlockMetadata {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as ReplyBlockMetadata : {}
 }
 
 function numberValue(value: unknown): number {
