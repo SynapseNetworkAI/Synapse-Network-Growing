@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SdkPackageRelease, SdkPackageReleaseEvent, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
-import { SDK_CHANNEL_OPTIONS, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkInstallCommand, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
+import { SDK_CHANNEL_OPTIONS, SDK_SOURCE_REPO_URL, SDK_STATUS_LABEL, formatSdkTime, isSemVer, openExternalUrl, sdkInstallCommand, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
 
 export default function SdkPackageReleaseDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -179,6 +179,7 @@ export default function SdkPackageReleaseDetailPage() {
             <div>Local run：<span className="font-mono">{item.workflow_run_url || '-'}</span></div>
             <div>Package：{item.package_url ? <button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(item.package_url)}>打开 Registry 页面</button> : '-'}</div>
             <div>Install：<span className="font-mono">{installCommand}</span></div>
+            <div>Source：<button type="button" className="text-[color:var(--ops-state-running-text)] underline-offset-4 hover:underline" onClick={() => openExternalUrl(SDK_SOURCE_REPO_URL)}>查看 GitHub SDK repo</button></div>
             <div>Platform：<span className="font-mono">{String(item.metadata.platform_key || item.registry)}</span></div>
             <div>Verify：<span className="font-mono">{String((item.metadata.verify_result as { status?: string } | undefined)?.status || '-')}</span></div>
             <div>Registry secrets：只存在本地 runner 环境 / Secret Manager，不进入 Growing DB。</div>

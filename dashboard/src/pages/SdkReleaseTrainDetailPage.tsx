@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { SdkReleaseTrain, sdkPackagesApi } from '../sdkPackagesApi'
 import { EmptyPane, LoadingPane, SectionFrame, StateBadge, useToast } from '../components/workbench'
-import { SDK_STATUS_LABEL, formatSdkTime, openExternalUrl, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
+import { SDK_PUBLIC_PACKAGE_LINKS, SDK_SOURCE_REPO_URL, SDK_STATUS_LABEL, formatSdkTime, openExternalUrl, sdkReleaseTone, syncSdkStatuses } from './sdkPackageUi'
 
 export default function SdkReleaseTrainDetailPage() {
   const { version } = useParams<{ version: string }>()
@@ -105,6 +105,31 @@ export default function SdkReleaseTrainDetailPage() {
           <div>created：{formatSdkTime(train.created_at)}</div>
           <div>updated：{formatSdkTime(train.updated_at)}</div>
         </div>
+      </SectionFrame>
+
+      <SectionFrame eyebrow="Public SDK Links" title="1.0.0 公共仓库入口">
+        <div className="grid gap-3 lg:grid-cols-2">
+          {SDK_PUBLIC_PACKAGE_LINKS.map((link) => (
+            <article key={link.language} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-[color:var(--ops-text-title)]">{link.language} · {link.registry}</div>
+                  <div className="mt-1 break-all font-mono text-xs text-[color:var(--ops-text-caption)]">{link.packageName}</div>
+                </div>
+                <StateBadge tone="delivered">published</StateBadge>
+              </div>
+              <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-black/20 px-3 py-2 font-mono text-xs text-[color:var(--ops-text-muted)]">
+                {link.installCommand}
+              </div>
+              <button type="button" className="mt-3 rounded-xl border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" onClick={() => openExternalUrl(link.url)}>
+                打开 {link.registry}
+              </button>
+            </article>
+          ))}
+        </div>
+        <button type="button" className="mt-4 rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => openExternalUrl(SDK_SOURCE_REPO_URL)}>
+          查看 GitHub SDK repo
+        </button>
       </SectionFrame>
 
       <SectionFrame eyebrow="Release Matrix" title="Package 发布矩阵">
