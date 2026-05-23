@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from server.services.releases import sdk_packages as sdk_release_service
 from server.services.releases.sdk_package_helpers import package_url_for
 from server.services.releases.sdk_package_models import SdkPackageReleaseRow
@@ -116,6 +118,97 @@ def test_sdk_package_list_filters_and_missing_resources(synced_client):
         ).status_code
         == 404
     )
+    assert synced_client.get("/api/releases/sdk-packages/999/history").status_code == 404
+
+
+def test_sdk_package_release_history_filters_pages_and_links(
+    synced_client, db_session
+):
+    records = []
+    for index, version in enumerate(["0.1.0", "0.2.0", "0.3.0", "0.4.0"]):
+        payload = synced_client.post(
+            "/api/releases/sdk-packages/initialize-train",
+            json={
+                "release_train_version": version,
+                "channel": "preview" if version != "0.3.0" else "next",
+                "packages": ["python"],
+            },
+        ).json()[0]
+        db_row = (
+            db_session.query(SdkPackageReleaseRow)
+            .filter(SdkPackageReleaseRow.id == payload["id"])
+            .one()
+        )
+        db_row.updated_at = datetime(2026, 5, 1, tzinfo=timezone.utc) + timedelta(
+            minutes=index
+        )
+        if version == "0.2.0":
+            db_row.status = "published"
+            db_row.package_url = "https://pypi.org/project/synapse-client/0.2.0/"
+            db_row.published_at = db_row.updated_at
+            db_row.workflow_run_url = (
+                "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/actions/runs/202"
+            )
+        if version == "0.4.0":
+            db_row.status = "failed"
+            db_row.failure_summary = "registry rejected version"
+        records.append(payload)
+
+    other_package = synced_client.post(
+        "/api/releases/sdk-packages/initialize-train",
+        json={
+            "release_train_version": "0.5.0",
+            "channel": "preview",
+            "packages": ["typescript"],
+        },
+    ).json()[0]
+    db_session.commit()
+
+    anchor_id = next(item["id"] for item in records if item["package_version"] == "0.2.0")
+    response = synced_client.get(f"/api/releases/sdk-packages/{anchor_id}/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 4
+    assert [item["package_version"] for item in payload["items"]] == [
+        "0.4.0",
+        "0.3.0",
+        "0.2.0",
+        "0.1.0",
+    ]
+    assert other_package["id"] not in [item["id"] for item in payload["items"]]
+    published = next(item for item in payload["items"] if item["package_version"] == "0.2.0")
+    assert published["status"] == "published"
+    assert published["package_url"] == "https://pypi.org/project/synapse-client/0.2.0/"
+    assert published["repo_url"] == "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk"
+    assert (
+        published["git_tag_url"]
+        == "https://github.com/SynapseNetworkAI/Synapse-Network-Sdk/tree/sdk/v0.2.0"
+    )
+    assert published["workflow_run_url"].endswith("/actions/runs/202")
+
+    page = synced_client.get(
+        f"/api/releases/sdk-packages/{anchor_id}/history?limit=2&offset=1"
+    ).json()
+    assert page["total"] == 4
+    assert page["limit"] == 2
+    assert page["offset"] == 1
+    assert [item["package_version"] for item in page["items"]] == ["0.3.0", "0.2.0"]
+
+    search = synced_client.get(
+        f"/api/releases/sdk-packages/{anchor_id}/history?q=rejected"
+    ).json()
+    assert [item["package_version"] for item in search["items"]] == ["0.4.0"]
+
+    status = synced_client.get(
+        f"/api/releases/sdk-packages/{anchor_id}/history?status=published"
+    ).json()
+    assert [item["package_version"] for item in status["items"]] == ["0.2.0"]
+
+    channel = synced_client.get(
+        f"/api/releases/sdk-packages/{anchor_id}/history?channel=next"
+    ).json()
+    assert [item["package_version"] for item in channel["items"]] == ["0.3.0"]
 
 
 def test_sdk_package_publish_dispatches_workflow_and_records_inputs(

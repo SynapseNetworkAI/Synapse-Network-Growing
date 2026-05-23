@@ -40,6 +40,32 @@ class SdkPackageReleaseEventOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class SdkPackageReleaseHistoryItemOut(BaseModel):
+    id: int
+    release_train_version: str
+    sdk_language: str
+    package_name: str
+    registry: str
+    channel: str = "preview"
+    package_version: str
+    status: str = "planned"
+    package_url: Optional[str] = None
+    repo_url: str
+    git_tag: Optional[str] = None
+    git_tag_url: Optional[str] = None
+    workflow_run_url: Optional[str] = None
+    failure_summary: Optional[str] = None
+    published_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class SdkPackageReleaseHistoryPageOut(BaseModel):
+    items: list[SdkPackageReleaseHistoryItemOut]
+    total: int
+    limit: int = 10
+    offset: int = 0
+
+
 class SdkReleaseTrainOut(BaseModel):
     release_train_version: str
     channel: str = "preview"
