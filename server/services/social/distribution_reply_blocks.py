@@ -21,16 +21,9 @@ from server.database_social_distribution import SocialContentAssetRow
 from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.social.distribution import get_content_asset
 from server.services.social.distribution_core import _record_event
-from server.services.social.publishing import (
-    _create_reply_from_repost_candidate,
-    publish_social_reply_to_x,
-    run_content_policy_check,
-)
+from server.services.social.publishing import _create_reply_from_repost_candidate, publish_social_reply_to_x, run_content_policy_check
 from server.schemas import SocialReplyPublishRequest
-from server.services.social.distribution_reply_sources import (
-    ReplySourcePost,
-    usable_reply_source_posts,
-)
+from server.services.social.distribution_reply_sources import ReplySourcePost, usable_reply_source_posts
 
 
 @dataclass
@@ -105,8 +98,8 @@ def _candidate_for_source(
     candidate.author_handle = source.author_handle
     candidate.source_text = source.source_text
     candidate.suggested_quote = (
-        "Add one concrete Synapse angle about governed agent actions, API access, budgets, "
-        "provider monetization, or settlement only when it fits the source post."
+        f"Add one concrete Synapse angle about {source.reply_angle.replace('_', ' ')}. "
+        "Do not include links, URLs, domains, or source-post URLs; contribute a technical point only when it fits the source post."
     )
     candidate.relevance_score = 0.9
     candidate.status = "candidate"
@@ -183,6 +176,14 @@ def _generate_replies_for_sources(
             "opt_in_evidence": source.opt_in_evidence,
             "publish_mode": publish_mode,
             "browser_automation_publish_allowed": False,
+        }
+        metadata["x_reply_source_strategy"] = source.strategy_metadata or {
+            "strategy": "agent_economy_monetization",
+            "source_bucket": source.source_bucket,
+            "problem_fit_score": source.problem_fit_score,
+            "reply_angle": source.reply_angle,
+            "selected": not bool(source.do_not_reply_reason),
+            "do_not_reply_reason": source.do_not_reply_reason,
         }
         reply.metadata_json = _json_dumps(metadata)
         if agent_review:
@@ -312,6 +313,7 @@ def _write_reply_block_result(
     metadata = _json_loads(asset.agent_metadata_json)
     metadata["reply_block"] = {
         "last_generated_at": utcnow().isoformat(),
+        "reply_source_strategy": "agent_economy_monetization",
         "target_count": int(target_count),
         "reply_ids": result.reply_ids,
         "failed_reply_ids": result.failed_reply_ids,

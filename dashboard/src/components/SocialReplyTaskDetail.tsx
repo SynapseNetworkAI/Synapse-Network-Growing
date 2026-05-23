@@ -11,6 +11,13 @@ type ReplyBlockMetadata = {
   auto_publish?: unknown
   opt_in_evidence?: unknown
   status?: unknown
+  reply_source_strategy?: unknown
+  source_bucket?: unknown
+  problem_fit_score?: unknown
+  reply_angle?: unknown
+  do_not_reply_reason?: unknown
+  total_score?: unknown
+  matched_keywords?: unknown
 }
 
 export function ReplyTaskDetailView({
@@ -70,7 +77,7 @@ export function ReplyTaskDetailView({
         <div className="mt-3 grid gap-2 text-xs text-cyan-100/80 md:grid-cols-3">
           <span>publish mode: {stringValue(replyBlock.publish_mode, 'manual')}</span>
           <span>approval ref: {String(Boolean(replyBlock.approval_ref_configured))}</span>
-          <span>auto publish: {String(Boolean(replyBlock.auto_publish))}</span>
+          <span>source strategy: {stringValue(replyBlock.reply_source_strategy, 'manual_source_posts')}</span>
         </div>
       </section>
       <section>
@@ -154,6 +161,11 @@ function SourcePostCard({ post }: { post: SourcePost }) {
         {post.sourceUrl ? <a className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" href={post.sourceUrl} target="_blank" rel="noreferrer">打开原帖</a> : null}
       </div>
       <div className="mt-3 line-clamp-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{post.sourceText || 'No source text captured.'}</div>
+      <div className="mt-3 grid gap-2 text-xs text-[color:var(--ops-text-caption)] md:grid-cols-3">
+        <span>bucket: {post.sourceBucket || 'unknown'}</span>
+        <span>score: {post.problemFitScore || 'n/a'}</span>
+        <span>angle: {post.replyAngle || 'agent_economy_context'}</span>
+      </div>
       {post.optInEvidence ? (
         <div className="mt-3 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100">opt-in: {post.optInEvidence}</div>
       ) : null}
@@ -180,6 +192,7 @@ function ReplyCandidateCard({
 }) {
   const review = objectValue(reply.metadata.agent_quality_review)
   const compliance = objectValue(reply.metadata.x_reply_compliance)
+  const sourceStrategy = objectValue(reply.metadata.x_reply_source_strategy)
   const weightedCount = xWeightedCount(reply.suggested_reply ?? '')
   const canApiPublish = Boolean(compliance.approval_ref_configured && compliance.opt_in_evidence && reply.status === 'approved')
   return (
@@ -199,7 +212,12 @@ function ReplyCandidateCard({
         <span>{weightedCount}/280 weighted chars</span>
         <span>risk: {reply.risk_level}</span>
         <span>review: {stringValue(review.status, 'pending')}</span>
-        <span>generated: {stringValue(reply.metadata.model, 'unknown')}</span>
+        <span>angle: {stringValue(sourceStrategy.reply_angle, 'unknown')}</span>
+      </div>
+      <div className="mt-2 grid gap-2 text-xs text-[color:var(--ops-text-caption)] md:grid-cols-3">
+        <span>bucket: {stringValue(sourceStrategy.source_bucket, 'unknown')}</span>
+        <span>source score: {stringValue(sourceStrategy.total_score, 'n/a')}</span>
+        <span>matched: {arrayValue(sourceStrategy.matched_keywords).slice(0, 3).join(', ') || 'none'}</span>
       </div>
       {reply.source_text ? <div className="mt-3 line-clamp-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">{reply.source_text}</div> : null}
       {reply.failure_summary ? <InfoBlock title="Blocker">{reply.failure_summary}</InfoBlock> : null}
@@ -230,12 +248,16 @@ interface SourcePost {
   sourceUrl: string | null
   sourceText: string | null
   optInEvidence: string
+  sourceBucket: string
+  problemFitScore: string
+  replyAngle: string
 }
 
 function uniqueSourcePosts(replies: SocialReplyItem[]): SourcePost[] {
   const byKey = new Map<string, SourcePost>()
   for (const reply of replies) {
     const compliance = objectValue(reply.metadata.x_reply_compliance)
+    const sourceStrategy = objectValue(reply.metadata.x_reply_source_strategy)
     const key = reply.source_post_id || reply.source_url || String(reply.id)
     if (!byKey.has(key)) {
       byKey.set(key, {
@@ -245,6 +267,9 @@ function uniqueSourcePosts(replies: SocialReplyItem[]): SourcePost[] {
         sourceUrl: reply.source_url,
         sourceText: reply.source_text,
         optInEvidence: stringValue(compliance.opt_in_evidence),
+        sourceBucket: stringValue(sourceStrategy.source_bucket),
+        problemFitScore: stringValue(sourceStrategy.problem_fit_score),
+        replyAngle: stringValue(sourceStrategy.reply_angle),
       })
     }
   }
@@ -293,6 +318,10 @@ function numberValue(value: unknown): number {
 function stringValue(value: unknown, fallback = ''): string {
   if (typeof value === 'number') return String(value)
   return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function arrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : []
 }
 
 function xWeightedCount(text: string): number {
