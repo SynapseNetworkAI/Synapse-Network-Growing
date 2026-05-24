@@ -13,6 +13,10 @@ export interface SocialDistributionAccountAuthStatus {
   private_web_adapter_enabled: boolean
   blockers: string[]
   next_action: string
+  oauth_status: string | null
+  requires_authorization: boolean
+  auth_message: string | null
+  last_checked_at: string | null
 }
 
 export interface SocialDistributionAccountAuthStatusList {

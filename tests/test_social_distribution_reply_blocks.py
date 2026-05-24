@@ -8,7 +8,8 @@ from server.database_social_distribution import (
 )
 from server.services.social import publishing as social_publishing
 from server.services.social import distribution_reply_blocks as reply_blocks
-from server.services.social.distribution_reply_blocks import (
+from server.services.social import distribution_reply_block_policy as reply_block_policy
+from server.services.social.distribution_reply_block_publisher import (
     run_x_social_daily_reply_block_publisher,
 )
 from server.services.social.reply_agent import GeneratedXReply
@@ -180,6 +181,59 @@ def test_generate_x_reply_block_strips_urls_from_reply_text(
     assert "Implementation notes" in reply.suggested_reply
 
 
+def test_generate_x_reply_block_requires_force_when_candidates_exist(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+    payload = {
+        "actor": "agent",
+        "target_count": 1,
+        "agent_review": True,
+        "source_posts": [
+            {
+                "source_url": "https://x.com/OpenAI/status/556",
+                "author_handle": "OpenAI",
+                "source_text": "Agent APIs need budget caps and receipts.",
+                "rationale": "Duplicate generation guard.",
+            }
+        ],
+    }
+
+    first = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json=payload,
+    )
+    assert first.status_code == 200
+    duplicate = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json=payload,
+    )
+    assert duplicate.status_code == 400
+    assert "force_regenerate=true" in duplicate.json()["detail"]
+
+    forced = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={**payload, "force_regenerate": True},
+    )
+
+    assert forced.status_code == 200
+    assert forced.json()["reply_ids"] == first.json()["reply_ids"]
+    event_types = [
+        row.event_type
+        for row in db_session.query(SocialDistributionEventRow)
+        .order_by(SocialDistributionEventRow.id)
+        .all()
+    ]
+    assert event_types == [
+        "x_reply_block_candidates_generated",
+        "x_reply_block_regenerated",
+    ]
+
+
 def test_generate_x_reply_block_fails_closed_without_real_sources(
     synced_client, db_session
 ):
@@ -194,14 +248,23 @@ def test_generate_x_reply_block_fails_closed_without_real_sources(
     )
 
     assert response.status_code == 400
-    assert "requires real X source posts" in response.json()["detail"]
+    assert "Reconnect X before syncing trend/radar sources" in response.json()["detail"]
     assert db_session.query(SocialReplyItemRow).count() == 0
+    event = db_session.query(SocialDistributionEventRow).one()
+    assert event.event_type == "x_source_sync_blocked"
 
 
 def test_generate_x_reply_block_selects_agent_economy_sources_from_trends(
     synced_client, db_session, monkeypatch
 ):
     _install_reply_agent(monkeypatch)
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
+            "access-token", refreshed=True
+        ),
+    )
     asset = _reply_asset()
     db_session.add(asset)
     for index in range(1, 11):

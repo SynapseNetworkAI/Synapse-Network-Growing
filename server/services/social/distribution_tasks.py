@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,10 @@ from server.services.social.publishing import (
     x_publisher,
     x_oauth_token_provider,
 )
-from server.services.social.distribution_core import _record_event, _validate_task_status
+from server.services.social.distribution_core import (
+    _record_event,
+    _validate_task_status,
+)
 from server.services.social.distribution_documents import (
     sync_task_document_from_task,
 )
@@ -25,6 +29,7 @@ from server.services.social.distribution_content_strategy import (
     X_WEIGHTED_CHAR_LIMIT,
     x_format_from_metadata,
     x_long_post_text_from_metadata,
+    x_teaser_media_manifest,
     x_tweets_from_metadata,
     x_weighted_character_count,
 )
@@ -34,6 +39,7 @@ from server.services.social.distribution_publish_lint import (
     lint_summary,
 )
 from server.services.social.distribution_projection import _task_out
+
 
 def update_distribution_task(
     db: Session, task_id: int, body: dist_schema.SocialDistributionTaskPatchRequest
@@ -85,6 +91,10 @@ def publish_distribution_task_to_x(
         raise ValueError("Distribution task not found.")
     if row.platform != "x":
         raise ValueError("only X distribution tasks can be published via API in v1.")
+    if str(row.action or "") == "x_article_manual_publish":
+        raise ValueError(
+            "X Articles require manual publishing in X Web; use URL backfill after publish."
+        )
     if row.account and row.account.publish_mode != "api_human_gated":
         raise ValueError("this X channel is not configured for API publishing.")
     if row.status not in {"needs_review", "approved", "failed", "draft_ready"}:
@@ -99,7 +109,9 @@ def publish_distribution_task_to_x(
             if item.strip()
         }
         if "long_post" not in capabilities:
-            raise ValueError("this X channel is not configured for long-post API publishing.")
+            raise ValueError(
+                "this X channel is not configured for long-post API publishing."
+            )
     post_text = (
         x_long_post_text_from_metadata(metadata, row.platform_body)
         if x_format == "long_post"
@@ -130,20 +142,68 @@ def publish_distribution_task_to_x(
         "task_publish_submitted",
         actor,
         "Distribution task submitted to X API after Human Gate.",
-        {"platform": row.platform, "channel_key": row.channel_key, "x_format": x_format},
+        {
+            "platform": row.platform,
+            "channel_key": row.channel_key,
+            "x_format": x_format,
+        },
     )
     db.flush()
     try:
+        media_ids = _upload_task_media_to_x(db, row, social_account, metadata, actor)
         if x_format == "thread":
             result = _publish_x_thread(db, row, social_account, tweets)
         elif x_format == "long_post":
-            result = x_publisher.publish_text(social_account, post_text)
+            result = x_publisher.publish_text(
+                social_account, post_text, media_ids=media_ids or None
+            )
         else:
-            result = x_publisher.publish_text(social_account, tweets[0])
+            result = x_publisher.publish_text(
+                social_account, tweets[0], media_ids=media_ids or None
+            )
     except SocialPublishError as exc:
         return _mark_x_publish_failed(db, row, actor, exc)
 
     return _mark_x_publish_success(db, row, actor, metadata, x_format, result)
+
+
+def _upload_task_media_to_x(
+    db: Session,
+    row: SocialDistributionTaskRow,
+    social_account,
+    metadata: dict[str, object],
+    actor: str,
+) -> list[str]:
+    media = x_teaser_media_manifest(metadata)
+    local_path = str(media.get("local_path") or "").strip()
+    if not local_path:
+        return []
+    path = Path(local_path)
+    if not path.is_file():
+        raise SocialPublishError(
+            "x_media_upload_failed",
+            f"X teaser media file is missing: {path.name or 'unknown'}",
+        )
+    media_id = str(media.get("x_media_id") or "").strip()
+    if not media_id:
+        media_id = x_publisher.upload_image(social_account, str(path))
+        metadata["x_teaser_media"] = {
+            **media,
+            "x_media_id": media_id,
+            "uploaded_to_x": True,
+        }
+        row.metadata_json = json.dumps(metadata, ensure_ascii=False, sort_keys=True)
+        _record_event(
+            db,
+            row.asset,
+            row,
+            "media_uploaded_to_x",
+            actor,
+            "Uploaded X Article teaser media through official X media upload.",
+            {"x_media_id": media_id, "kind": media.get("kind") or "image"},
+        )
+        db.flush()
+    return [media_id]
 
 
 def validate_distribution_task_x_auth(
@@ -158,7 +218,9 @@ def validate_distribution_task_x_auth(
         raise ValueError("this X channel is not configured for API publishing.")
     social_account = ensure_default_social_account(db)
     try:
-        token_result = x_oauth_token_provider.get_access_token(social_account.secret_ref)
+        token_result = x_oauth_token_provider.get_access_token(
+            social_account.secret_ref
+        )
     except SocialPublishError as exc:
         return dist_schema.SocialDistributionXAuthStatusOut(
             status=_x_auth_status_from_error(exc),

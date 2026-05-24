@@ -23,6 +23,7 @@ const apiMock = vi.hoisted(() => ({
   approveSocialDistributionCanonicalArticle: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
+  generateSocialXReplyBlock: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
   getSocialDistributionTaskXAuthStatus: vi.fn(),
   getDistributionAccountAuthStatuses: vi.fn(),
@@ -252,6 +253,10 @@ describe('SocialDistributionPanels v2', () => {
         private_web_adapter_enabled: false,
         blockers: [],
         next_action: 'Use browser-assisted publishing; operator must confirm final submit.',
+        oauth_status: null,
+        requires_authorization: false,
+        auth_message: null,
+        last_checked_at: '2026-05-01T00:00:00Z',
       }],
     })
     apiMock.startSocialXOAuth.mockResolvedValue({
@@ -323,6 +328,118 @@ describe('SocialDistributionPanels v2', () => {
 
     await waitFor(() => {
       expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining('Title:\nHow AI agents should pay for APIs'))
+    })
+  })
+
+  it('renders X Article Pack as one long-form preview with inline media slots', async () => {
+    const user = userEvent.setup()
+    const clipboardWrite = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboardWrite } })
+    const articleAsset = asset({
+      title: 'Synapse Network: Payment Rails for AI Agents',
+      tasks: [
+        task({
+          id: 211,
+          platform: 'x',
+          channel_key: 'official',
+          account_display_name: 'X Official Account',
+          action: 'x_article_manual_publish',
+          status: 'needs_manual_article_publish',
+        }),
+        task({
+          id: 212,
+          platform: 'x',
+          channel_key: 'official',
+          account_display_name: 'X Official Account',
+          action: 'x_article_teaser',
+          status: 'needs_review',
+        }),
+      ],
+      documents: [
+        ...asset().documents,
+        {
+          id: 450,
+          asset_id: 301,
+          task_id: null,
+          document_kind: 'x_article_pack',
+          platform: 'x',
+          channel_key: 'official',
+          title: 'Synapse Network: Payment Rails for AI Agents',
+          body_markdown: [
+            '# Synapse Network: Payment Rails for AI Agents',
+            '',
+            'AI agents need payment rails, not unlimited API keys.',
+            '',
+            '## How an agent uses it',
+            '',
+            'An agent discovers a service, invokes a paid API, and keeps a receipt.',
+            '',
+            '## What the operator sees',
+            '',
+            'The operator can inspect spend, receipts, and release evidence.',
+            '',
+            '## How providers publish services',
+            '',
+            'Providers publish discoverable services with proofs.',
+          ].join('\n'),
+          status: 'needs_manual_article_publish',
+          version: 1,
+          metadata: {
+            manual_publish_checklist: ['Open X Articles.', 'Paste article body.', 'Insert media slots.'],
+            media_manifest: [
+              {
+                kind: 'cover',
+                label: 'Article cover',
+                placement_after_heading: 'top',
+                local_path: '/tmp/synapse-cover.png',
+                status: 'generated',
+                dimensions: '1200x675',
+              },
+              {
+                kind: 'gif',
+                label: 'Agent paid API flow',
+                placement_after_heading: 'How an agent uses it',
+                status: 'planned',
+                target_url: 'https://synapse-network.ai/dashboard/overview',
+                flow: 'dashboard -> invoke -> receipt',
+              },
+              {
+                kind: 'image',
+                label: 'Dashboard overview',
+                placement_after_heading: 'What the operator sees',
+                status: 'planned',
+                target_url: 'https://synapse-network.ai/dashboard/overview',
+              },
+              {
+                kind: 'image',
+                label: 'Service registry',
+                placement_after_heading: 'How providers publish services',
+                status: 'planned',
+                target_url: 'https://synapse-network.ai/marketplace/registry.json',
+              },
+            ],
+          },
+          created_at: '2026-05-01T00:00:00Z',
+          updated_at: '2026-05-01T00:00:00Z',
+        },
+      ],
+    })
+    apiMock.getSocialContentAsset.mockResolvedValue(articleAsset)
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-301'))
+    const dialog = screen.getByRole('dialog', { name: 'Synapse Network: Payment Rails for AI Agents' })
+
+    expect(within(dialog).getByText('Long-form Article Preview')).toBeInTheDocument()
+    expect(within(dialog).queryByText('Canonical Article')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('Platform Docs')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('Cover image')).toBeInTheDocument()
+    expect(within(dialog).getAllByText('Image slot')).toHaveLength(2)
+    expect(within(dialog).getByText('GIF slot')).toBeInTheDocument()
+    expect(within(dialog).getAllByText('Not captured yet').length).toBeGreaterThanOrEqual(3)
+    await user.click(within(dialog).getByRole('button', { name: '复制完整 Article' }))
+    await waitFor(() => {
+      expect(clipboardWrite).toHaveBeenCalledWith(expect.stringContaining('Media placement checklist'))
     })
   })
 

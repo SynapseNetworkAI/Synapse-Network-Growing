@@ -25,6 +25,8 @@ from server.schemas_social_distribution import (
     SocialDistributionAuditPublishedPageRequest,
     SocialDistributionGenerateTasksOut,
     SocialDistributionGenerateTasksRequest,
+    SocialDistributionGenerateXArticlePackOut,
+    SocialDistributionGenerateXArticlePackRequest,
     SocialDistributionMarkLiveRequest,
     SocialDistributionMarkRemovedRequest,
     SocialDistributionPublishXRequest,
@@ -47,6 +49,7 @@ from server.services.social.distribution import (
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
 )
+from server.services.social.distribution_article_packs import generate_x_article_pack
 from server.services.social.distribution_board import social_distribution_board
 from server.services.social.distribution_account_auth import (
     distribution_account_auth_statuses,
@@ -280,7 +283,23 @@ def generate_x_reply_block_endpoint(
             max_seconds=body.max_seconds or 90,
             per_reply_timeout_seconds=body.per_reply_timeout_seconds or 30,
             auto_publish=body.auto_publish,
+            force_regenerate=body.force_regenerate,
         )
+    except ValueError as exc:
+        raise _http_error(exc) from exc
+
+
+@router.post(
+    "/assets/{asset_id}/generate-x-article-pack",
+    response_model=SocialDistributionGenerateXArticlePackOut,
+)
+def generate_x_article_pack_endpoint(
+    asset_id: int,
+    body: SocialDistributionGenerateXArticlePackRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return generate_x_article_pack(db, asset_id=asset_id, body=body)
     except ValueError as exc:
         raise _http_error(exc) from exc
 

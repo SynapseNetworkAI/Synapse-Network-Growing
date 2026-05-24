@@ -23,6 +23,9 @@ TASK_STATUSES = {
     "rejected",
     "skipped",
     "failed",
+    "needs_manual_article_publish",
+    "article_live",
+    "teaser_live",
 }
 ASSET_STATUSES = {
     "draft",
@@ -43,7 +46,7 @@ ACCOUNT_STATUSES = {
     "needs_setup",
     "retired",
 }
-DOCUMENT_KINDS = {"source_plan", "canonical_article", "platform_draft"}
+DOCUMENT_KINDS = {"source_plan", "canonical_article", "platform_draft", "x_article_pack"}
 DOCUMENT_STATUSES = {
     "draft",
     "generated",

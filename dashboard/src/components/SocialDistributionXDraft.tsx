@@ -33,12 +33,13 @@ export function buildXDraftView(task: SocialDistributionTask | null): XDraftView
   const xPostRows = xRowsFromTask(xTweets, task.platform_body, xFormat, metadata)
   const xRows = xPostRows.map((tweet, index) => ({
     tweet,
-    count: xFormat === 'long_post'
+    count: xFormat === 'long_post' || xFormat === 'article_pack'
       ? Number(metadata.character_count) || tweet.length
       : xWeightedCounts[index] ?? conservativeXCount(tweet),
   }))
-  const xLimit = xFormat === 'long_post' ? Number(metadata.soft_max_chars) || 4000 : 280
+  const xLimit = xFormat === 'article_pack' ? Number(metadata.article_character_count) || xRows[0]?.count || 0 : xFormat === 'long_post' ? Number(metadata.soft_max_chars) || 4000 : 280
   const xHasOverLimit = xRows.some((row) => row.count > xLimit)
+  const isManualArticlePack = xFormat === 'article_pack'
   return {
     xFormat,
     xRows,
@@ -49,6 +50,7 @@ export function buildXDraftView(task: SocialDistributionTask | null): XDraftView
       : `Title:\n${task.platform_title ?? ''}\n\nBody:\n${task.platform_body ?? ''}`,
     canPublishX:
       task.publish_mode === 'api_human_gated' &&
+      !isManualArticlePack &&
       ['needs_review', 'approved', 'draft_ready', 'failed'].includes(task.status) &&
       !xHasOverLimit &&
       (xFormat !== 'long_post' || hasCapability(task.api_capability, 'long_post')) &&
@@ -93,6 +95,14 @@ export function XDraftPreview({
   xFormat: string | null
   rows: XDraftRow[]
 }) {
+  if (xFormat === 'article_pack') {
+    const row = rows[0]
+    return (
+      <Field label={`X Article 正文（手动发布 · ${row.count} chars）`}>
+        <textarea readOnly className={`${textareaClass} min-h-[420px]`} value={row.tweet} />
+      </Field>
+    )
+  }
   if (xFormat === 'long_post') {
     const row = rows[0]
     return (
@@ -125,6 +135,7 @@ export function XDraftPreview({
 }
 
 export function xPublishButtonLabel(xFormat: string | null): string {
+  if (xFormat === 'article_pack') return 'Article 需手动发布'
   if (xFormat === 'thread') return '一键发布 Thread'
   if (xFormat === 'long_post') return '发布长文到 X'
   return '发布到 X'
@@ -132,6 +143,7 @@ export function xPublishButtonLabel(xFormat: string | null): string {
 
 export function copyCombinedLabel(platform: string, xFormat: string | null, rowCount: number): string {
   if (platform !== 'x' || rowCount === 0) return '一键复制标题和正文'
+  if (xFormat === 'article_pack') return '复制 Article 正文'
   if (xFormat === 'long_post') return '复制长文'
   if (xFormat === 'thread') return '复制整条 Thread'
   return '复制推文'
@@ -140,6 +152,8 @@ export function copyCombinedLabel(platform: string, xFormat: string | null, rowC
 function xFormatFromMetadata(metadata: Record<string, unknown>, tweets: string[]): string {
   const explicit = stringValue(metadata.x_format).toLowerCase()
   const formatKind = stringValue(metadata.format_kind).toLowerCase()
+  if (['article_pack', 'x_article_pack'].includes(explicit)) return 'article_pack'
+  if (['article_pack', 'x_article_pack'].includes(formatKind)) return 'article_pack'
   if (['long_post', 'x_long_post', 'premium_long_post'].includes(explicit)) return 'long_post'
   if (['long_post', 'x_long_post', 'premium_long_post'].includes(formatKind)) return 'long_post'
   if (explicit === 'single' || explicit === 'thread') return explicit
@@ -153,6 +167,10 @@ function xRowsFromTask(
   metadata: Record<string, unknown>,
 ): string[] {
   if (tweets.length) return tweets
+  if (xFormat === 'article_pack') {
+    const articleBody = String(body ?? '').trim() || stringValue(metadata.article_body_markdown)
+    return articleBody ? [articleBody] : []
+  }
   if (xFormat === 'long_post') {
     const longPost = stringValue(metadata.long_post_text) || stringValue(metadata.post_text) || String(body ?? '').trim()
     return longPost ? [longPost] : []
@@ -164,11 +182,13 @@ function xRowsFromTask(
 }
 
 function xCombinedCopy(xFormat: string | null, rows: XDraftRow[]): string {
+  if (xFormat === 'article_pack') return rows[0]?.tweet ?? ''
   if (xFormat === 'long_post') return rows[0]?.tweet ?? ''
   return rows.map((row, index) => `Tweet ${index + 1}/${rows.length}\n${row.tweet}`).join('\n\n')
 }
 
 function xFormatLabel(xFormat: string | null): string {
+  if (xFormat === 'article_pack') return 'X Article Pack (manual)'
   if (xFormat === 'thread') return 'X Thread'
   if (xFormat === 'long_post') return 'X Premium Long Post'
   return 'X Single'
