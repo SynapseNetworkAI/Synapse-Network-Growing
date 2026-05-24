@@ -110,9 +110,9 @@ Current storage split:
 
 1. `x-official-oauth2-client-id` remains in GCP Secret Manager.
 2. `x-official-oauth2-client-secret` remains in GCP Secret Manager.
-3. `x-official-oauth2-refresh-token` is stored in local Postgres table `local_secret_versions` using application-level encryption from `OPS_LOCAL_SECRET_ENCRYPTION_KEY`.
+3. `x-official-oauth2-refresh-token` is stored only in local Postgres table `local_secret_versions` using application-level encryption from `OPS_LOCAL_SECRET_ENCRYPTION_KEY`.
 
-The local refresh-token store is versioned. X OAuth refresh rotation writes a new encrypted row and retires older active versions so only the latest 3 active versions remain. This avoids creating a new Secret Manager version on every X refresh.
+The local refresh-token store is versioned. X OAuth refresh rotation writes a new encrypted row and retires older active versions so only the latest 3 active versions remain. Runtime code must not read or write the refresh token through Secret Manager.
 
 One-time migration:
 
@@ -121,6 +121,17 @@ PYTHONPATH=. python scripts/ops/migrate_x_refresh_token_to_local_db.py
 ```
 
 The script reads Secret Manager latest once, writes the encrypted local version, and verifies a token refresh without printing the token.
+
+After local verification succeeds, delete the migrated refresh-token secret resource from both staging and production Secret Manager projects:
+
+```bash
+PYTHONPATH=. python scripts/ops/delete_x_refresh_token_secret_manager.py --dry-run
+PYTHONPATH=. python scripts/ops/delete_x_refresh_token_secret_manager.py \
+  --apply \
+  --confirmation DELETE_X_REFRESH_SECRET_AFTER_LOCAL_DB_VERIFIED
+```
+
+Deletion is blocked unless the local DB refresh token can obtain a short-lived X access token. If the local token is invalid or missing, reauthorize the X official account and write the new refresh token into local DB before deleting the Secret Manager resources.
 
 Secret Manager still needs version hygiene for the remaining platform and runtime secrets. The observable recurring workflow is:
 

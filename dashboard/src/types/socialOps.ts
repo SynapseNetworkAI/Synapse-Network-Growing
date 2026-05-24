@@ -26,6 +26,8 @@ export interface SocialPostMetricTopPost {
   profile_visits: number
   bookmarks: number
   engagement_total: number
+  topic_tags: string[]
+  hook_text: string | null
   observed_at: string | null
 }
 
@@ -39,6 +41,8 @@ export interface SocialPostMetricSummary {
   total_link_clicks: number
   total_profile_visits: number
   total_bookmarks: number
+  total_negative_feedback: number
+  total_subscription_conversions: number
   average_engagement: number
   top_posts: SocialPostMetricTopPost[]
   last_observed_at: string | null

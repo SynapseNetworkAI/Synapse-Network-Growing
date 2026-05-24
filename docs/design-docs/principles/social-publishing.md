@@ -32,7 +32,7 @@ Load this when touching `/publishing`, social distribution, official X account, 
 5. Image prompts must not contain local path, secret, workflow JSON, internal deployment detail, or high-risk financial promise.
 6. X media upload failure blocks publishing and records failure; do not silently downgrade to text-only.
 7. If posting with image, upload media first and create X Post with `media_ids`; save external post id, media id, errors, and events.
-8. X OAuth2 `access_token` is never persisted in DB or frontend state. Client id and client secret may stay in Secret Manager; the official-account refresh token may live in equivalent secret storage such as the encrypted local Postgres `local_secret_versions` table. Create short-lived access tokens only in publish request memory.
+8. X OAuth2 `access_token` is never persisted in DB or frontend state. Client id and client secret may stay in Secret Manager; the official-account refresh token is stored in encrypted local Postgres `local_secret_versions` only. Secret Manager is migration-only for that refresh token. Create short-lived access tokens only in publish request memory.
 9. Never expose X API token, Authorization header, or raw API payload to frontend or logs.
 10. Social Publishing does not automate password login, auto comments, voting, likes, follows, CAPTCHA bypass, unreviewed delete, video/GIF, multi-image, or cross-platform mass publish.
 11. Platforms without a stable official publishing API use browser-assisted publishing only: the system may check status, open the platform, copy or prefill a reviewed draft, and then stop before the final submit. Private page endpoints are not a default API surface.

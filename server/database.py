@@ -799,10 +799,11 @@ class SocialPostMetricRow(Base):
     format_kind = Column(Text)
     posted_at = Column(DateTime)
     summary = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_social_distribution  # noqa: E402,F401
+import server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
 import server.database_scheduled_jobs  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
@@ -1699,6 +1700,7 @@ def _migrate(engine_):
             "bookmarks": "INTEGER DEFAULT 0 NOT NULL",
             "format_kind": "TEXT",
             "posted_at": "TIMESTAMP",
+            "metadata_json": "TEXT DEFAULT '{}' NOT NULL",
         }
         for col, col_type in metric_cols.items():
             if col not in existing:
@@ -1744,6 +1746,7 @@ def _migrate(engine_):
                 conn.execute(text("ALTER TABLE social_watchlist_accounts ADD COLUMN x_user_id TEXT")); conn.commit()
 
     server.database_social_distribution.migrate_social_distribution_schema(engine_, insp, tables)
+    server.database_social_analytics.migrate_social_analytics_schema(engine_, insp, tables)
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

@@ -1,0 +1,89 @@
+- banner:
+  - link "SynapseNetwork Synapse Network Agent Ops":
+    - /url: /command-center
+    - img "SynapseNetwork"
+    - generic: Synapse Network
+    - generic: Agent Ops
+  - navigation "Primary navigation":
+    - link "Command Center":
+      - /url: /command-center
+    - link "Planning":
+      - /url: /planning
+    - link "Publishing":
+      - /url: /publishing
+    - link "Releases":
+      - /url: /releases
+    - link "Schedule":
+      - /url: /schedules
+  - link "Needs Human":
+    - /url: /gates
+  - button "Cmd+K / Search"
+  - link "Notifications":
+    - /url: /system/notifications
+    - text: Alerts
+  - generic: Social publishing · 内容发布
+- main:
+  - main:
+    - generic: Social Ops + Developer Distribution
+    - heading "多渠道分发中心" [level=1]
+    - paragraph: "`/publishing` v2.1 以内容计划看板驱动多平台分发。X 可在审核后走官方 API；HN、Reddit、V2EX、DEV、Hashnode 只生成平台适配稿、复制辅助和人工回填状态。"
+    - generic: "Human Gate: 系统不会自动登录、评论、投票、删除或绕过 CAPTCHA。"
+    - button "Tasks"
+    - button "Signals & Metrics"
+    - button "Settings"
+    - generic: Signals & Metrics
+    - heading "Signals & Metrics" [level=2]
+    - generic: 这里只读本地 DB：趋势、watchlist 信号、已发布效果摘要，不在页面刷新时触发 X read。
+    - generic: Observed posts
+    - generic: "0"
+    - generic: Impressions
+    - generic: "0"
+    - generic: Profile visits
+    - generic: "0"
+    - generic: Bookmarks
+    - generic: "0"
+    - generic: Negative feedback
+    - generic: "0"
+    - generic: Conversions
+    - generic: "0"
+    - generic: Engagement
+    - generic: "0"
+    - generic: Post Performance
+    - generic: X observer 只读官方 API；无 URL 内容的 link clicks 固定为 0，不当作失败。
+    - generic: "Last observed: -"
+    - generic: Conversion Attribution
+    - generic: Followers delta 使用账号快照弱归因；订阅/外链点击只来自 UTM 或人工记录，不强行归因给无链接回复。
+    - generic: Weekly Review
+    - generic: 周复盘只生成下一周建议，不自动改策略、不自动发布。
+    - generic: "Reviewed 0 X metric rows from the last 7 days. Best topic: none. Best hook: none. · 5/24/2026, 1:57:49 AM"
+    - generic: 手动记录 X 曝光指标
+    - generic: 发布后从 X 页面抄 views / profile visits / replies / bookmarks / follows；这里不触发 X read。
+    - button "记录指标"
+    - textbox "external post id"
+    - textbox "views": "0"
+    - textbox "profile visits": "0"
+    - textbox "bookmarks": "0"
+    - textbox "replies": "0"
+    - textbox "follows": "0"
+    - textbox "negative feedback": "0"
+    - textbox "conversions": "0"
+    - combobox:
+      - option "x_long_post" [selected]
+      - option "single_x_post"
+      - option "x_reply"
+      - option "x_quote"
+    - combobox:
+      - option "technical_explainer" [selected]
+      - option "engagement_reply"
+      - option "build_in_public"
+      - option "brand_positioning"
+      - option "weekly_log"
+    - textbox "topic_tags comma separated"
+    - checkbox "has URL"
+    - text: has URL
+    - textbox "note"
+    - generic: No X post metrics recorded yet. Run x_social_post_observer_sweep after at least one published post has an external X post id.
+    - generic: AI agents need payment rails
+    - generic: "Seed trend: agent builders increasingly need budgeted tool/API access. Use as content inspiration, not as sourced claim."
+    - generic: local seed
+    - generic: "@unknown · score 82 · 5/16/2026, 2:46:27 AM"

@@ -12,6 +12,7 @@ from server.database import (
 from server.services.social import publishing as social_publishing
 from server.services.social import daily_planner as social_daily_planner
 from server.services.social import post_metrics as social_post_metrics
+from server.services.social.post_metric_features import json_object
 
 
 class FakeXAccessToken:
@@ -721,7 +722,10 @@ def test_x_social_post_observer_sweep_writes_metrics(monkeypatch, db_session):
     assert metric.external_post_id == "tweet-metrics-1"
     assert metric.impressions == 1400
     assert metric.likes == 11
-    assert metric.link_clicks == 9
+    metadata = json_object(metric.metadata_json)
+    assert metadata["content_type"] == "original"
+    assert metadata["has_url"] is False
+    assert metric.link_clicks == 0
 
     summary = social_post_metrics.social_post_metrics_summary(db_session)
     assert summary.total_impressions == 1400
