@@ -1,37 +1,16 @@
 import { useEffect, useState } from 'react'
-import {
-  api,
-  type SocialContentAssetDetail,
-  type SocialDistributionAccount,
-  type SocialReplyItem,
-  type SocialDistributionTask,
-} from '../api'
+import { api, type SocialContentAssetDetail, type SocialDistributionAccount, type SocialReplyItem, type SocialDistributionTask } from '../api'
 import type { SocialDistributionBoard } from '../apiSocialDistribution'
-import { EmptyPane, OverlayModal, SectionFrame, useToast } from './workbench'
+import { ConfirmDialog, EmptyPane, OverlayModal, SectionFrame, useToast } from './workbench'
 import { DistributionBoard } from './SocialDistributionBoard'
 import { ContentTaskDetailModal, TaskDetailModal } from './SocialDistributionDetails'
 export { DistributionSettingsPanel } from './SocialDistributionSettingsPanel'
 import { useSocialDistributionAuthStatus } from './useSocialDistributionAuthStatus'
-import {
-  TaskKindFilterControl,
-  filterBoardByKind,
-  type TaskKindFilter,
-} from './SocialDistributionTaskKindFilter'
-import {
-  ContentTaskForm,
-} from './SocialDistributionWidgets'
+import { TaskKindFilterControl, filterBoardByKind, type TaskKindFilter } from './SocialDistributionTaskKindFilter'
+import { ContentTaskForm } from './SocialDistributionWidgets'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
-const DEFAULT_CONTENT_FORM = {
-  title: '',
-  source_material: '',
-  target_audience: '一人公司创业者、独立开发者、AI agent builder',
-  target_platforms: 'x',
-  canonical_url: '',
-  source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md',
-  campaign_key: '',
-  post_intent: 'brand_positioning',
-}
+const DEFAULT_CONTENT_FORM = { title: '', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
 
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
@@ -51,6 +30,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   const [plannerBusy, setPlannerBusy] = useState(false)
   const [taskKindFilter, setTaskKindFilter] = useState<TaskKindFilter>('all')
   const [form, setForm] = useState({ ...DEFAULT_CONTENT_FORM })
+  const [replyRegeneratePending, setReplyRegeneratePending] = useState(false)
 
   async function loadTasks() {
     try {
@@ -69,6 +49,13 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     void loadTasks()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    if (detail?.agent_metadata?.post_intent === 'engagement_reply') {
+      void checkAccountAuthStatuses({ platform: 'x' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.id])
 
   async function openAsset(assetId: number) {
     try {
@@ -192,20 +179,46 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
-  async function generateXReplyBlock() {
+  async function generateXReplyBlock(forceConfirmed = false) {
     if (!detail) return
+    const replyBlock = detail.agent_metadata?.reply_block as Record<string, unknown> | undefined
+    const targetCount = numberValue(replyBlock?.target_count) || numberValue(replyBlock?.processed_source_count) || 5
+    const failedCount = (detail.reply_items ?? []).filter((reply) => ['failed', 'rejected'].includes(reply.status)).length
+    const forceRegenerate = (detail.reply_items ?? []).length >= targetCount && failedCount === 0
+    if (forceRegenerate && !forceConfirmed) {
+      setReplyRegeneratePending(true)
+      return
+    }
     try {
       setBusy(true)
       const result = await api.generateSocialXReplyBlock(detail.id, {
         actor: 'agent',
-        target_count: 5,
+        target_count: targetCount,
         agent_review: true,
+        force_regenerate: forceRegenerate,
       })
+      setReplyRegeneratePending(false)
       setDetail(result.asset)
       await loadTasks()
       toast.success(`X 回复候选已生成：${result.reply_ids.length} 条，失败 ${result.failed_reply_ids.length} 条`)
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '生成 X 回复候选失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function generateXArticlePack() {
+    if (!detail) return
+    try {
+      setBusy(true)
+      const result = await api.generateSocialDistributionXArticlePack(detail.id, { actor: 'operator' })
+      setDetail(result.asset)
+      setSelectedAccountIds(result.asset.tasks.map((task) => task.account_id))
+      await loadTasks()
+      toast.success('X Article Pack 已生成：正文、封面和 Teaser 任务已准备')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '生成 X Article Pack 失败')
     } finally {
       setBusy(false)
     }
@@ -357,6 +370,17 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
   }
 
+  async function reconnectX() {
+    try {
+      const start = await api.startSocialXOAuth()
+      const opened = window.open(start.auth_url, '_blank', 'noopener,noreferrer')
+      if (!opened) window.location.href = start.auth_url
+      toast.success('X 授权页已打开。完成授权后回到这里，点击“重新检查状态”。')
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '打开 X 授权失败')
+    }
+  }
+
   async function runAssetPlanner() {
     try {
       setPlannerBusy(true)
@@ -377,6 +401,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   }
 
   const visibleBoard = board ? filterBoardByKind(board, taskKindFilter) : null
+  const xAuthStatus = Object.values(authStatuses).find((item) => item.platform === 'x')
 
   return (
     <SectionFrame
@@ -414,15 +439,19 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         busy={busy}
         toast={toast}
         onToggleAccount={(id) => setSelectedAccountIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])}
-        onClose={() => setDetail(null)}
+        onClose={() => { setReplyRegeneratePending(false); setDetail(null) }}
         onGeneratePlan={() => void generatePlan()}
         onExpandCanonicalArticle={() => void expandCanonicalArticle()}
         onApproveCanonicalArticle={(documentId) => void approveCanonicalArticle(documentId)}
         onApproveGenerate={() => void approveAndGenerate()}
+        onGenerateXArticlePack={() => void generateXArticlePack()}
         onGenerateXReplyBlock={() => void generateXReplyBlock()}
+        onReconnectX={() => void reconnectX()}
+        onCheckXAuth={() => void checkAccountAuthStatuses({ platform: 'x' })}
         onMarkReplyManualPublished={(reply) => void markReplyManualPublished(reply)}
         onPublishReplyToX={(reply) => void publishReplyToX(reply)}
         onRegenerateReply={(reply) => void regenerateReply(reply)}
+        xAuthStatus={xAuthStatus}
         onOpenTask={(task) => {
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')
@@ -432,6 +461,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
           setXAuthNotice(null)
         }}
       />
+      <ConfirmDialog open={replyRegeneratePending} title="重新生成 X 回复候选" description="已存在完整 X 回复候选。重新生成会刷新候选内容，但不会自动发布；候选仍会停在人工发布队列。" confirmLabel="重新生成候选" cancelLabel="取消" loading={busy} onConfirm={() => void generateXReplyBlock(true)} onClose={() => setReplyRegeneratePending(false)} />
       <TaskDetailModal
         task={taskDetail}
         manualUrl={manualUrl}
@@ -460,4 +490,10 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
+  return 0
 }

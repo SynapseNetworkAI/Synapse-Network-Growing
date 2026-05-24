@@ -1,4 +1,4 @@
-import type { SocialContentAssetDetail, SocialReplyItem } from '../apiSocialDistribution'
+import type { SocialContentAssetDetail, SocialDistributionAccountAuthStatus, SocialReplyItem } from '../apiSocialDistribution'
 import { InfoBlock, StateBadge, copyText, statusTone } from './SocialDistributionWidgets'
 import type { useToast } from './workbench'
 
@@ -26,18 +26,24 @@ export function ReplyTaskDetailView({
   busy,
   toast,
   onGenerateXReplyBlock,
+  onReconnectX,
+  onCheckXAuth,
   onMarkManualPublished,
   onPublishReplyToX,
   onRegenerateReply,
+  xAuthStatus,
 }: {
   asset: SocialContentAssetDetail
   formatDateTime: (value: string | null | undefined) => string
   busy: boolean
   toast: ReturnType<typeof useToast>
   onGenerateXReplyBlock: () => void
+  onReconnectX: () => void
+  onCheckXAuth: () => void
   onMarkManualPublished: ReplyAction
   onPublishReplyToX: ReplyAction
   onRegenerateReply: ReplyAction
+  xAuthStatus?: SocialDistributionAccountAuthStatus
 }) {
   const replyBlock = objectValue(asset.agent_metadata.reply_block)
   const replies = asset.reply_items ?? []
@@ -48,6 +54,17 @@ export function ReplyTaskDetailView({
   const publishedCount = replies.filter((reply) => ['published', 'published_manual'].includes(reply.status)).length
   const failedCount = replies.filter((reply) => ['failed', 'rejected'].includes(reply.status)).length
   const targetCount = numberValue(replyBlock.target_count) || numberValue(replyBlock.processed_source_count) || 5
+  const hasCompleteCandidateSet = generatedCount >= targetCount && failedCount === 0
+  const hasExplicitSourceEvidence = sourcePosts.length > 0
+  const authReady = xAuthStatus?.oauth_status === 'authorized' || xAuthStatus?.api_status === 'ready'
+  const authKnownBlocked = Boolean(xAuthStatus && !authReady && xAuthStatus.requires_authorization)
+  const canGenerate = Boolean(!busy && (authReady || hasExplicitSourceEvidence))
+  const generateLabel = hasCompleteCandidateSet ? '重新生成候选' : `生成 ${targetCount} 条 X 回复候选`
+  const disabledReason = !xAuthStatus && !hasExplicitSourceEvidence
+    ? '先检查 X 状态'
+    : authKnownBlocked && !hasExplicitSourceEvidence
+      ? '先连接 X 或粘贴来源'
+      : null
   const manualQueue = replies.map((reply, index) => {
     const source = reply.source_url ? `Source: ${reply.source_url}` : `Source post: ${reply.source_post_id ?? 'unknown'}`
     return `${index + 1}. ${source}\nReply: ${reply.suggested_reply ?? ''}`.trim()
@@ -80,6 +97,39 @@ export function ReplyTaskDetailView({
           <span>source strategy: {stringValue(replyBlock.reply_source_strategy, 'manual_source_posts')}</span>
         </div>
       </section>
+      <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">X Source/Auth Status</div>
+            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">
+              Trend/radar 拉源需要 X OAuth；已有明确 source posts 时可直接生成候选。
+            </p>
+          </div>
+          <StateBadge tone={authReady ? 'ready' : xAuthStatus ? 'blocked' : 'validating'}>
+            {authReady ? 'authorized' : xAuthStatus?.oauth_status || 'unchecked'}
+          </StateBadge>
+        </div>
+        <div className="text-sm leading-6 text-[color:var(--ops-text-body)]">
+          {authReady
+            ? (xAuthStatus?.auth_message || 'X OAuth refresh token is valid.')
+            : hasExplicitSourceEvidence
+              ? 'Using explicit source posts, not trend/radar sync.'
+              : 'X token unavailable. Reconnect X before syncing trend/radar sources.'}
+        </div>
+        {xAuthStatus?.blockers?.length ? (
+          <div className="mt-2 text-xs text-amber-100">Blockers: {xAuthStatus.blockers.join(', ')}</div>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" disabled={busy} className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100 disabled:opacity-50" onClick={onCheckXAuth}>
+            重新检查状态
+          </button>
+          {!authReady ? (
+            <button type="button" disabled={busy} className="rounded-xl border border-emerald-300/40 px-3 py-2 text-sm text-emerald-100 disabled:opacity-50" onClick={onReconnectX}>
+              连接 X / 重新授权
+            </button>
+          ) : null}
+        </div>
+      </section>
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -110,8 +160,8 @@ export function ReplyTaskDetailView({
                 复制人工发布队列
               </button>
             ) : null}
-            <button type="button" disabled={busy} className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
-              {busy ? '生成中...' : '生成 5 条 X 回复候选'}
+            <button type="button" disabled={!canGenerate} className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
+              {busy ? '生成中...' : disabledReason || generateLabel}
             </button>
           </div>
         </div>

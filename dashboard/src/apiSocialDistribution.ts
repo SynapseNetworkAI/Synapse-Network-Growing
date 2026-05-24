@@ -205,6 +205,8 @@ export interface SocialXReplyBlockGenerateResult {
   blocked_reason: string | null
 }
 
+export interface SocialXArticlePackGenerateResult { asset: SocialContentAssetDetail; article_task_id: number; teaser_task_id: number; article_document_id: number; cover_image_path: string | null }
+
 export interface SocialAssetPlannerRun {
   workflow_key: string
   local_date: string
@@ -353,6 +355,18 @@ export function createSocialDistributionApi(request: RequestFn) {
         },
         90_000,
       ),
+    generateSocialDistributionXArticlePack: (
+      assetId: number,
+      data: { actor?: string; article_url?: string | null; teaser_include_article_url?: boolean } = {},
+    ) =>
+      request<SocialXArticlePackGenerateResult>(
+        `/social/distribution/assets/${assetId}/generate-x-article-pack`,
+        {
+          method: 'POST',
+          body: JSON.stringify(data),
+        },
+        120_000,
+      ),
     approveAndGenerateSocialDistributionTasks: (
       assetId: number,
       data: { account_ids?: number[]; action?: string; actor?: string },
@@ -411,6 +425,7 @@ export function createSocialDistributionApi(request: RequestFn) {
           rationale?: string | null
           opt_in_evidence?: string | null
         }>
+        force_regenerate?: boolean
       } = {},
     ) =>
       request<SocialXReplyBlockGenerateResult>(

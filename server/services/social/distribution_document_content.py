@@ -196,6 +196,8 @@ def x_platform_document_markdown(
 ) -> str:
     tweets = x_tweets_from_metadata(metadata, task.platform_body)
     x_format = x_format_from_metadata(metadata, tweets)
+    if x_format == "article_pack":
+        return x_article_pack_document_markdown(asset, task, metadata)
     parts = [
         f"# {task.platform_title or asset.title}",
         "",
@@ -227,6 +229,50 @@ def x_platform_document_markdown(
     if task.operator_checklist:
         parts.extend(["", "## Operator Checklist", task.operator_checklist])
     return "\n".join(parts).strip()
+
+
+def x_article_pack_document_markdown(
+    asset: SocialContentAssetRow,
+    task: SocialDistributionTaskRow,
+    metadata: dict[str, Any],
+) -> str:
+    pack = metadata.get("article_pack")
+    pack = pack if isinstance(pack, dict) else {}
+    cover = pack.get("cover_image") if isinstance(pack.get("cover_image"), dict) else {}
+    inline_images = pack.get("inline_images") if isinstance(pack.get("inline_images"), list) else []
+    inline_gifs = pack.get("inline_gifs") if isinstance(pack.get("inline_gifs"), list) else []
+    checklist = pack.get("manual_publish_checklist") if isinstance(pack.get("manual_publish_checklist"), list) else []
+    parts = [
+        f"# {pack.get('article_title') or task.platform_title or asset.title}",
+        "",
+        f"Platform: {task.platform} / {task.channel_key}",
+        "Format: X Article Pack (manual x.com Articles publish)",
+        "Publish path: manual Article editor, then URL backfill; API teaser is a separate X task.",
+        "",
+        "## Article Body",
+        task.platform_body or "",
+        "",
+        "## Cover Image",
+        f"- Path: {cover.get('local_path') or '-'}",
+        f"- Size: {cover.get('width') or '-'}x{cover.get('height') or '-'}",
+        f"- Alt text: {cover.get('alt_text') or '-'}",
+    ]
+    if inline_images:
+        parts.extend(["", "## Inline Images"])
+        for item in inline_images:
+            if isinstance(item, dict):
+                parts.append(f"- {item.get('label')}: {item.get('target_url')} ({item.get('status')})")
+    if inline_gifs:
+        parts.extend(["", "## Inline GIFs"])
+        for item in inline_gifs:
+            if isinstance(item, dict):
+                parts.append(f"- {item.get('label')}: {item.get('flow')} ({item.get('status')})")
+    if checklist:
+        parts.extend(["", "## Manual Publish Checklist"])
+        parts.extend(f"- {item}" for item in checklist if item)
+    if task.operator_checklist:
+        parts.extend(["", "## Operator Checklist", task.operator_checklist])
+    return "\n".join(str(part) for part in parts).strip()
 
 
 def _x_format_label(x_format: str) -> str:

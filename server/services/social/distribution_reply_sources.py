@@ -201,6 +201,7 @@ def usable_reply_source_posts(
     *,
     source_posts: list[dict[str, object]] | None,
     target_count: int,
+    allow_existing_replies: bool = False,
 ) -> list[ReplySourcePost]:
     explicit_posts = _explicit_source_posts(source_posts)
     parsed_posts = _line_source_posts(f"{asset.body or ''}\n{asset.summary or ''}")
@@ -214,7 +215,7 @@ def usable_reply_source_posts(
         )
         if post.source_post_id
         and post.source_text
-        and post.source_post_id not in existing_post_ids
+        and (allow_existing_replies or post.source_post_id not in existing_post_ids)
         and not post.do_not_reply_reason
     ]
     eligible.sort(

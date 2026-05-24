@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import or_
@@ -21,8 +20,16 @@ from server.database_social_distribution import SocialContentAssetRow
 from server.services.result_objects import ServiceObjectResult, service_object_result
 from server.services.social.distribution import get_content_asset
 from server.services.social.distribution_core import _record_event
-from server.services.social.publishing import _create_reply_from_repost_candidate, publish_social_reply_to_x, run_content_policy_check
+from server.services.social.publishing import (
+    _create_reply_from_repost_candidate,
+    publish_social_reply_to_x,
+    run_content_policy_check,
+)
 from server.schemas import SocialReplyPublishRequest
+from server.services.social.distribution_reply_block_policy import (
+    existing_complete_reply_block,
+    require_source_sync_auth_if_needed,
+)
 from server.services.social.distribution_reply_sources import ReplySourcePost, usable_reply_source_posts
 
 
@@ -142,6 +149,7 @@ def _generate_replies_for_sources(
     max_seconds: int,
     per_reply_timeout_seconds: int,
     publish_mode: str,
+    force_regenerate: bool,
 ) -> ReplyBlockGeneration:
     started_at = _monotonic_seconds()
     reply_ids: list[int] = []
@@ -167,7 +175,7 @@ def _generate_replies_for_sources(
             db,
             candidate,
             actor=actor,
-            force_regenerate=False,
+            force_regenerate=force_regenerate,
             reply_timeout_seconds=per_reply_timeout_seconds,
         )
         metadata = _json_loads(reply.metadata_json)
@@ -264,12 +272,14 @@ def _usable_reply_posts_or_raise(
     *,
     source_posts: list[dict[str, object]] | None,
     target_count: int,
+    force_regenerate: bool = False,
 ) -> list[ReplySourcePost]:
     usable_posts = usable_reply_source_posts(
         db,
         asset,
         source_posts=source_posts,
         target_count=target_count,
+        allow_existing_replies=force_regenerate,
     )
     if usable_posts:
         return usable_posts
@@ -309,6 +319,7 @@ def _write_reply_block_result(
     agent_review: bool,
     auto_publish: bool,
     publish_mode: str,
+    force_regenerate: bool,
 ) -> None:
     metadata = _json_loads(asset.agent_metadata_json)
     metadata["reply_block"] = {
@@ -325,6 +336,7 @@ def _write_reply_block_result(
         "published_reply_ids": result.published_reply_ids or [],
         "timed_out": bool(result.timed_out),
         "blocked_reason": result.blocked_reason,
+        "force_regenerate": bool(force_regenerate),
     }
     asset.agent_metadata_json = _json_dumps(metadata)
     asset.status = "failed" if result.timed_out or not result.reply_ids else "ready"
@@ -333,10 +345,13 @@ def _write_reply_block_result(
         db,
         asset,
         None,
-        "x_reply_block_candidates_generated",
+        "x_reply_block_regenerated"
+        if force_regenerate
+        else "x_reply_block_candidates_generated",
         actor,
         (
-            f"Generated {len(result.reply_ids)} X reply candidates from "
+            f"{'Regenerated' if force_regenerate else 'Generated'} "
+            f"{len(result.reply_ids)} X reply candidates from "
             f"{result.processed_source_count} source posts."
         ),
         {
@@ -349,6 +364,7 @@ def _write_reply_block_result(
             "published_reply_ids": result.published_reply_ids or [],
             "timed_out": bool(result.timed_out),
             "blocked_reason": result.blocked_reason,
+            "force_regenerate": bool(force_regenerate),
         },
     )
     if result.timed_out:
@@ -381,13 +397,27 @@ def generate_x_reply_block_candidates(
     max_seconds: int = DEFAULT_REPLY_BLOCK_MAX_SECONDS,
     per_reply_timeout_seconds: int = DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS,
     auto_publish: bool = False,
+    force_regenerate: bool = False,
 ) -> ServiceObjectResult:
     asset = _require_reply_block_asset(db, asset_id)
+    if not force_regenerate and existing_complete_reply_block(
+        db, asset, target_count=target_count
+    ):
+        raise ValueError(
+            "X reply block already has enough generated candidates; use force_regenerate=true to regenerate."
+        )
+    require_source_sync_auth_if_needed(
+        db,
+        asset,
+        source_posts=source_posts,
+        actor=actor,
+    )
     usable_posts = _usable_reply_posts_or_raise(
         db,
         asset,
         source_posts=source_posts,
         target_count=target_count,
+        force_regenerate=force_regenerate,
     )
     auto_publish_allowed, publish_mode, compliance_blocker = _auto_publish_allowed(
         usable_posts[: max(1, target_count)],
@@ -405,6 +435,7 @@ def generate_x_reply_block_candidates(
         max_seconds=max_seconds,
         per_reply_timeout_seconds=per_reply_timeout_seconds,
         publish_mode=publish_mode,
+        force_regenerate=force_regenerate,
     )
     _publish_generation_if_allowed(
         db,
@@ -422,6 +453,7 @@ def generate_x_reply_block_candidates(
         agent_review=agent_review,
         auto_publish=auto_publish_allowed,
         publish_mode=publish_mode,
+        force_regenerate=force_regenerate,
     )
     db.commit()
     return {
@@ -436,61 +468,4 @@ def generate_x_reply_block_candidates(
         "blocked_reason": generation.blocked_reason or compliance_blocker,
         "publish_mode": publish_mode,
         "approval_ref_configured": bool(config.X_AI_REPLY_APPROVAL_REF),
-    }
-
-
-@service_object_result
-def run_x_social_daily_reply_block_publisher(db: Session) -> ServiceObjectResult:
-    now = datetime.now(timezone.utc)
-    rows = (
-        db.query(SocialContentAssetRow)
-        .filter(
-            SocialContentAssetRow.status.in_(("draft", "active", "ready", "proposed"))
-        )
-        .order_by(
-            SocialContentAssetRow.updated_at.asc(), SocialContentAssetRow.id.asc()
-        )
-        .limit(50)
-        .all()
-    )
-    for asset in rows:
-        metadata = _json_loads(asset.agent_metadata_json)
-        if str(metadata.get("post_intent") or "") != "engagement_reply":
-            continue
-        planned_raw = str(metadata.get("planned_publish_at") or "").strip()
-        if planned_raw:
-            try:
-                planned_at = datetime.fromisoformat(planned_raw.replace("Z", "+00:00"))
-            except ValueError:
-                planned_at = now
-            if planned_at.astimezone(timezone.utc) > now:
-                continue
-        try:
-            result = generate_x_reply_block_candidates(
-                db,
-                asset_id=int(asset.id),
-                target_count=5,
-                actor="x_social_daily_reply_block_publisher",
-                agent_review=True,
-                max_seconds=DEFAULT_REPLY_BLOCK_MAX_SECONDS,
-                per_reply_timeout_seconds=DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS,
-            )
-        except ValueError as exc:
-            return {
-                "processed": False,
-                "asset_id": int(asset.id),
-                "blocked_reason": str(exc),
-                "auto_publish": False,
-            }
-        return {
-            "processed": True,
-            "asset_id": int(asset.id),
-            "result": dict(result),
-            "auto_publish": False,
-        }
-    return {
-        "processed": False,
-        "asset_id": None,
-        "blocked_reason": "no_due_engagement_reply_asset",
-        "auto_publish": False,
     }

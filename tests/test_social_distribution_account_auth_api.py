@@ -1,9 +1,16 @@
 from server.database_social_distribution import SocialDistributionAccountRow
+from server.services.social import distribution_account_auth
+from server.services.social.publishing import SocialPublishError, XOAuth2AccessToken
 
 
 def test_distribution_account_auth_statuses_are_computed_not_published(
-    synced_client, db_session
+    synced_client, db_session, monkeypatch
 ):
+    monkeypatch.setattr(
+        distribution_account_auth.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: XOAuth2AccessToken("access-token", refreshed=True),
+    )
     accounts = synced_client.get("/api/social/distribution/accounts").json()
     x_account = next(row for row in accounts if row["platform"] == "x")
     hn_account = next(row for row in accounts if row["platform"] == "hacker_news")
@@ -14,7 +21,8 @@ def test_distribution_account_auth_statuses_are_computed_not_published(
     payload = response.json()
     by_account = {row["account_id"]: row for row in payload["items"]}
     assert by_account[x_account["id"]]["publish_path"] == "official_api"
-    assert by_account[x_account["id"]]["api_status"] == "task_preflight_required"
+    assert by_account[x_account["id"]]["api_status"] == "ready"
+    assert by_account[x_account["id"]]["oauth_status"] == "authorized"
     assert by_account[x_account["id"]]["api_supported"] is True
     assert by_account[x_account["id"]]["login_url"] == x_account["signup_url"]
     assert by_account[hn_account["id"]]["publish_path"] in {
@@ -24,6 +32,77 @@ def test_distribution_account_auth_statuses_are_computed_not_published(
     assert by_account[hn_account["id"]]["can_publish_via_api"] is False
     assert all(row["private_web_adapter_enabled"] is False for row in payload["items"])
     assert db_session.query(SocialDistributionAccountRow).count() == len(accounts)
+
+
+def test_distribution_account_auth_status_reports_rotated_x_token(
+    synced_client, monkeypatch
+):
+    monkeypatch.setattr(
+        distribution_account_auth.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: XOAuth2AccessToken(
+            "access-token", refreshed=True, refresh_token_rotated=True
+        ),
+    )
+    accounts = synced_client.get("/api/social/distribution/accounts").json()
+    x_account = next(row for row in accounts if row["platform"] == "x")
+
+    response = synced_client.get(
+        f"/api/social/distribution/accounts/auth-status?account_id={x_account['id']}"
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["api_status"] == "ready"
+    assert item["oauth_status"] == "authorized"
+    assert "rotated locally" in item["auth_message"]
+    assert item["requires_authorization"] is False
+
+
+def test_distribution_account_auth_status_reports_x_oauth_blockers(
+    synced_client, monkeypatch
+):
+    accounts = synced_client.get("/api/social/distribution/accounts").json()
+    x_account = next(row for row in accounts if row["platform"] == "x")
+
+    cases = [
+        (
+            SocialPublishError("x_refresh_failed", "Value passed for the token was invalid."),
+            "invalid_refresh_token",
+        ),
+        (
+            SocialPublishError("x_auth_failed", "Operator needs to authorize X."),
+            "needs_authorization",
+        ),
+        (
+            SocialPublishError(
+                "x_secret_missing", "local secret x-official-oauth2-refresh-token not found"
+            ),
+            "missing_local_secret",
+        ),
+        (SocialPublishError("x_unknown", "Unexpected OAuth issue."), "error"),
+    ]
+
+    for exc, expected_status in cases:
+        def raise_error(*_args, _exc=exc, **_kwargs):
+            raise _exc
+
+        monkeypatch.setattr(
+            distribution_account_auth.x_oauth_token_provider,
+            "get_access_token",
+            raise_error,
+        )
+
+        response = synced_client.get(
+            f"/api/social/distribution/accounts/auth-status?account_id={x_account['id']}"
+        )
+
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["api_status"] == "blocked"
+        assert item["oauth_status"] == expected_status
+        assert expected_status in item["blockers"]
+        assert item["requires_authorization"] is True
 
 
 def test_distribution_account_auth_status_marks_api_supported_but_unconfigured(
