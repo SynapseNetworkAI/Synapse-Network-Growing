@@ -98,6 +98,13 @@ smoke_paths() {
   esac
 }
 
+is_frontend_service() {
+  case "$1" in
+    user-front|admin-front|docs-front) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 run_with_timeout() {
   local duration="$1"
   shift
@@ -212,29 +219,51 @@ prod_tag="${registry}/${image_name}:${tag}"
 
 echo "[local-prod] project_key=${PROJECT_KEY} service=${SERVICE} ref=${REF}"
 echo "[local-prod] source=${STAGING_IMAGE_DIGEST}"
-echo "[local-prod] target=${prod_tag}"
-docker pull "${STAGING_IMAGE_DIGEST}"
-docker tag "${STAGING_IMAGE_DIGEST}" "${prod_tag}"
-prod_docker_config=""
-docker_host="$(docker context inspect --format '{{ (index .Endpoints "docker").Host }}' 2>/dev/null || true)"
-cleanup_prod_docker_config() {
-  [[ -z "${prod_docker_config}" ]] || rm -rf "${prod_docker_config}"
-}
-trap cleanup_prod_docker_config EXIT
-if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
-  prod_docker_config="$(mktemp -d -t synapse-prod-docker.XXXXXX)"
-  "${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}" \
-    | DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker login \
-        -u oauth2accesstoken \
-        --password-stdin "https://${REGION}-docker.pkg.dev"
-  DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker push "${prod_tag}"
+if is_frontend_service "${SERVICE}"; then
+  # Next.js public environment variables are baked into frontend bundles at
+  # build time. Do not promote a staging frontend digest to production, or the
+  # production site will keep calling staging APIs.
+  synapse_network_repo="${SYNAPSE_NETWORK_REPO:-/Users/cliff/workspace/agent/Synapse-Network}"
+  build_ref="${COMMIT_SHA:-${REF}}"
+  digest_log="$(mktemp -t synapse-prod-frontend-build.XXXXXX)"
+  echo "[local-prod] frontend production build ref=${build_ref}"
+  (
+    cd "${synapse_network_repo}"
+    bash scripts/deploy/local_build_frontend_image.sh \
+      --service "${SERVICE}" \
+      --environment production \
+      --ref "${build_ref}" \
+      --project "${PROJECT_ID}" \
+      --region "${REGION}" \
+      --repository "${REPOSITORY}" \
+      --no-attach
+  ) | tee "${digest_log}"
+  prod_digest="$(tail -n 1 "${digest_log}")"
+  rm -f "${digest_log}"
 else
-  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-  docker push "${prod_tag}"
-fi
+  echo "[local-prod] target=${prod_tag}"
+  docker pull "${STAGING_IMAGE_DIGEST}"
+  docker tag "${STAGING_IMAGE_DIGEST}" "${prod_tag}"
+  prod_docker_config=""
+  docker_host="$(docker context inspect --format '{{ (index .Endpoints "docker").Host }}' 2>/dev/null || true)"
+  cleanup_prod_docker_config() {
+    [[ -z "${prod_docker_config}" ]] || rm -rf "${prod_docker_config}"
+  }
+  trap cleanup_prod_docker_config EXIT
+  if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
+    prod_docker_config="$(mktemp -d -t synapse-prod-docker.XXXXXX)"
+    "${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}" \
+      | DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker login \
+          -u oauth2accesstoken \
+          --password-stdin "https://${REGION}-docker.pkg.dev"
+    DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker push "${prod_tag}"
+  else
+    gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+    docker push "${prod_tag}"
+  fi
 
-prod_token="$("${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}")"
-PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
+  prod_token="$("${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}")"
+  PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
 const https = require('node:https')
 const image = process.env.PROD_TAG
 const token = process.env.PROD_TOKEN
@@ -276,8 +305,8 @@ req.on('error', (error) => {
 })
 req.end()
 NODE
-prod_digest="$(
-  PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
+  prod_digest="$(
+    PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
 const https = require('node:https')
 const image = process.env.PROD_TAG
 const token = process.env.PROD_TOKEN
@@ -315,7 +344,8 @@ req.on('error', (error) => {
 })
 req.end()
 NODE
-)"
+  )"
+fi
 if [[ ! "${prod_digest}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
   echo "failed to resolve production immutable digest: ${prod_digest}" >&2
   exit 1
