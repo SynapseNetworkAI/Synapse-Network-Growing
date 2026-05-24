@@ -30,6 +30,20 @@ from server.services.social.x_client import (
     XApiRateLimitError,
     XApiTransientError,
 )
+from server.services.social.post_metric_features import (
+    MetricTarget,
+    json_dumps,
+    metadata_int,
+    metric_metadata,
+    metric_metadata_for_target,
+    metric_value,
+)
+from server.services.social.post_metric_observer_targets import (
+    metric_row_from_x_post,
+    published_targets_for_metrics,
+)
+
+_metric_value = metric_value
 
 def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
     rows = (
@@ -42,6 +56,7 @@ def list_social_post_metrics(db: Session) -> list[SocialPostMetricOut]:
 
 
 def metric_row_out(row: SocialPostMetricRow) -> SocialPostMetricOut:
+    metadata = metric_metadata(row)
     return SocialPostMetricOut(
         id=int(row.id),
         post_id=row.post_id,
@@ -57,6 +72,19 @@ def metric_row_out(row: SocialPostMetricRow) -> SocialPostMetricOut:
         format_kind=row.format_kind,
         posted_at=row.posted_at,
         summary=row.summary,
+        content_type=metadata.get("content_type"),
+        post_intent=metadata.get("post_intent"),
+        source_strategy=metadata.get("source_strategy"),
+        hook_text=metadata.get("hook_text"),
+        topic_tags=list(metadata.get("topic_tags") or []),
+        has_media=bool(metadata.get("has_media")),
+        has_thread=bool(metadata.get("has_thread")),
+        has_url=bool(metadata.get("has_url")),
+        human_link_reason=metadata.get("human_link_reason"),
+        negative_feedback_count=metadata_int(metadata, "negative_feedback_count"),
+        subscription_conversions=metadata_int(metadata, "subscription_conversions"),
+        metric_source=metadata.get("metric_source"),
+        diagnostic=metadata.get("diagnostic"),
         observed_at=row.observed_at,
     )
 
@@ -88,6 +116,14 @@ def _metric_engagement(row: SocialPostMetricRow) -> int:
     )
 
 
+def _metric_negative_feedback(row: SocialPostMetricRow) -> int:
+    return metadata_int(metric_metadata(row), "negative_feedback_count")
+
+
+def _metric_subscription_conversions(row: SocialPostMetricRow) -> int:
+    return metadata_int(metric_metadata(row), "subscription_conversions")
+
+
 def _posts_by_id(
     db: Session, rows: list[SocialPostMetricRow]
 ) -> dict[int, SocialPostDraftRow]:
@@ -112,6 +148,7 @@ def _metric_top_post_out(
 
 
 def metric_top_post_out(row: SocialPostMetricRow) -> SocialPostMetricTopPostOut:
+    metadata = metric_metadata(row)
     return SocialPostMetricTopPostOut(
         post_id=int(row.post_id) if row.post_id is not None else None,
         external_post_id=row.external_post_id,
@@ -124,13 +161,15 @@ def metric_top_post_out(row: SocialPostMetricRow) -> SocialPostMetricTopPostOut:
         profile_visits=int(row.profile_visits or 0),
         bookmarks=int(row.bookmarks or 0),
         engagement_total=_metric_engagement(row),
+        topic_tags=list(metadata.get("topic_tags") or []),
+        hook_text=metadata.get("hook_text"),
         observed_at=row.observed_at,
     )
 
 
 def _metric_summary_counts(
     rows: list[SocialPostMetricRow],
-) -> tuple[int, int, int, int, int, int]:
+) -> tuple[int, int, int, int, int, int, int, int]:
     return (
         sum(int(row.likes or 0) for row in rows),
         sum(int(row.replies or 0) for row in rows),
@@ -138,6 +177,8 @@ def _metric_summary_counts(
         sum(int(row.link_clicks or 0) for row in rows),
         sum(int(row.profile_visits or 0) for row in rows),
         sum(int(row.bookmarks or 0) for row in rows),
+        sum(_metric_negative_feedback(row) for row in rows),
+        sum(_metric_subscription_conversions(row) for row in rows),
     )
 
 
@@ -162,6 +203,8 @@ def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
         total_link_clicks,
         total_profile_visits,
         total_bookmarks,
+        total_negative_feedback,
+        total_subscription_conversions,
     ) = (
         _metric_summary_counts(rows)
     )
@@ -182,45 +225,14 @@ def social_post_metrics_summary(db: Session) -> SocialPostMetricSummaryOut:
         total_link_clicks=total_link_clicks,
         total_profile_visits=total_profile_visits,
         total_bookmarks=total_bookmarks,
+        total_negative_feedback=total_negative_feedback,
+        total_subscription_conversions=total_subscription_conversions,
         average_engagement=round(engagement_total / max(1, len(rows)), 2),
         top_posts=_metric_summary_top_posts(rows, posts_by_id),
         last_observed_at=max(
             (row.observed_at for row in rows if row.observed_at), default=None
         ),
         diagnostic=None,
-    )
-
-
-def _metric_value(*maps: dict[str, Any] | None, keys: tuple[str, ...]) -> int:
-    for payload in maps:
-        if not isinstance(payload, dict):
-            continue
-        for key in keys:
-            try:
-                return int(payload.get(key) or 0)
-            except (TypeError, ValueError):
-                continue
-    return 0
-
-
-def _published_posts_for_metrics(
-    db: Session, *, max_records: int
-) -> list[SocialPostDraftRow]:
-    return (
-        db.query(SocialPostDraftRow)
-        .filter(
-            SocialPostDraftRow.platform == "x",
-            SocialPostDraftRow.status == "published",
-            SocialPostDraftRow.external_post_id.isnot(None),
-            SocialPostDraftRow.external_post_id != "",
-        )
-        .order_by(
-            SocialPostDraftRow.published_at.desc().nullslast(),
-            SocialPostDraftRow.updated_at.desc(),
-            SocialPostDraftRow.id.desc(),
-        )
-        .limit(max(1, min(100, int(max_records or 20))))
-        .all()
     )
 
 
@@ -282,50 +294,40 @@ def _lookup_x_metric_posts(
         return (posts, diagnostic, False)
 
 
-def _metric_row_from_x_post(
-    row: SocialPostDraftRow,
-    x_post: Any,
-    *,
-    observed_at: Any,
-    private_metrics_available: bool,
-) -> SocialPostMetricRow:
-    public = x_post.public_metrics or {}
-    owner = x_post.non_public_metrics or {}
-    organic = x_post.organic_metrics or {}
-    summary = "X metrics observed from public metrics"
-    summary += (
-        " and owner metrics."
-        if private_metrics_available and (owner or organic)
-        else "."
-    )
-    return SocialPostMetricRow(
-        post_id=int(row.id),
-        external_post_id=str(row.external_post_id),
-        impressions=_metric_value(
-            owner, organic, public, keys=("impression_count", "view_count")
-        ),
-        likes=_metric_value(public, keys=("like_count",)),
-        replies=_metric_value(public, keys=("reply_count",)),
-        reposts=_metric_value(public, keys=("retweet_count", "repost_count")),
-        follows=_metric_value(owner, organic, keys=("user_profile_clicks", "follows")),
-        link_clicks=_metric_value(
-            owner, organic, keys=("url_link_clicks", "link_clicks")
-        ),
-        profile_visits=_metric_value(
-            owner, organic, keys=("user_profile_clicks", "profile_visits")
-        ),
-        bookmarks=_metric_value(public, owner, organic, keys=("bookmark_count", "bookmarks")),
-        summary=summary,
-        observed_at=observed_at,
-    )
-
-
 def create_manual_social_post_metric(
     db: Session, body: SocialPostMetricManualCreateRequest
 ) -> SocialPostMetricOut:
     """Record operator-entered X metrics without triggering any X read."""
 
     observed_at = body.observed_at or utcnow()
+    target = MetricTarget(
+        source_kind="manual",
+        post_id=None,
+        task_id=None,
+        external_post_id=str(body.external_post_id or "").strip(),
+        title=None,
+        body_text=str(body.summary or ""),
+        status="manual_metric",
+        published_at=body.posted_at,
+        metadata={
+            "content_type": body.content_type,
+            "post_intent": body.post_intent,
+            "source_strategy": body.source_strategy,
+            "hook_text": body.hook_text,
+            "topic_tags": body.topic_tags,
+            "has_media": body.has_media,
+            "has_thread": body.has_thread,
+            "has_url": body.has_url,
+            "human_link_reason": body.human_link_reason,
+            "negative_feedback_count": body.negative_feedback_count,
+            "subscription_conversions": body.subscription_conversions,
+        },
+    )
+    metadata = metric_metadata_for_target(
+        target,
+        metric_source="manual",
+        extra={"diagnostic": "Operator-entered metric row; no X API read."},
+    )
     row = SocialPostMetricRow(
         external_post_id=str(body.external_post_id or "").strip() or None,
         impressions=max(0, int(body.impressions or 0)),
@@ -339,6 +341,7 @@ def create_manual_social_post_metric(
         format_kind=str(body.format_kind or "").strip() or None,
         posted_at=body.posted_at,
         summary=str(body.summary or "").strip() or "Manual X metrics entry.",
+        metadata_json=json_dumps(metadata),
         observed_at=observed_at,
     )
     db.add(row)
@@ -354,8 +357,8 @@ def run_x_social_post_observer_sweep(
     """Read X metrics for published posts and write local observation rows."""
 
     ensure_default_social_account(db)
-    rows = _published_posts_for_metrics(db, max_records=max_records)
-    if not rows:
+    targets = published_targets_for_metrics(db, max_records=max_records)
+    if not targets:
         return {
             "read_only": True,
             "workflow_key": "x_social_post_observer_sweep",
@@ -376,7 +379,7 @@ def run_x_social_post_observer_sweep(
             "budget_remaining_requests": 0,
             "diagnostic": "Daily X read budget exhausted; metrics observer skipped external lookup.",
         }
-    external_ids = [str(row.external_post_id) for row in rows if row.external_post_id]
+    external_ids = [str(target.external_post_id) for target in targets if target.external_post_id]
     try:
         x_posts, diagnostic, private_metrics_available = _lookup_x_metric_posts(
             external_ids,
@@ -406,13 +409,13 @@ def run_x_social_post_observer_sweep(
     created_ids: list[int] = []
     missing_external_ids: list[str] = []
     observed_at = utcnow()
-    for row in rows:
-        x_post = posts_by_external_id.get(str(row.external_post_id))
+    for target in targets:
+        x_post = posts_by_external_id.get(str(target.external_post_id))
         if x_post is None:
-            missing_external_ids.append(str(row.external_post_id))
+            missing_external_ids.append(str(target.external_post_id))
             continue
-        metric = _metric_row_from_x_post(
-            row,
+        metric = metric_row_from_x_post(
+            target,
             x_post,
             observed_at=observed_at,
             private_metrics_available=private_metrics_available,
@@ -426,7 +429,8 @@ def run_x_social_post_observer_sweep(
         "workflow_key": "x_social_post_observer_sweep",
         "observed_count": len(created_ids),
         "created_metric_ids": created_ids,
-        "post_ids": [int(row.id) for row in rows],
+        "post_ids": [int(target.post_id) for target in targets if target.post_id is not None],
+        "distribution_task_ids": [int(target.task_id) for target in targets if target.task_id is not None],
         "external_post_ids": external_ids,
         "missing_external_ids": missing_external_ids,
         "private_metrics_available": private_metrics_available,

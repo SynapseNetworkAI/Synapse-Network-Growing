@@ -15,6 +15,19 @@ export interface SocialPostMetric {
   format_kind: string | null
   posted_at: string | null
   summary: string | null
+  content_type: string | null
+  post_intent: string | null
+  source_strategy: string | null
+  hook_text: string | null
+  topic_tags: string[]
+  has_media: boolean
+  has_thread: boolean
+  has_url: boolean
+  human_link_reason: string | null
+  negative_feedback_count: number
+  subscription_conversions: number
+  metric_source: string | null
+  diagnostic: string | null
   observed_at: string | null
 }
 
@@ -45,6 +58,8 @@ type SocialPostMetricAggregateFields = Pick<
   | 'total_link_clicks'
   | 'total_profile_visits'
   | 'total_bookmarks'
+  | 'total_negative_feedback'
+  | 'total_subscription_conversions'
   | 'average_engagement'
 >
 
@@ -61,6 +76,49 @@ export interface SocialPostMetricDailyResult {
   offset: number
   date_from: string | null
   date_to: string | null
+}
+
+export interface SocialAccountSnapshot {
+  id: number
+  platform: string
+  account_handle: string
+  followers: number
+  following: number
+  followers_delta: number
+  profile_url: string | null
+  summary: string | null
+  observed_at: string | null
+}
+
+export interface SocialAccountSnapshotResult {
+  items: SocialAccountSnapshot[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface SocialWeeklyReview {
+  id: number
+  platform: string
+  week_start: string
+  week_end: string
+  status: string
+  summary: string | null
+  best_topics: Array<Record<string, unknown>>
+  best_hooks: Array<Record<string, unknown>>
+  low_performing_patterns: Array<Record<string, unknown>>
+  recommendations: Array<Record<string, unknown>>
+  content_generation_guidance: Record<string, unknown>
+  source_metric_ids: number[]
+  error_excerpt: string | null
+  created_at: string | null
+}
+
+export interface SocialWeeklyReviewResult {
+  items: SocialWeeklyReview[]
+  total: number
+  limit: number
+  offset: number
 }
 
 function queryString(filters: Record<string, string | number | null | undefined>) {
@@ -98,13 +156,33 @@ export function createSocialMetricApi(request: RequestFn) {
       link_clicks?: number
       profile_visits?: number
       bookmarks?: number
+      negative_feedback_count?: number
+      subscription_conversions?: number
       format_kind?: string | null
       posted_at?: string | null
       summary?: string | null
+      content_type?: string | null
+      post_intent?: string | null
+      source_strategy?: string | null
+      hook_text?: string | null
+      topic_tags?: string[]
+      has_media?: boolean
+      has_thread?: boolean
+      has_url?: boolean
+      human_link_reason?: string | null
     }) =>
       request<SocialPostMetric>('/social/post-metrics/manual', {
         method: 'POST',
         body: JSON.stringify(data),
+      }),
+    getSocialAccountSnapshots: (filters?: { limit?: number; offset?: number }) =>
+      request<SocialAccountSnapshotResult>(`/social/account-snapshots${queryString(filters ?? {})}`),
+    getSocialWeeklyReviews: (filters?: { limit?: number; offset?: number }) =>
+      request<SocialWeeklyReviewResult>(`/social/analytics/weekly-reviews${queryString(filters ?? {})}`),
+    runSocialWeeklyReview: (data?: { days?: number; dry_run?: boolean }) =>
+      request<Record<string, unknown>>('/social/analytics/weekly-reviews/run', {
+        method: 'POST',
+        body: JSON.stringify(data ?? { days: 7, dry_run: false }),
       }),
   }
 }

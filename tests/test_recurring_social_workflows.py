@@ -54,6 +54,11 @@ def test_x_social_workflow_runner_dispatches_each_branch(db_session, monkeypatch
         "run_x_social_repost_candidate_sweep",
         lambda db: {"branch": "repost", "db_matches": db is db_session},
     )
+    monkeypatch.setattr(
+        recurring_workflows_service,
+        "run_x_social_weekly_analytics_review",
+        lambda db: {"branch": "weekly", "db_matches": db is db_session},
+    )
 
     assert (
         recurring_workflows_service._run_x_social_workflow(
@@ -72,4 +77,10 @@ def test_x_social_workflow_runner_dispatches_each_branch(db_session, monkeypatch
             db_session, "x_social_repost_candidate_sweep"
         )["branch"]
         == "repost"
+    )
+    assert (
+        recurring_workflows_service._run_x_social_workflow(
+            db_session, "x_social_weekly_analytics_review"
+        )["branch"]
+        == "weekly"
     )

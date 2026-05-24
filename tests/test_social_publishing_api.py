@@ -1555,11 +1555,17 @@ def test_social_oauth_router_errors_are_bounded(monkeypatch, synced_client):
 
 
 def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
-    monkeypatch, synced_client
+    monkeypatch, synced_client, db_session
 ):
-    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "secret_manager")
+    from server.services.local_secrets import read_latest_local_secret
+
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "local_db")
+    monkeypatch.setattr(
+        social_publishing.config,
+        "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
+        "test-local-secret-key",
+    )
     social_publishing.x_oauth_token_provider._cache.clear()
-    stored_versions: list[tuple[str, str]] = []
 
     def fake_read(secret_ref):
         if secret_ref == social_publishing.config.X_OAUTH_CLIENT_ID_SECRET:
@@ -1582,7 +1588,9 @@ def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
-        lambda secret_ref, value: stored_versions.append((secret_ref, value)),
+        lambda secret_ref, value: (_ for _ in ()).throw(
+            AssertionError("Secret Manager add_version must not be called")
+        ),
     )
     monkeypatch.setattr(
         social_publishing.urllib.request,
@@ -1599,9 +1607,12 @@ def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
     payload = callback.json()
     assert payload["status"] == "authorized"
     assert "access-token-secret" not in str(payload)
-    assert stored_versions == [
-        (social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-token-secret")
-    ]
+    assert (
+        read_latest_local_secret(
+            db_session, social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY
+        )
+        == "refresh-token-secret"
+    )
 
 
 def test_x_oauth_callback_rejects_invalid_and_expired_state(
@@ -1684,18 +1695,33 @@ def test_x_oauth_callback_marks_session_failed_on_exchange_error(
 
 
 def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
-    monkeypatch, synced_client
+    monkeypatch, synced_client, db_session
 ):
-    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "secret_manager")
+    from server.services.local_secrets import (
+        read_latest_local_secret,
+        write_local_secret_version,
+    )
+
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "local_db")
+    monkeypatch.setattr(
+        social_publishing.config,
+        "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
+        "test-local-secret-key",
+    )
     social_publishing.x_oauth_token_provider._cache.clear()
-    stored_versions: list[tuple[str, str]] = []
     seen_authorizations: list[str] = []
+    write_local_secret_version(
+        db_session,
+        social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY,
+        "refresh-old",
+        keep_active=3,
+    )
+    db_session.commit()
 
     def fake_read(secret_ref):
         values = {
             social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id-123",
             social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret-456",
-            social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET: "refresh-old",
         }
         if secret_ref in values:
             return values[secret_ref]
@@ -1730,7 +1756,9 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
-        lambda secret_ref, value: stored_versions.append((secret_ref, value)),
+        lambda secret_ref, value: (_ for _ in ()).throw(
+            AssertionError("Secret Manager add_version must not be called")
+        ),
     )
     monkeypatch.setattr(social_publishing.urllib.request, "urlopen", fake_urlopen)
 
@@ -1748,9 +1776,12 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
     assert published["status"] == "published"
     assert published["external_post_id"] == "1800000000000000999"
     assert seen_authorizations == ["Bearer access-fresh"]
-    assert stored_versions == [
-        (social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET, "refresh-new")
-    ]
+    assert (
+        read_latest_local_secret(
+            db_session, social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY
+        )
+        == "refresh-new"
+    )
     events = [
         event
         for event in published["events"]
@@ -2246,35 +2277,28 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
             self.rotations.append((key, value))
 
     provider = social_publishing.XOAuth2TokenProvider(FakeStore())
+    monkeypatch.setattr(provider, "_read_refresh_token", lambda: "refresh-token")
     assert provider.auth_status()[0] == "authorized"
 
-    provider_missing = social_publishing.XOAuth2TokenProvider(
-        type(
-            "MissingStore",
-            (),
-            {
-                "read": lambda self, key: (_ for _ in ()).throw(
-                    social_publishing.SocialPublishError(
-                        "x_auth_failed", "missing refresh"
-                    )
-                ),
-            },
-        )()
+    provider_missing = social_publishing.XOAuth2TokenProvider(FakeStore())
+    monkeypatch.setattr(
+        provider_missing,
+        "_read_refresh_token",
+        lambda: (_ for _ in ()).throw(
+            social_publishing.SocialPublishError("x_auth_failed", "missing refresh")
+        ),
     )
     assert provider_missing.auth_status() == ("needs_authorization", "missing refresh")
 
-    provider_expired = social_publishing.XOAuth2TokenProvider(
-        type(
-            "ExpiredStore",
-            (),
-            {
-                "read": lambda self, key: (_ for _ in ()).throw(
-                    social_publishing.SocialPublishError(
-                        "gcp_adc_expired", "Run `gcloud auth application-default login`"
-                    )
-                ),
-            },
-        )()
+    provider_expired = social_publishing.XOAuth2TokenProvider(FakeStore())
+    monkeypatch.setattr(
+        provider_expired,
+        "_read_refresh_token",
+        lambda: (_ for _ in ()).throw(
+            social_publishing.SocialPublishError(
+                "gcp_adc_expired", "Run `gcloud auth application-default login`"
+            )
+        ),
     )
     assert provider_expired.auth_status() == (
         "gcp_adc_expired",
@@ -2359,11 +2383,20 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
         provider.get_access_token()
 
 
-def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(monkeypatch, db_session):
-    from server.services.local_secrets import read_latest_local_secret, write_local_secret_version
+def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(
+    monkeypatch, db_session
+):
+    from server.services.local_secrets import (
+        read_latest_local_secret,
+        write_local_secret_version,
+    )
 
-    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "local_db")
-    monkeypatch.setattr(social_publishing.config, "OPS_LOCAL_SECRET_ENCRYPTION_KEY", "test-local-secret-key")
+    monkeypatch.delenv("X_OAUTH_REFRESH_TOKEN_STORAGE", raising=False)
+    monkeypatch.setattr(
+        social_publishing.config,
+        "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
+        "test-local-secret-key",
+    )
     write_local_secret_version(
         db_session,
         social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY,
@@ -2395,15 +2428,36 @@ def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(monkeypatch, 
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
-        lambda secret_ref, value: (_ for _ in ()).throw(AssertionError("Secret Manager add_version must not be called")),
+        lambda secret_ref, value: (_ for _ in ()).throw(
+            AssertionError("Secret Manager add_version must not be called")
+        ),
     )
-    monkeypatch.setattr(social_publishing.urllib.request, "urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr(
+        social_publishing.urllib.request,
+        "urlopen",
+        lambda request, timeout: FakeResponse(),
+    )
 
     token = social_publishing.x_oauth_token_provider.get_access_token()
 
     assert token.access_token == "access-fresh"
     assert token.refresh_token_rotated is True
-    assert read_latest_local_secret(db_session, social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY) == "refresh-new"
+    assert (
+        read_latest_local_secret(
+            db_session, social_publishing.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY
+        )
+        == "refresh-new"
+    )
+
+
+def test_x_refresh_token_secret_manager_mode_is_rejected(monkeypatch):
+    monkeypatch.setenv("X_OAUTH_REFRESH_TOKEN_STORAGE", "secret" + "_manager")
+    provider = social_publishing.XOAuth2TokenProvider(social_publishing.secret_store)
+
+    assert provider.auth_status() == (
+        "needs_authorization",
+        "X OAuth refresh token runtime storage must be local_db; Secret Manager is migration-only.",
+    )
 
 
 def test_x_media_upload_http_error_paths(monkeypatch):

@@ -2626,15 +2626,15 @@ class XOAuth2TokenProvider:
 
     def _refresh_token_storage(self) -> str:
         mode = os.environ.get("X_OAUTH_REFRESH_TOKEN_STORAGE", config.X_OAUTH_REFRESH_TOKEN_STORAGE).strip().lower() or "auto"
-        if mode == "auto":
-            return "local_db" if self.store is secret_store else "secret_manager"
-        if mode in {"local_db", "postgres", "db"}:
+        if mode in {"auto", "local_db", "postgres", "db"}:
             return "local_db"
-        return "secret_manager"
+        raise SocialPublishError(
+            "x_auth_failed",
+            "X OAuth refresh token runtime storage must be local_db; Secret Manager is migration-only.",
+        )
 
     def _read_refresh_token(self) -> str:
-        if self._refresh_token_storage() != "local_db":
-            return self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        self._refresh_token_storage()
         try:
             with SessionLocal() as db:
                 return read_latest_local_secret(db, config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY)
@@ -2642,9 +2642,7 @@ class XOAuth2TokenProvider:
             raise SocialPublishError("x_auth_failed", str(exc)) from exc
 
     def _write_refresh_token(self, value: str, *, reason: str) -> None:
-        if self._refresh_token_storage() != "local_db":
-            self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, value)
-            return
+        self._refresh_token_storage()
         try:
             with SessionLocal() as db:
                 write_local_secret_version(

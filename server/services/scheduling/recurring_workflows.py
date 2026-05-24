@@ -48,6 +48,7 @@ from server.services.social.daily_planner import run_x_social_daily_content_plan
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
 )
+from server.services.social.post_metric_analytics import run_x_social_weekly_analytics_review
 from server.services.social.post_metrics import run_x_social_post_observer_sweep
 from server.services.social.publishing import (
     run_x_social_reply_candidate_sweep,
@@ -292,6 +293,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_auth_failure": "diagnostic_only", "on_rate_limit": "diagnostic_only"},
         "validation_signal": {"success_metric": "observed_count"},
     },
+    {"workflow_key": "x_social_weekly_analytics_review", "display_name": "X Social Weekly Analytics Review", "description": "Aggregate X post and reply performance into next-week content guidance without publishing.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "weekly", "day": "MON", "suggested_local_time": "09:30"}, "input_query": {"platform": "x", "source": "social_post_metrics", "days": 7}, "output_action": {"kind": "create_social_weekly_review", "auto_publish": False}, "escalation_rule": {"on_empty": "diagnostic_only", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "review_id"}},
 ]
 _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "social_asset_planner_sweep": {"cadence": "hourly", "target_count": 3, "max_signals_per_prompt": 5, "auto_publish": False, "human_gate_required": True},
@@ -300,6 +302,7 @@ _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "x_social_repost_candidate_sweep": {"platform": "x", "auto_repost": False, "human_gate_required": True, "min_relevance_score": 0.75},
     "x_social_reply_candidate_sweep": {"platform": "x", "cadence": "every_30_minutes", "source": "social_repost_candidates", "max_created_per_run": 1, "auto_reply": False, "human_gate_required": True},
     "x_social_post_observer_sweep": {"platform": "x", "cadence": "hourly", "read_only": True, "max_records": 20, "auto_publish": False},
+    "x_social_weekly_analytics_review": {"platform": "x", "cadence": "weekly", "read_only": True, "auto_publish": False, "generates": "content_generation_guidance"},
 }
 def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, Any]]:
     rows = list_optimization_signals(db, status="open")
@@ -318,18 +321,8 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
         )
     return items
 def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
-    if workflow_key == "social_asset_planner_sweep":
-        return run_social_asset_planner_sweep(db)
-    if workflow_key == "x_social_daily_content_planner":
-        return run_x_social_daily_content_planner(db)
-    if workflow_key == "x_social_trend_radar_sweep":
-        return run_x_social_trend_radar_sweep(db)
-    if workflow_key == "x_social_repost_candidate_sweep":
-        return run_x_social_repost_candidate_sweep(db)
-    if workflow_key == "x_social_reply_candidate_sweep":
-        return run_x_social_reply_candidate_sweep(db)
-    return run_x_social_post_observer_sweep(db)
-
+    runners = {"social_asset_planner_sweep": run_social_asset_planner_sweep, "x_social_daily_content_planner": run_x_social_daily_content_planner, "x_social_trend_radar_sweep": run_x_social_trend_radar_sweep, "x_social_repost_candidate_sweep": run_x_social_repost_candidate_sweep, "x_social_reply_candidate_sweep": run_x_social_reply_candidate_sweep, "x_social_weekly_analytics_review": run_x_social_weekly_analytics_review}
+    return runners.get(workflow_key, run_x_social_post_observer_sweep)(db)
 def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for row in list(review_payload.get("next_cycle_requirement_bundle") or [])[:limit]:

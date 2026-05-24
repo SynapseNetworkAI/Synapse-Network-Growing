@@ -11,7 +11,17 @@ export type {
   SocialDistributionTaskList,
 } from './apiSocialDistribution'
 import { createSocialMetricApi } from './apiSocialMetrics'
-export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
+export type {
+  SocialAccountSnapshot,
+  SocialAccountSnapshotResult,
+  SocialPostMetric,
+  SocialPostMetricDaily,
+  SocialPostMetricDailyResult,
+  SocialPostMetricDetail,
+  SocialPostMetricQueryResult,
+  SocialWeeklyReview,
+  SocialWeeklyReviewResult,
+} from './apiSocialMetrics'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import { createSchedulesApi } from './apiSchedules'
 import type { RecurringWorkflowRunResult } from './apiSchedules'

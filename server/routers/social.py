@@ -30,18 +30,26 @@ from server.schemas import (
     SocialWatchlistAccountOut,
 )
 from server.schemas_social_metrics import (
+    SocialAccountSnapshotQueryOut,
     SocialPostMetricDailyQueryOut,
     SocialPostMetricDetailOut,
     SocialPostMetricManualCreateRequest,
     SocialPostMetricOut,
     SocialPostMetricQueryOut,
     SocialPostMetricSummaryOut,
+    SocialWeeklyReviewQueryOut,
+    SocialWeeklyReviewRunRequest,
 )
 from server.routers import social_distribution
 from server.services.social.post_metric_queries import (
     get_social_post_metric,
     query_social_post_metric_daily,
     query_social_post_metrics,
+)
+from server.services.social.post_metric_analytics import (
+    list_social_weekly_reviews,
+    list_x_account_snapshots,
+    run_x_social_weekly_analytics_review,
 )
 from server.services.social.post_metrics import (
     create_manual_social_post_metric,
@@ -217,6 +225,32 @@ def publish_social_repost_candidate_to_x_endpoint(candidate_id: int, body: Socia
 @router.get("/post-metrics", response_model=list[SocialPostMetricOut])
 def list_social_post_metrics_endpoint(db: Session = Depends(get_db)):
     return list_social_post_metrics(db)
+
+
+@router.get("/account-snapshots", response_model=SocialAccountSnapshotQueryOut)
+def list_social_account_snapshots_endpoint(
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return list_x_account_snapshots(db, limit=limit, offset=offset)
+
+
+@router.get("/analytics/weekly-reviews", response_model=SocialWeeklyReviewQueryOut)
+def list_social_weekly_reviews_endpoint(
+    limit: int = Query(12, ge=1, le=52),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    return list_social_weekly_reviews(db, limit=limit, offset=offset)
+
+
+@router.post("/analytics/weekly-reviews/run")
+def run_social_weekly_review_endpoint(
+    body: SocialWeeklyReviewRunRequest,
+    db: Session = Depends(get_db),
+):
+    return run_x_social_weekly_analytics_review(db, days=body.days, dry_run=body.dry_run)
 
 
 @router.post("/post-metrics/manual", response_model=SocialPostMetricOut)
