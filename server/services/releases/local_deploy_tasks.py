@@ -27,6 +27,27 @@ SYNAPSE_NETWORK_PROVIDER_REPO_PATH = (
 )
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
 SYNAPSE_PROVIDER_PROJECT_KEY = "synapse-network-provider"
+SYNAPSE_STAGING_GCP_PROJECT_ID = "fabled-archive-494108-k5"
+SYNAPSE_STAGING_GCP_REGION = "us-central1"
+SYNAPSE_PRODUCTION_GCP_PROJECT_ID = "synapse-network-prod"
+SYNAPSE_PRODUCTION_GCP_REGION = "us-central1"
+SYNAPSE_STAGING_CHAIN = "arbitrum-sepolia"
+SYNAPSE_PRODUCTION_CHAIN = "arbitrum-one"
+SYNAPSE_STAGING_ALCHEMY_APP = "synapse-network-staging"
+SYNAPSE_PRODUCTION_ALCHEMY_APP = "synapse-network-prod"
+SYNAPSE_STAGING_GATEWAY_CALLBACK_URL = (
+    "https://api-staging.synapse-network.ai/internal/webhooks/alchemy/deposits"
+)
+SYNAPSE_PRODUCTION_GATEWAY_CALLBACK_URL = (
+    "https://api.synapse-network.ai/internal/webhooks/alchemy/deposits"
+)
+SYNAPSE_STAGING_SYNAPSE_CORE_ADDRESS = "0x0bA1dcE1Cc8d877052ab1C3CE2362830459D8FF4"
+SYNAPSE_STAGING_WEBHOOK_SIGNING_SECRET_ID = (
+    "synapse-staging-alchemy-deposit-webhook-signing-key"
+)
+SYNAPSE_PRODUCTION_WEBHOOK_SIGNING_SECRET_ID = (
+    "synapse-prod-alchemy-deposit-webhook-signing-key"
+)
 SYNAPSE_STAGING_LOCAL_SERVICES = PREBUILT_FRONTEND_SERVICES | {
     "gateway",
     "gateway-admin",
@@ -60,6 +81,10 @@ def _synapse_network_staging_command(
         _clean(row.branch_name) or "main",
         "--target-repo",
         SYNAPSE_NETWORK_REPO_PATH,
+        "--project",
+        SYNAPSE_STAGING_GCP_PROJECT_ID,
+        "--region",
+        SYNAPSE_STAGING_GCP_REGION,
     ]
     prebuilt_digest = _clean(metadata.get("prebuiltImageDigest"))
     if prebuilt_digest and service_key in PREBUILT_FRONTEND_SERVICES:
@@ -82,6 +107,10 @@ def _synapse_provider_staging_command(
         _clean(row.branch_name) or "main",
         "--target-repo",
         SYNAPSE_NETWORK_PROVIDER_REPO_PATH,
+        "--project",
+        SYNAPSE_STAGING_GCP_PROJECT_ID,
+        "--region",
+        SYNAPSE_STAGING_GCP_REGION,
     ]
 
 
@@ -123,6 +152,10 @@ def _production_promote_command(
         _clean(metadata.get("resolvedCommitSha")),
         "--staging-image-digest",
         image_digest,
+        "--project",
+        SYNAPSE_PRODUCTION_GCP_PROJECT_ID,
+        "--region",
+        SYNAPSE_PRODUCTION_GCP_REGION,
     ]
 
 
@@ -192,6 +225,7 @@ def _build_local_runner_metadata(
         "localDeployRunnerVersion": "v1.1",
         "localManifestPath": _local_manifest_path(record_id),
     }
+    metadata.update(_default_environment_metadata(row, service_key=service_key))
     task_metadata = _release_task_metadata(row)
     for key in (
         "prebuiltImageDigest",
@@ -209,6 +243,47 @@ def _build_local_runner_metadata(
         row, service_key=service_key, metadata_override=metadata
     )
     return metadata
+
+
+def _default_environment_metadata(
+    row: ReleaseTaskRow, *, service_key: str
+) -> dict[str, Any]:
+    environment = _clean(row.environment).lower()
+    project_key = _clean(row.project_key)
+    if environment == "staging" and project_key in {
+        SYNAPSE_NETWORK_PROJECT_KEY,
+        SYNAPSE_PROVIDER_PROJECT_KEY,
+    }:
+        metadata: dict[str, Any] = {
+            "gcpProject": SYNAPSE_STAGING_GCP_PROJECT_ID,
+            "region": SYNAPSE_STAGING_GCP_REGION,
+            "environmentIsolationVersion": "v1",
+        }
+        if project_key == SYNAPSE_NETWORK_PROJECT_KEY:
+            metadata.update(
+                {
+                    "chain": SYNAPSE_STAGING_CHAIN,
+                    "alchemyApp": SYNAPSE_STAGING_ALCHEMY_APP,
+                    "gatewayCallbackUrl": SYNAPSE_STAGING_GATEWAY_CALLBACK_URL,
+                    "gatewayWebhookSigningSecretId": SYNAPSE_STAGING_WEBHOOK_SIGNING_SECRET_ID,
+                    "stagingSynapseCoreAddress": SYNAPSE_STAGING_SYNAPSE_CORE_ADDRESS,
+                }
+            )
+            if service_key == "gateway":
+                metadata["webhookOperatorRunbookRequired"] = True
+        return metadata
+    if environment == "production":
+        return {
+            "gcpProject": SYNAPSE_PRODUCTION_GCP_PROJECT_ID,
+            "region": SYNAPSE_PRODUCTION_GCP_REGION,
+            "chain": SYNAPSE_PRODUCTION_CHAIN,
+            "alchemyApp": SYNAPSE_PRODUCTION_ALCHEMY_APP,
+            "gatewayCallbackUrl": SYNAPSE_PRODUCTION_GATEWAY_CALLBACK_URL,
+            "gatewayWebhookSigningSecretId": SYNAPSE_PRODUCTION_WEBHOOK_SIGNING_SECRET_ID,
+            "environmentIsolationVersion": "v1",
+            "requiresSuccessfulStagingDigest": True,
+        }
+    return {}
 
 
 def _ensure_record_metadata(

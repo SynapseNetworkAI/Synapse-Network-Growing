@@ -10,6 +10,7 @@ PROJECT_ID="${PROD_GCP_PROJECT_ID:-synapse-network-prod}"
 REGION="${PROD_GCP_REGION:-us-central1}"
 REPOSITORY="${PROD_ARTIFACT_REGISTRY_REPOSITORY:-synapse-prod}"
 IMPERSONATE_SERVICE_ACCOUNT="${LOCAL_DEPLOY_IMPERSONATE_SERVICE_ACCOUNT:-}"
+EXPECTED_PROJECT_ID="synapse-network-prod"
 
 usage() {
   cat >&2 <<'EOF'
@@ -55,6 +56,9 @@ require_cmd docker
 require_cmd gcloud
 require_cmd node
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
+
 GCLOUD=(gcloud)
 if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
   GCLOUD=(gcloud "--impersonate-service-account=${IMPERSONATE_SERVICE_ACCOUNT}")
@@ -67,6 +71,14 @@ if [[ ! "${STAGING_IMAGE_DIGEST}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
   echo "expected immutable staging image@sha256 digest, got: ${STAGING_IMAGE_DIGEST}" >&2
   exit 2
 fi
+
+synapse_release_env_guard \
+  --environment production \
+  --project "${PROJECT_ID}" \
+  --expected-project "${EXPECTED_PROJECT_ID}" \
+  --region "${REGION}" \
+  --service "${SERVICE:-synapse-prod-unset}" \
+  --repo "/Users/cliff/workspace/agent/Synapse-Network"
 
 prod_image_name() {
   case "$1" in
