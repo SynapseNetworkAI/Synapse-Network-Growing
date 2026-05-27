@@ -43,6 +43,14 @@ def test_release_task_deploy_can_queue_local_runner_record(
     assert record.status == "requested"
     metadata = json.loads(record.metadata_json)
     assert metadata["localDeployRunner"] is True
+    assert metadata["gcpProject"] == "fabled-archive-494108-k5"
+    assert metadata["region"] == "us-central1"
+    assert metadata["environmentIsolationVersion"] == "v1"
+    assert metadata["chain"] == "arbitrum-sepolia"
+    assert (
+        metadata["gatewayCallbackUrl"]
+        == "https://api-staging.synapse-network.ai/internal/webhooks/alchemy/deposits"
+    )
     assert metadata["localRunnerCommand"][:4] == [
         "bash",
         "scripts/local/deploy_synapse_staging.sh",
@@ -50,6 +58,12 @@ def test_release_task_deploy_can_queue_local_runner_record(
         "user-front",
     ]
     assert metadata["localRunnerCommand"][4:6] == ["--ref", "main"]
+    assert metadata["localRunnerCommand"][-4:] == [
+        "--project",
+        "fabled-archive-494108-k5",
+        "--region",
+        "us-central1",
+    ]
 
 
 def test_release_task_local_recipe_passes_frontend_prebuilt_digest(
@@ -128,6 +142,8 @@ def test_release_task_local_recipe_supports_gateway(
         "--service",
         "gateway",
     ]
+    assert metadata["webhookOperatorRunbookRequired"] is True
+    assert metadata["stagingSynapseCoreAddress"] == "0x0bA1dcE1Cc8d877052ab1C3CE2362830459D8FF4"
 
 
 def test_release_task_local_recipe_supports_gateway_admin(
@@ -387,6 +403,14 @@ def test_local_deploy_task_command_edges():
         "--ref",
         "main",
     ]
+    assert local_deploy_tasks._synapse_provider_staging_command(
+        provider, service_key="provider-service"
+    )[-4:] == [
+        "--project",
+        "fabled-archive-494108-k5",
+        "--region",
+        "us-central1",
+    ]
 
     prod = ReleaseTaskRow(
         project_key="synapse-network",
@@ -401,3 +425,8 @@ def test_local_deploy_task_command_edges():
     assert local_deploy_tasks._production_promote_digest(
         prod, {"promoteImageDigest": "image@sha256:" + ("b" * 64)}
     ).endswith("b" * 64)
+    assert local_deploy_tasks._production_promote_command(
+        prod,
+        service_key="gateway",
+        metadata_override={"promoteImageDigest": "image@sha256:" + ("b" * 64)},
+    )[-4:] == ["--project", "synapse-network-prod", "--region", "us-central1"]

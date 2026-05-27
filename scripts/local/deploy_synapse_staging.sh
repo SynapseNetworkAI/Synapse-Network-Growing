@@ -8,6 +8,7 @@ TARGET_REPO="${SYNAPSE_NETWORK_REPO:-/Users/cliff/workspace/agent/Synapse-Networ
 PROJECT_ID="${STAGING_GCP_PROJECT_ID:-fabled-archive-494108-k5}"
 REGION="${STAGING_GCP_REGION:-us-central1}"
 REPOSITORY="${STAGING_ARTIFACT_REGISTRY_REPOSITORY:-synapse-staging}"
+EXPECTED_PROJECT_ID="fabled-archive-494108-k5"
 
 usage() {
   cat >&2 <<'EOF'
@@ -82,6 +83,9 @@ require_cmd git
 require_cmd mktemp
 require_cmd node
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
+
 if [[ ! -d "${TARGET_REPO}/.git" ]]; then
   echo "target repo not found or not a git checkout: ${TARGET_REPO}" >&2
   exit 2
@@ -90,6 +94,14 @@ if [[ -z "${PROJECT_ID}" || -z "${REGION}" || -z "${REPOSITORY}" ]]; then
   echo "project, region, and repository are required" >&2
   exit 2
 fi
+
+synapse_release_env_guard \
+  --environment staging \
+  --project "${PROJECT_ID}" \
+  --expected-project "${EXPECTED_PROJECT_ID}" \
+  --region "${REGION}" \
+  --service "${SERVICE:-synapse-staging-unset}" \
+  --repo "${TARGET_REPO}"
 
 git_target() {
   git \
