@@ -11,6 +11,7 @@ REGION="${PROD_GCP_REGION:-us-central1}"
 REPOSITORY="${PROD_ARTIFACT_REGISTRY_REPOSITORY:-synapse-prod}"
 IMPERSONATE_SERVICE_ACCOUNT="${LOCAL_DEPLOY_IMPERSONATE_SERVICE_ACCOUNT:-}"
 EXPECTED_PROJECT_ID="synapse-network-prod"
+gateway_service_name="synapse-prod-gateway"
 
 usage() {
   cat >&2 <<'EOF'
@@ -171,6 +172,24 @@ fs.writeFileSync(process.env.MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)
 NODE
 }
 
+gateway_job_env_flags=()
+
+build_gateway_job_env_flags() {
+  local gateway_service_url
+  gateway_service_url="$("${GCLOUD[@]}" run services describe "${gateway_service_name}" \
+    --project "${PROJECT_ID}" \
+    --region "${REGION}" \
+    --format='value(status.url)')"
+  [[ -n "${gateway_service_url}" ]] || {
+    echo "failed to resolve production gateway service URL" >&2
+    exit 1
+  }
+  gateway_job_env_flags=(
+    --update-env-vars
+    "DEPOSIT_INDEXER_TRIGGER_ENABLED=false,DEPOSIT_INDEXER_TRIGGER_URL=${gateway_service_url}/internal/jobs/deposit-indexer/trigger,NOTIFICATION_OUTBOX_TRIGGER_ENABLED=false,NOTIFICATION_OUTBOX_TRIGGER_URL=${gateway_service_url}/internal/jobs/notification-outbox/trigger,ALCHEMY_DEPOSIT_WEBHOOK_ENABLED=false"
+  )
+}
+
 update_gateway_prod_jobs() {
   local image="$1"
   local jobs=(
@@ -188,6 +207,7 @@ update_gateway_prod_jobs() {
       --project "${PROJECT_ID}" \
       --region "${REGION}" \
       --image "${image}" \
+      "${gateway_job_env_flags[@]}" \
       --quiet
   done
   echo "[local-prod] executing synapse-prod-db-migrate"
@@ -364,7 +384,10 @@ if [[ ! "${prod_digest}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
 fi
 
 case "${SERVICE}" in
-  gateway) update_gateway_prod_jobs "${prod_digest}" ;;
+  gateway)
+    build_gateway_job_env_flags
+    update_gateway_prod_jobs "${prod_digest}"
+    ;;
   gateway-admin) update_gateway_admin_prod_jobs "${prod_digest}" ;;
   provider-service) update_provider_prod_jobs "${prod_digest}" ;;
 esac
