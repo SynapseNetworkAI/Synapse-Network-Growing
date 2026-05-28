@@ -85,6 +85,7 @@ class SocialContentAssetCreateRequest(BaseModel):
 
 class SocialContentTaskCreateRequest(BaseModel):
     title: str
+    task_type: str | None = None
     source_material: str | None = None
     target_audience: str | None = None
     target_platforms: list[str] = Field(default_factory=list)

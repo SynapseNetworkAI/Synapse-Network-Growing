@@ -57,9 +57,9 @@ from server.services.social.distribution_account_auth import (
 from server.services.social.distribution_campaign_templates import (
     create_x_brand_week_template,
 )
+from server.services.social.distribution_content_tasks import create_content_task
 from server.services.social.distribution_documents import (
     approve_canonical_article,
-    create_content_task,
     expand_canonical_article,
     generate_content_plan,
 )

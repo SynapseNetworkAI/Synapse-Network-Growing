@@ -30,6 +30,11 @@ from server.services.social.distribution_publish_lint import (
     lint_distribution_task,
     lint_summary,
 )
+from server.services.social.distribution_task_types import (
+    MULTI_PLATFORM_CAMPAIGN,
+    X_ARTICLE_PACK,
+    X_MEDIA_POST,
+)
 from server.services.social.agent_content_pack import generate_platform_task_draft
 
 
@@ -41,11 +46,21 @@ def generate_distribution_tasks(
     asset = db.get(SocialContentAssetRow, asset_id)
     if asset is None:
         raise ValueError("Content asset not found.")
+    asset_metadata = _asset_metadata(asset)
+    task_type = str(asset_metadata.get("task_type") or "").strip()
+    if task_type == X_ARTICLE_PACK:
+        raise ValueError(
+            "x_article_pack uses generate_x_article_pack; X Article publishing is manual."
+        )
     if not body.account_ids:
         raise ValueError("select at least one distribution channel.")
     accounts = _ordered_accounts(db, body.account_ids)
     if len(accounts) != len(set(body.account_ids)):
         raise ValueError("one or more distribution accounts were not found.")
+    if task_type == X_MEDIA_POST and any(account.platform != "x" for account in accounts):
+        raise ValueError("x_media_post is X-only; choose multi_platform_campaign for other channels.")
+    if task_type == MULTI_PLATFORM_CAMPAIGN and len(accounts) < 2:
+        raise ValueError("multi_platform_campaign requires at least two selected channels.")
     canonical_article = approved_canonical_article_document(db, asset)
     if canonical_article is None:
         raise ValueError(
@@ -271,6 +286,8 @@ def _recommended_channels_for_asset(asset: SocialContentAssetRow) -> set[str]:
     recommended = (
         {str(item) for item in requested} if isinstance(requested, list) else set()
     )
+    if not recommended and isinstance(metadata.get("target_platforms"), list):
+        recommended = {str(item) for item in metadata["target_platforms"]}
     if not recommended:
         return {"x", "hacker_news", "reddit", "v2ex", "devto", "hashnode"}
     return recommended

@@ -10,8 +10,7 @@ import { TaskKindFilterControl, filterBoardByKind, type TaskKindFilter } from '.
 import { ContentTaskForm } from './SocialDistributionWidgets'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
-const DEFAULT_CONTENT_FORM = { title: '', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
-
+const DEFAULT_CONTENT_FORM = { title: '', task_type: 'x_media_post', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
   const [board, setBoard] = useState<SocialDistributionBoard | null>(null)
@@ -72,9 +71,10 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setBusy(true)
       const created = await api.createSocialContentTask({
         title: form.title,
+        task_type: form.task_type,
         source_material: form.source_material,
         target_audience: form.target_audience,
-        target_platforms: form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean),
+        target_platforms: targetPlatformsForForm(form),
         canonical_url: form.canonical_url,
         source_doc_path: form.source_doc_path,
         campaign_key: form.campaign_key,
@@ -86,7 +86,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setSelectedAccountIds([])
       setForm({ ...DEFAULT_CONTENT_FORM, source_doc_path: form.source_doc_path })
       await loadTasks()
-      toast.success('内容计划已创建')
+      toast.success(created.agent_metadata.reused_existing ? '任务已存在，已打开已有任务' : '内容计划已创建')
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '创建内容计划失败')
     } finally {
@@ -488,12 +488,13 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
   )
 }
 
-function stringValue(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
+const stringValue = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 function numberValue(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value)
-  return 0
+  return typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : 0
+}
+
+function targetPlatformsForForm(form: typeof DEFAULT_CONTENT_FORM): string[] {
+  return ['x_article_pack', 'x_media_post', 'x_reply_block'].includes(form.task_type) ? ['x'] : form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean)
 }
