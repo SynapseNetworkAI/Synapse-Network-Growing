@@ -600,6 +600,16 @@ def test_x_article_pack_generates_manual_article_and_api_teaser(
         .count()
         == 1
     )
+    second = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-x-article-pack",
+        json={"actor": "operator"},
+    )
+    assert second.status_code == 200
+    assert second.json()["article_task_id"] == payload["article_task_id"]
+    assert second.json()["teaser_task_id"] == payload["teaser_task_id"]
+    assert db_session.query(SocialDistributionTaskRow).count() == 2
+    db_session.refresh(article_doc)
+    assert int(article_doc.version) == 2
 
 
 def test_x_article_manual_task_cannot_publish_via_api(

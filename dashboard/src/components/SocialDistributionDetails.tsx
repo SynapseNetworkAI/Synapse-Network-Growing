@@ -218,10 +218,14 @@ export function ContentTaskDetailModal({
 }) {
   const documents = asset?.documents ?? []
   const metadata = asset?.agent_metadata ?? {}
-  const isReplyBlock = metadata.post_intent === 'engagement_reply'
+  const taskType = stringValue(metadata.task_type)
   const sourcePlan = documents.find((doc) => doc.document_kind === 'source_plan')
   const canonicalArticle = latestDocument(documents, 'canonical_article')
   const articlePack = latestDocument(documents, 'x_article_pack')
+  const isReplyBlock = metadata.post_intent === 'engagement_reply' || taskType === 'x_reply_block'
+  const isXArticlePackTask = taskType === 'x_article_pack' || Boolean(asset?.tasks.some((task) => task.action === 'x_article_manual_publish'))
+  const isXMediaPostTask = taskType === 'x_media_post'
+  const showChannelSelection = !articlePack && !isReplyBlock && (taskType === 'multi_platform_campaign' || !taskType)
   const canonicalApproved = canonicalArticle?.status === 'approved'
   const platformDocs = documents.filter((doc) => doc.document_kind === 'platform_draft')
   const showCanonicalArticle = !articlePack
@@ -247,12 +251,16 @@ export function ContentTaskDetailModal({
             </button>
           ) : (
             <>
-              <button type="button" disabled={!asset || busy} className="rounded-2xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onGenerateXArticlePack}>
-                {busy ? '生成中…' : articlePack ? '重新生成 X Article Pack' : '生成 X Article Pack'}
-              </button>
-              <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onApproveGenerate}>
-                {busy ? '生成中…' : '批准并生成平台任务'}
-              </button>
+              {isXArticlePackTask ? (
+                <button type="button" disabled={!asset || busy} className="rounded-2xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onGenerateXArticlePack}>
+                  {busy ? '生成中…' : articlePack ? '重新生成 X Article Pack' : '生成 X Article Pack'}
+                </button>
+              ) : null}
+              {!isXArticlePackTask ? (
+                <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onApproveGenerate}>
+                  {busy ? '生成中…' : isXMediaPostTask ? '生成 X 图文 Post 任务' : '批准并生成平台任务'}
+                </button>
+              ) : null}
             </>
           )}
         </div>
@@ -335,17 +343,25 @@ export function ContentTaskDetailModal({
               )}
             </section>
           ) : null}
-          <section>
-            <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Channel Selection</div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {accounts.map((account) => (
-                <label key={account.id} className="flex items-start gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3 text-sm">
-                  <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => onToggleAccount(account.id)} />
-                  <span><b>{account.display_name}</b><span className="block text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</span></span>
-                </label>
-              ))}
-            </div>
-          </section>
+          {showChannelSelection ? (
+            <section>
+              <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Channel Selection</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {accounts.map((account) => (
+                  <label key={account.id} className="flex items-start gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3 text-sm">
+                    <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => onToggleAccount(account.id)} />
+                    <span><b>{account.display_name}</b><span className="block text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</span></span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <InfoBlock title="Platform">
+              {isReplyBlock || taskType.startsWith('x_') || articlePack
+                ? 'X Official Account locked. This task type does not generate non-X channel drafts.'
+                : 'Single manual platform task. Use Multi-platform Campaign when you need Channel Selection.'}
+            </InfoBlock>
+          )}
           <section>
             <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Publish</div>
             {asset.tasks.length ? (

@@ -112,6 +112,7 @@ export function ContentTaskForm({
 }: {
   form: {
     title: string
+    task_type: string
     source_material: string
     target_audience: string
     target_platforms: string
@@ -122,6 +123,7 @@ export function ContentTaskForm({
   }
   onChange: (value: {
     title: string
+    task_type: string
     source_material: string
     target_audience: string
     target_platforms: string
@@ -131,13 +133,44 @@ export function ContentTaskForm({
     post_intent: string
   }) => void
 }) {
+  const isXOnly = ['x_article_pack', 'x_media_post', 'x_reply_block'].includes(form.task_type)
+  const isMultiPlatform = form.task_type === 'multi_platform_campaign'
   return (
     <div className="grid gap-4">
       <Field label="任务标题"><input className={inputClass} value={form.title} onChange={(event) => onChange({ ...form, title: event.target.value })} placeholder="第 1 篇：我为什么要做一人公司的系统" /></Field>
       <div className="grid gap-4 md:grid-cols-2">
+        <Field label="Task type">
+          <select
+            className={inputClass}
+            value={form.task_type}
+            onChange={(event) => {
+              const taskType = event.target.value
+              onChange({
+                ...form,
+                task_type: taskType,
+                target_platforms: ['x_article_pack', 'x_media_post', 'x_reply_block'].includes(taskType) ? 'x' : form.target_platforms,
+                post_intent: taskType === 'x_reply_block' ? 'engagement_reply' : form.post_intent,
+              })
+            }}
+          >
+            <option value="x_media_post">X Media Post</option>
+            <option value="x_article_pack">X Article Pack</option>
+            <option value="x_reply_block">X Reply Block</option>
+            <option value="multi_platform_campaign">Multi-platform Campaign</option>
+            <option value="manual_platform_post">Manual Platform Post</option>
+          </select>
+        </Field>
         <Field label="目标受众"><input className={inputClass} value={form.target_audience} onChange={(event) => onChange({ ...form, target_audience: event.target.value })} placeholder="独立开发者 / solo founder / agent workflow builders" /></Field>
-        <Field label="目标平台"><input className={inputClass} value={form.target_platforms} onChange={(event) => onChange({ ...form, target_platforms: event.target.value })} placeholder="x, v2ex, hacker_news, devto" /></Field>
       </div>
+      {isXOnly ? (
+        <div className="rounded-2xl border border-cyan-300/30 bg-cyan-300/10 p-4 text-sm text-cyan-50">
+          <b>Platform locked:</b> X Official Account. X-only tasks do not show Hacker News, Reddit, V2EX, DEV, Hashnode, or Product Hunt channels.
+        </div>
+      ) : (
+        <Field label={isMultiPlatform ? 'Channel Selection' : '目标平台'}>
+          <input className={inputClass} value={form.target_platforms} onChange={(event) => onChange({ ...form, target_platforms: event.target.value })} placeholder="x, v2ex, hacker_news, devto" />
+        </Field>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Canonical URL"><input className={inputClass} value={form.canonical_url} onChange={(event) => onChange({ ...form, canonical_url: event.target.value })} /></Field>
         <Field label="Source doc path"><input className={inputClass} value={form.source_doc_path} onChange={(event) => onChange({ ...form, source_doc_path: event.target.value })} /></Field>

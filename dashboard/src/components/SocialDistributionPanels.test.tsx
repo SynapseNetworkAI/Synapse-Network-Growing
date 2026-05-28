@@ -23,6 +23,7 @@ const apiMock = vi.hoisted(() => ({
   approveSocialDistributionCanonicalArticle: vi.fn(),
   generateSocialDistributionTasks: vi.fn(),
   approveAndGenerateSocialDistributionTasks: vi.fn(),
+  generateSocialDistributionXArticlePack: vi.fn(),
   generateSocialXReplyBlock: vi.fn(),
   publishSocialDistributionTaskToX: vi.fn(),
   getSocialDistributionTaskXAuthStatus: vi.fn(),
@@ -294,6 +295,13 @@ describe('SocialDistributionPanels v2', () => {
       generated_task_ids: [201],
       failed_task_ids: [],
     })
+    apiMock.generateSocialDistributionXArticlePack.mockResolvedValue({
+      asset: asset({ status: 'ready' }),
+      article_task_id: 211,
+      teaser_task_id: 212,
+      article_document_id: 450,
+      cover_image_path: '/tmp/synapse-cover.png',
+    })
     apiMock.runSocialAssetPlanner.mockResolvedValue({
       workflow_key: 'social_asset_planner_sweep',
       local_date: '2026-05-01',
@@ -337,6 +345,11 @@ describe('SocialDistributionPanels v2', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: clipboardWrite } })
     const articleAsset = asset({
       title: 'Synapse Network: Payment Rails for AI Agents',
+      agent_metadata: {
+        task_type: 'x_article_pack',
+        channel_selection_mode: 'locked_x',
+        target_platforms: ['x'],
+      },
       tasks: [
         task({
           id: 211,
@@ -433,6 +446,8 @@ describe('SocialDistributionPanels v2', () => {
     expect(within(dialog).getByText('Long-form Article Preview')).toBeInTheDocument()
     expect(within(dialog).queryByText('Canonical Article')).not.toBeInTheDocument()
     expect(within(dialog).queryByText('Platform Docs')).not.toBeInTheDocument()
+    expect(within(dialog).queryByText('Channel Selection')).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/X Official Account locked/)).toBeInTheDocument()
     expect(within(dialog).getByText('Cover image')).toBeInTheDocument()
     expect(within(dialog).getAllByText('Image slot')).toHaveLength(2)
     expect(within(dialog).getByText('GIF slot')).toBeInTheDocument()
@@ -537,6 +552,7 @@ describe('SocialDistributionPanels v2', () => {
     await waitFor(() => {
       expect(apiMock.createSocialContentTask).toHaveBeenCalledWith(expect.objectContaining({
         title: '第 1 篇：一人公司最大的问题',
+        task_type: 'x_media_post',
         target_platforms: ['x'],
       }))
     })

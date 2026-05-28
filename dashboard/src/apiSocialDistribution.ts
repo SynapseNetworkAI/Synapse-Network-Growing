@@ -295,6 +295,7 @@ export function createSocialDistributionApi(request: RequestFn) {
       }),
     createSocialContentTask: (data: {
       title: string
+      task_type?: string | null
       source_material?: string | null
       target_audience?: string | null
       target_platforms?: string[]

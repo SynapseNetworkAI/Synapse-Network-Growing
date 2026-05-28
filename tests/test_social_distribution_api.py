@@ -77,9 +77,11 @@ def test_create_content_task_creates_source_plan_document(synced_client, db_sess
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.json()
     payload = response.json()
     assert payload["source_type"] == "manual_task"
+    assert payload["agent_metadata"]["task_type"] == "multi_platform_campaign"
+    assert payload["agent_metadata"]["generator_key"] == "multi_platform_distribution_generator"
     assert payload["documents"][0]["document_kind"] == "source_plan"
     assert "Content Implementation Plan" in payload["documents"][0]["body_markdown"]
     doc = db_session.query(SocialDistributionDocumentRow).one()
@@ -129,7 +131,7 @@ def test_generate_content_plan_and_board_projection(synced_client):
     assert columns["needs_review"]["count"] == 1
     card = columns["needs_review"]["cards"][0]
     assert card["document_count"] == 1
-    assert card["task_kind_code"] == "content_distribution"
+    assert card["task_kind_code"] == "multi_platform_campaign"
     assert card["next_action"].startswith("审核方案")
 
 

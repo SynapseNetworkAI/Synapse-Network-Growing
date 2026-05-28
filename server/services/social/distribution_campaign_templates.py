@@ -12,7 +12,7 @@ from server import config
 from server import schemas_social_distribution as dist_schema
 from server.database_social_distribution import SocialContentAssetRow
 from server.services.social.distribution import get_content_asset
-from server.services.social.distribution_documents import create_content_task
+from server.services.social.distribution_content_tasks import create_content_task
 
 
 X_BRAND_WEEK_CAMPAIGN_KEY = "x_brand_awareness_week_1"
