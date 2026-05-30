@@ -4,6 +4,24 @@ from __future__ import annotations
 
 DEFAULT_WATCHLIST_ACCOUNTS: list[tuple[str, str, str, str]] = [
     (
+        "x402",
+        "x402",
+        "agent_payment_protocol",
+        "Agent payment protocol updates are direct inputs for agent economy reply blocks.",
+    ),
+    (
+        "circle",
+        "Circle",
+        "payment_infra",
+        "USDC and wallet infrastructure signals matter for agent settlement and spend controls.",
+    ),
+    (
+        "crossmint",
+        "Crossmint",
+        "payment_infra",
+        "Wallet and agent-payment infrastructure is adjacent to Synapse positioning.",
+    ),
+    (
         "OpenAI",
         "OpenAI",
         "ai_company",

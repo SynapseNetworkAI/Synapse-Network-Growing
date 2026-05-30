@@ -106,6 +106,10 @@ def x_tweets_from_metadata(
 def x_format_from_metadata(metadata: dict[str, Any], tweets: list[str]) -> str:
     x_format = str(metadata.get("x_format") or "").strip().lower()
     format_kind = str(metadata.get("format_kind") or "").strip().lower()
+    if x_format in {"article_pack", "x_article_pack"}:
+        return "article_pack"
+    if format_kind == "x_article_pack":
+        return "article_pack"
     if x_format in {"long_post", "x_long_post", "premium_long_post"}:
         return "long_post"
     if format_kind in {"long_post", "x_long_post", "premium_long_post"}:
@@ -123,6 +127,11 @@ def x_long_post_text_from_metadata(
         if value:
             return value
     return str(fallback_body or "").strip()
+
+
+def x_teaser_media_manifest(metadata: dict[str, Any]) -> dict[str, Any]:
+    media = metadata.get("x_teaser_media")
+    return media if isinstance(media, dict) else {}
 
 
 def _normalize_x_format_and_content(

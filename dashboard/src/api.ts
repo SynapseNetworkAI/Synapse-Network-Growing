@@ -11,7 +11,17 @@ export type {
   SocialDistributionTaskList,
 } from './apiSocialDistribution'
 import { createSocialMetricApi } from './apiSocialMetrics'
-export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
+export type {
+  SocialAccountSnapshot,
+  SocialAccountSnapshotResult,
+  SocialPostMetric,
+  SocialPostMetricDaily,
+  SocialPostMetricDailyResult,
+  SocialPostMetricDetail,
+  SocialPostMetricQueryResult,
+  SocialWeeklyReview,
+  SocialWeeklyReviewResult,
+} from './apiSocialMetrics'
 import { createBugsApi } from './apiBugs'
 export type { BugAgentContext, BugClaimResult, BugDetail, BugEvent, BugFixAttempt, BugList, BugRecord } from './apiBugs'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'

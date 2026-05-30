@@ -80,7 +80,7 @@ Production 只允许 `main`。Growing 的 Release Task production deploy endpoin
 4. 同一 `project_key + service_key + target_commit_sha` 已有 staging `DeploymentRecord(status=succeeded, health_status=passed|healthy|manual_verified)`。
 5. staging DeploymentRecord metadata 中有 `imageDigest` / manifest digest；缺失则 fail closed。
 
-Production DeploymentRecord metadata 必须写入 `gcpProject=synapse-network-prod`、`sourceStagingDeploymentRecordId`、`deployScope`、`environmentIsolationVersion=v1`、`deploy_repo_full_name` 和 `service_key`。
+Production DeploymentRecord metadata 必须写入 `gcpProject=synapse-network-prod`、`region=us-central1`、`chain=arbitrum-one`、`requiresSuccessfulStagingDigest=true`、`sourceStagingDeploymentRecordId`、`deployScope`、`environmentIsolationVersion=v1`、`deploy_repo_full_name` 和 `service_key`。
 
 ## 4. Branch-Based Staging Deploy
 
@@ -104,6 +104,21 @@ Growing 可以让操作者选择 branch 并点击 `Deploy Branch to Staging`。L
 | `docs-front` | `scripts/local/deploy_synapse_staging.sh` |
 
 部署记录不能只保存分支名。分支后续继续 push 时，必须形成新的 deployment record。
+
+Staging local deploy metadata 也必须写死环境隔离字段，不允许依赖操作者当前 shell 猜环境：
+
+- `gcpProject=fabled-archive-494108-k5`
+- `region=us-central1`
+- `chain=arbitrum-sepolia`
+- `gatewayCallbackUrl=https://api-staging.synapse-network.ai/internal/webhooks/alchemy/deposits`
+- `environmentIsolationVersion=v1`
+
+Local runner command 必须显式带 `--project` 和 `--region`。脚本启动后还要再做一次 fail-closed preflight：
+
+1. 打印 active gcloud account、target project、target region、target service、target repo。
+2. 校验 target project 与当前环境是否一致。
+3. 校验 active account 能访问 target project。
+4. 允许执行 `gcloud config set project <target-project>` 作为显式对齐，但真正信任根仍然是每条 `gcloud` 命令上的 `--project`。
 
 ## 5. 当前控制面展示
 
@@ -132,7 +147,13 @@ Staging 发布链路保持“任务意图”和“真实上线”分离：
 6. Checks 通过后，由 Operator 点击 `发布到 staging`。
 7. Local deploy runner 从 Postgres 抢占 `DeploymentRecord(trigger_source=local_deploy_runner)` 并执行真实 GCP 部署。
 8. 查看 `/releases` 的 `上线记录`，确认 target runner、revision / image digest / manifest，以及 health check 成功。
-9. Production 不使用 staging 快捷按钮。Production 默认从 `main` 的 verified staging commit/digest promote，并必须经过 Growing Human Gate。
+9. 如果 staging 发布的是 `gateway`，operator 还必须按 `Synapse-Network` 仓库 runbook 收口 staging Alchemy webhook：
+   - app=`synapse-network-staging`
+   - chain=`Arbitrum Sepolia`
+   - callback=`https://api-staging.synapse-network.ai/internal/webhooks/alchemy/deposits`
+   - contract=`0x0bA1dcE1Cc8d877052ab1C3CE2362830459D8FF4`
+   - signing key -> `synapse-staging-alchemy-deposit-webhook-signing-key`
+10. Production 不使用 staging 快捷按钮。Production 默认从 `main` 的 verified staging commit/digest promote，并必须经过 Growing Human Gate。
 
 Staging 对 `main` 与非 `main` 分支采用不同 gate：`main` 可以直接发布 staging；非 `main` 分支不要求先合并到 `main`，但必须先提交 PR 且 checks 通过，用于验证分支在真实 staging 环境的行为。Production v1 的来源必须收敛到 `main` 且同 commit 已经在 staging 成功。
 

@@ -24,6 +24,7 @@ import {
 } from './SocialDistributionXDraft'
 import { ReplyTaskDetailView } from './SocialReplyTaskDetail'
 import { PublishAuditControls, PublishAuditSummary } from './SocialDistributionPublishAudit'
+import { ArticlePackSection } from './SocialDistributionArticlePack'
 
 export function TaskDetailModal({
   task,
@@ -182,12 +183,17 @@ export function ContentTaskDetailModal({
   onExpandCanonicalArticle,
   onApproveCanonicalArticle,
   onApproveGenerate,
+  onGenerateXArticlePack,
   onGenerateXReplyBlock,
+  onReconnectX,
+  onCheckXAuth,
   onMarkReplyManualPublished,
   onPublishReplyToX,
   onRegenerateReply,
   onOpenTask,
   toast,
+  xAuthStatus,
+  xAuthNotice,
 }: {
   asset: SocialContentAssetDetail | null
   accounts: SocialDistributionAccount[]
@@ -201,19 +207,31 @@ export function ContentTaskDetailModal({
   onExpandCanonicalArticle: () => void
   onApproveCanonicalArticle: (documentId: number | null) => void
   onApproveGenerate: () => void
+  onGenerateXArticlePack: () => void
   onGenerateXReplyBlock: () => void
+  onReconnectX: () => void
+  onCheckXAuth: () => void
   onMarkReplyManualPublished: (reply: SocialReplyItem) => void
   onPublishReplyToX: (reply: SocialReplyItem) => void
   onRegenerateReply: (reply: SocialReplyItem) => void
   onOpenTask: (task: SocialDistributionTask) => void
+  xAuthStatus?: SocialDistributionAccountAuthStatus
+  xAuthNotice?: string | null
 }) {
   const documents = asset?.documents ?? []
   const metadata = asset?.agent_metadata ?? {}
-  const isReplyBlock = metadata.post_intent === 'engagement_reply'
+  const taskType = stringValue(metadata.task_type)
   const sourcePlan = documents.find((doc) => doc.document_kind === 'source_plan')
   const canonicalArticle = latestDocument(documents, 'canonical_article')
+  const articlePack = latestDocument(documents, 'x_article_pack')
+  const isReplyBlock = metadata.post_intent === 'engagement_reply' || taskType === 'x_reply_block'
+  const isXArticlePackTask = taskType === 'x_article_pack' || Boolean(asset?.tasks.some((task) => task.action === 'x_article_manual_publish'))
+  const isXMediaPostTask = taskType === 'x_media_post'
+  const showChannelSelection = !articlePack && !isReplyBlock && (taskType === 'multi_platform_campaign' || !taskType)
   const canonicalApproved = canonicalArticle?.status === 'approved'
   const platformDocs = documents.filter((doc) => doc.document_kind === 'platform_draft')
+  const showCanonicalArticle = !articlePack
+  const showPlatformDocs = !articlePack
   return (
     <OverlayModal
       open={Boolean(asset)}
@@ -225,11 +243,7 @@ export function ContentTaskDetailModal({
           <button type="button" disabled={!asset || busy} className="rounded-2xl border border-cyan-300/40 px-4 py-2 text-sm font-semibold text-cyan-100 disabled:opacity-50" onClick={onGeneratePlan}>
             {busy ? '生成中…' : '重新生成方案'}
           </button>
-          {isReplyBlock ? (
-            <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
-              {busy ? '生成中…' : '生成 5 条 X 回复候选'}
-            </button>
-          ) : !canonicalArticle ? (
+          {isReplyBlock ? null : !canonicalArticle ? (
             <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onExpandCanonicalArticle}>
               {busy ? '扩写中…' : '扩写母稿'}
             </button>
@@ -238,9 +252,18 @@ export function ContentTaskDetailModal({
               {busy ? '审核中…' : '审核通过母稿'}
             </button>
           ) : (
-            <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onApproveGenerate}>
-              {busy ? '生成中…' : '批准并生成平台任务'}
-            </button>
+            <>
+              {isXArticlePackTask ? (
+                <button type="button" disabled={!asset || busy} className="rounded-2xl border border-emerald-300/40 px-4 py-2 text-sm font-semibold text-emerald-100 disabled:opacity-50" onClick={onGenerateXArticlePack}>
+                  {busy ? '生成中…' : articlePack ? '重新生成 X Article Pack' : '生成 X Article Pack'}
+                </button>
+              ) : null}
+              {!isXArticlePackTask ? (
+                <button type="button" disabled={!asset || busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onApproveGenerate}>
+                  {busy ? '生成中…' : isXMediaPostTask ? '生成 X 图文 Post 任务' : '批准并生成平台任务'}
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       }
@@ -254,9 +277,13 @@ export function ContentTaskDetailModal({
             busy={busy}
             toast={toast}
             onGenerateXReplyBlock={onGenerateXReplyBlock}
+            onReconnectX={onReconnectX}
+            onCheckXAuth={onCheckXAuth}
             onMarkManualPublished={onMarkReplyManualPublished}
             onPublishReplyToX={onPublishReplyToX}
             onRegenerateReply={onRegenerateReply}
+            xAuthStatus={xAuthStatus}
+            xAuthNotice={xAuthNotice}
           />
         ) : (
         <div className="space-y-5">
@@ -272,57 +299,72 @@ export function ContentTaskDetailModal({
             </div>
             {sourcePlan ? <div className="mt-3 text-xs text-[color:var(--ops-text-caption)]">v{sourcePlan.version} · {formatDateTime(sourcePlan.updated_at)}</div> : null}
           </section>
-          <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Canonical Article</div>
-              <StateBadge tone={canonicalApproved ? 'ready' : canonicalArticle ? 'validating' : 'muted'}>
-                {canonicalArticle ? canonicalArticle.status : 'missing'}
-              </StateBadge>
-            </div>
-            {canonicalArticle ? (
-              <>
-                <div className="mb-2 text-sm font-semibold text-[color:var(--ops-text-title)]">{canonicalArticle.title}</div>
-                <div className="max-h-[360px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{canonicalArticle.body_markdown}</div>
-                <div className="mt-3 flex flex-wrap gap-3 text-xs text-[color:var(--ops-text-caption)]">
-                  <span>{canonicalArticle.body_markdown.length} chars</span>
-                  <span>v{canonicalArticle.version}</span>
-                  <span>updated {formatDateTime(canonicalArticle.updated_at)}</span>
-                  <span>generated by {String(canonicalArticle.metadata.generated_by ?? 'unknown')}</span>
-                </div>
-              </>
-            ) : (
-              <InfoBlock title="Mother Draft Required">请先把短大纲扩写成 canonical_article 母稿；母稿审核通过前，系统不会生成正式平台任务。</InfoBlock>
-            )}
-          </section>
-          <section>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Platform Docs</div>
-                <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">每个平台都有独立文档；非 X 仍然是复制、打开平台、人工回填。</p>
+          {showCanonicalArticle ? (
+            <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Canonical Article</div>
+                <StateBadge tone={canonicalApproved ? 'ready' : canonicalArticle ? 'validating' : 'muted'}>
+                  {canonicalArticle ? canonicalArticle.status : 'missing'}
+                </StateBadge>
               </div>
-              <StateBadge tone={platformDocs.length ? 'ready' : 'muted'}>{platformDocs.length} docs</StateBadge>
-            </div>
-            {platformDocs.length ? (
-              <div className="grid gap-3">
-                {platformDocs.map((doc) => (
-                  <DocumentRow key={doc.id} doc={doc} formatDateTime={formatDateTime} />
+              {canonicalArticle ? (
+                <>
+                  <div className="mb-2 text-sm font-semibold text-[color:var(--ops-text-title)]">{canonicalArticle.title}</div>
+                  <div className="max-h-[360px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{canonicalArticle.body_markdown}</div>
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-[color:var(--ops-text-caption)]">
+                    <span>{canonicalArticle.body_markdown.length} chars</span>
+                    <span>v{canonicalArticle.version}</span>
+                    <span>updated {formatDateTime(canonicalArticle.updated_at)}</span>
+                    <span>generated by {String(canonicalArticle.metadata.generated_by ?? 'unknown')}</span>
+                  </div>
+                </>
+              ) : (
+                <InfoBlock title="Mother Draft Required">请先把短大纲扩写成 canonical_article 母稿；母稿审核通过前，系统不会生成正式平台任务。</InfoBlock>
+              )}
+            </section>
+          ) : null}
+          {articlePack ? (
+            <ArticlePackSection doc={articlePack} toast={toast} />
+          ) : null}
+          {showPlatformDocs ? (
+            <section>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Platform Docs</div>
+                  <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">每个平台都有独立文档；非 X 仍然是复制、打开平台、人工回填。</p>
+                </div>
+                <StateBadge tone={platformDocs.length ? 'ready' : 'muted'}>{platformDocs.length} docs</StateBadge>
+              </div>
+              {platformDocs.length ? (
+                <div className="grid gap-3">
+                  {platformDocs.map((doc) => (
+                    <DocumentRow key={doc.id} doc={doc} formatDateTime={formatDateTime} />
+                  ))}
+                </div>
+              ) : (
+                <InfoBlock title="No Platform Docs">{canonicalApproved ? '选择渠道后点击“批准并生成平台任务”。' : '母稿审核通过后才可以生成平台任务。'}</InfoBlock>
+              )}
+            </section>
+          ) : null}
+          {showChannelSelection ? (
+            <section>
+              <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Channel Selection</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {accounts.map((account) => (
+                  <label key={account.id} className="flex items-start gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3 text-sm">
+                    <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => onToggleAccount(account.id)} />
+                    <span><b>{account.display_name}</b><span className="block text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</span></span>
+                  </label>
                 ))}
               </div>
-            ) : (
-              <InfoBlock title="No Platform Docs">{canonicalApproved ? '选择渠道后点击“批准并生成平台任务”。' : '母稿审核通过后才可以生成平台任务。'}</InfoBlock>
-            )}
-          </section>
-          <section>
-            <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Channel Selection</div>
-            <div className="grid gap-2 md:grid-cols-2">
-              {accounts.map((account) => (
-                <label key={account.id} className="flex items-start gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3 text-sm">
-                  <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => onToggleAccount(account.id)} />
-                  <span><b>{account.display_name}</b><span className="block text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</span></span>
-                </label>
-              ))}
-            </div>
-          </section>
+            </section>
+          ) : (
+            <InfoBlock title="Platform">
+              {isReplyBlock || taskType.startsWith('x_') || articlePack
+                ? 'X Official Account locked. This task type does not generate non-X channel drafts.'
+                : 'Single manual platform task. Use Multi-platform Campaign when you need Channel Selection.'}
+            </InfoBlock>
+          )}
           <section>
             <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Publish</div>
             {asset.tasks.length ? (
@@ -347,7 +389,11 @@ export function ContentTaskDetailModal({
                       <button type="button" className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" onClick={() => onOpenTask(task)}>
                         {task.status === 'live'
                           ? '详情'
-                          : task.platform === 'x'
+                          : task.action === 'x_article_manual_publish'
+                            ? 'Article 手动发布 / 详情'
+                            : task.action === 'x_article_teaser'
+                              ? '发布 Teaser 到 X / 详情'
+                              : task.platform === 'x'
                             ? '发布到 X / 详情'
                             : '复制并打开平台'}
                       </button>
@@ -417,83 +463,4 @@ function numberArray(value: unknown): number[] {
 function stringValue(value: unknown): string {
   if (typeof value === 'number') return String(value)
   return typeof value === 'string' ? value : ''
-}
-
-export function AssetDetail({
-  asset,
-  accounts,
-  selectedAccountIds,
-  formatDateTime,
-  onToggle,
-}: {
-  asset: SocialContentAssetDetail
-  accounts: SocialDistributionAccount[]
-  selectedAccountIds: number[]
-  formatDateTime: (value: string | null | undefined) => string
-  onToggle: (id: number) => void
-}) {
-  const metadata = asset.agent_metadata ?? {}
-  const recommended = Array.isArray(metadata.recommended_channels)
-    ? metadata.recommended_channels.join(', ')
-    : 'manual selection'
-  const sourceRefs = Array.isArray(metadata.source_signal_refs)
-    ? metadata.source_signal_refs.join(', ')
-    : 'manual'
-  const canonicalArticle = latestDocument(asset.documents, 'canonical_article')
-  const canonicalApproved = canonicalArticle?.status === 'approved'
-  return (
-    <div className="space-y-4">
-      <InfoBlock title="资产摘要">{asset.summary || asset.body || 'No summary yet.'}</InfoBlock>
-      <div className="grid gap-3 md:grid-cols-2">
-        <InfoBlock title="推荐渠道">{recommended}</InfoBlock>
-        <InfoBlock title="来源信号">{sourceRefs}</InfoBlock>
-      </div>
-      <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Canonical Article</div>
-          <StateBadge tone={canonicalApproved ? 'ready' : canonicalArticle ? 'validating' : 'muted'}>{canonicalArticle ? canonicalArticle.status : 'missing'}</StateBadge>
-        </div>
-        {canonicalArticle ? (
-          <>
-            <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{canonicalArticle.title}</div>
-            <div className="mt-2 max-h-[300px] overflow-auto whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-body)]">{canonicalArticle.body_markdown}</div>
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-[color:var(--ops-text-caption)]">
-              <span>{canonicalArticle.body_markdown.length} chars</span>
-              <span>v{canonicalArticle.version}</span>
-              <span>generated by {String(canonicalArticle.metadata.generated_by ?? 'unknown')}</span>
-            </div>
-          </>
-        ) : (
-          <InfoBlock title="Mother Draft Required">缺少母稿时只能扩写母稿，不能直接从短大纲生成平台任务。</InfoBlock>
-        )}
-      </div>
-      <div className="grid gap-2 md:grid-cols-2">
-        {accounts.map((account) => (
-          <label key={account.id} className="flex items-start gap-3 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-3 text-sm">
-            <input type="checkbox" checked={selectedAccountIds.includes(account.id)} onChange={() => onToggle(account.id)} />
-            <span><b>{account.display_name}</b><span className="block text-xs text-[color:var(--ops-text-caption)]">{account.platform} · {account.channel_key}</span></span>
-          </label>
-        ))}
-      </div>
-      {asset.tasks.length ? (
-        <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
-          <div className="mb-3 text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Generated Platform Tasks</div>
-          <div className="grid gap-2">
-            {asset.tasks.map((task) => (
-              <div key={task.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-workspace-bg)] px-3 py-2">
-                <div>
-                  <b>{task.account_display_name ?? task.channel_key}</b>
-                  <div className="text-xs text-[color:var(--ops-text-caption)]">{task.platform} · updated {formatDateTime(task.updated_at)}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StateBadge tone={statusTone(task.status)}>{task.status}</StateBadge>
-                  {task.submission_url ? <a className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-2 py-1 text-xs" href={task.submission_url} target="_blank" rel="noreferrer">打开平台</a> : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
 }

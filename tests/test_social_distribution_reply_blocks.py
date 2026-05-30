@@ -1,14 +1,15 @@
 import json
 
 from server import config
-from server.database import SocialReplyItemRow
+from server.database import SocialReplyItemRow, SocialTrendItemRow
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionEventRow,
 )
 from server.services.social import publishing as social_publishing
 from server.services.social import distribution_reply_blocks as reply_blocks
-from server.services.social.distribution_reply_blocks import (
+from server.services.social import distribution_reply_block_policy as reply_block_policy
+from server.services.social.distribution_reply_block_publisher import (
     run_x_social_daily_reply_block_publisher,
 )
 from server.services.social.reply_agent import GeneratedXReply
@@ -70,13 +71,13 @@ def test_generate_x_reply_block_creates_agent_reviewed_candidates(
                 {
                     "source_url": "https://x.com/OpenAI/status/101",
                     "author_handle": "OpenAI",
-                    "source_text": "Tool-using agents need safer ways to call external APIs.",
+                    "source_text": "Tool-using AI agents need safer paid API access with spend control and receipts.",
                     "rationale": "Agent infrastructure topic.",
                 },
                 {
                     "source_url": "https://x.com/LangChainAI/status/102",
                     "author_handle": "LangChainAI",
-                    "source_text": "Agent workflows increasingly connect to paid tools and services.",
+                    "source_text": "Agent workflows increasingly connect to paid tools and need API metering.",
                     "rationale": "Workflow monetization topic.",
                 },
             ],
@@ -104,6 +105,9 @@ def test_generate_x_reply_block_creates_agent_reviewed_candidates(
     ]
     assert replies[0].reviewed_by == "agent"
     assert "Great point" not in replies[0].suggested_reply
+    assert "http://" not in replies[0].suggested_reply
+    assert "https://" not in replies[0].suggested_reply
+    assert replies[0].source_url == "https://x.com/OpenAI/status/101"
     metadata = json.loads(replies[0].metadata_json)
     assert metadata["agent_quality_review"]["status"] == "passed"
     db_session.refresh(asset)
@@ -129,6 +133,107 @@ def test_generate_x_reply_block_creates_agent_reviewed_candidates(
     ]
 
 
+def test_generate_x_reply_block_strips_urls_from_reply_text(
+    synced_client, db_session, monkeypatch
+):
+    def fake_generate(candidate, **_kwargs):
+        return GeneratedXReply(
+            suggested_reply=(
+                "Agent monetization needs spend caps, receipts, and settlement rails. "
+                "Implementation notes: https://synapse-network.ai/docs"
+            ),
+            risk_level="normal",
+            rationale="URL should be stripped before review.",
+            model="test-reply-model",
+            generation_metadata={"provider": "test", "model": "test-reply-model"},
+        )
+
+    monkeypatch.setattr(
+        social_publishing, "generate_x_reply_for_candidate", fake_generate
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={
+            "actor": "agent",
+            "target_count": 1,
+            "agent_review": True,
+            "source_posts": [
+                {
+                    "source_url": "https://x.com/OpenAI/status/555",
+                    "author_handle": "OpenAI",
+                    "source_text": "How should AI agents handle payments, API pricing, and spend control without giving them unlimited credentials?",
+                    "rationale": "Direct agent spend-control pain.",
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    reply = db_session.query(SocialReplyItemRow).one()
+    assert reply.source_url == "https://x.com/OpenAI/status/555"
+    assert "http://" not in reply.suggested_reply
+    assert "https://" not in reply.suggested_reply
+    assert "Implementation notes" in reply.suggested_reply
+
+
+def test_generate_x_reply_block_requires_force_when_candidates_exist(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+    payload = {
+        "actor": "agent",
+        "target_count": 1,
+        "agent_review": True,
+        "source_posts": [
+            {
+                "source_url": "https://x.com/OpenAI/status/556",
+                "author_handle": "OpenAI",
+                "source_text": "Agent APIs need budget caps and receipts.",
+                "rationale": "Duplicate generation guard.",
+            }
+        ],
+    }
+
+    first = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json=payload,
+    )
+    assert first.status_code == 200
+    duplicate = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json=payload,
+    )
+    assert duplicate.status_code == 400
+    assert "force_regenerate=true" in duplicate.json()["detail"]
+
+    forced = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={**payload, "force_regenerate": True},
+    )
+
+    assert forced.status_code == 200
+    assert forced.json()["reply_ids"] == first.json()["reply_ids"]
+    event_types = [
+        row.event_type
+        for row in db_session.query(SocialDistributionEventRow)
+        .order_by(SocialDistributionEventRow.id)
+        .all()
+    ]
+    assert event_types == [
+        "x_reply_block_candidates_generated",
+        "x_reply_block_regenerated",
+    ]
+
+
 def test_generate_x_reply_block_fails_closed_without_real_sources(
     synced_client, db_session
 ):
@@ -140,6 +245,119 @@ def test_generate_x_reply_block_fails_closed_without_real_sources(
     response = synced_client.post(
         f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
         json={"actor": "agent", "target_count": 5, "source_posts": []},
+    )
+
+    assert response.status_code == 400
+    assert "Reconnect X before syncing trend/radar sources" in response.json()["detail"]
+    assert db_session.query(SocialReplyItemRow).count() == 0
+    event = db_session.query(SocialDistributionEventRow).one()
+    assert event.event_type == "x_source_sync_blocked"
+
+
+def test_generate_x_reply_block_selects_agent_economy_sources_from_trends(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
+            "access-token", refreshed=True
+        ),
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    for index in range(1, 11):
+        if index <= 5:
+            topic = f"Agent payment pain {index}"
+            summary = (
+                "How should an AI agent pay for paid APIs without handing it an unlimited "
+                "credit card? We need API pricing, spend control, receipts, and provider "
+                "metering before this is safe for builders."
+            )
+            score = 0.95 - (index * 0.01)
+        else:
+            topic = f"Generic AI launch {index}"
+            summary = "Launching today with a giveaway and broad AI news, but no technical payment or spend-control context."
+            score = 0.94 - (index * 0.01)
+        db_session.add(
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url=f"https://x.com/builder{index}/status/{800 + index}",
+                author_handle=f"builder{index}",
+                topic=topic,
+                summary=summary,
+                relevance_score=score,
+                status="new",
+            )
+        )
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 5, "agent_review": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["reply_ids"]) == 5
+    replies = db_session.query(SocialReplyItemRow).order_by(SocialReplyItemRow.id).all()
+    assert len(replies) == 5
+    for reply in replies:
+        metadata = json.loads(reply.metadata_json)
+        strategy = metadata["x_reply_source_strategy"]
+        assert strategy["strategy"] == "agent_economy_monetization"
+        assert strategy["source_bucket"] == "direct_pain"
+        assert strategy["reply_angle"] in {
+            "budget_cap",
+            "per_call_settlement",
+            "receipt_evidence",
+            "api_metering",
+        }
+        assert strategy["selected"] is True
+        assert not strategy["do_not_reply_reason"]
+    rejected = (
+        db_session.query(SocialTrendItemRow)
+        .filter(SocialTrendItemRow.topic.like("Generic AI launch%"))
+        .all()
+    )
+    assert rejected
+    assert any(
+        json.loads(row.metadata_json)["reply_source_strategy"]["do_not_reply_reason"]
+        for row in rejected
+    )
+
+
+def test_generate_x_reply_block_rejects_generic_or_unsafe_sources(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={
+            "actor": "agent",
+            "target_count": 2,
+            "source_posts": [
+                {
+                    "source_url": "https://x.com/hype/status/901",
+                    "author_handle": "hype",
+                    "source_text": "Launching today. Sign up now for a giveaway.",
+                    "rationale": "Generic promotion.",
+                },
+                {
+                    "source_url": "https://x.com/coin/status/902",
+                    "author_handle": "coin",
+                    "source_text": "Token price pump incoming. Trading signal for AI coin.",
+                    "rationale": "Unsafe crypto promo.",
+                },
+            ],
+        },
     )
 
     assert response.status_code == 400
@@ -168,7 +386,7 @@ def test_generate_x_reply_block_timeout_fails_closed(
                 {
                     "source_url": "https://x.com/OpenAI/status/103",
                     "author_handle": "OpenAI",
-                    "source_text": "Agent workflows should stay bounded.",
+                    "source_text": "Agent workflows should stay bounded with budget caps for paid API calls.",
                     "rationale": "Timeout coverage.",
                 }
             ],
@@ -247,7 +465,7 @@ def test_reply_block_board_moves_generated_candidates_to_ready_to_publish(
                 {
                     "source_url": "https://x.com/OpenAI/status/501",
                     "author_handle": "OpenAI",
-                    "source_text": "Agents need high-signal operating loops.",
+                    "source_text": "Agents need high-signal operating loops and spend control before calling paid tools.",
                     "rationale": "Reply board projection coverage.",
                 },
             ],
@@ -348,7 +566,7 @@ def test_x_reply_block_auto_publish_requires_opt_in_evidence(
                 {
                     "source_url": "https://x.com/OpenAI/status/301",
                     "author_handle": "OpenAI",
-                    "source_text": "Agent workflows need policy gates.",
+                    "source_text": "Agent workflows need policy gates, budget caps, and receipts for paid API calls.",
                     "rationale": "Compliance coverage.",
                 }
             ],
@@ -391,7 +609,7 @@ def test_x_reply_block_auto_publish_uses_api_when_approval_and_opt_in_exist(
                 {
                     "source_url": "https://x.com/OpenAI/status/302",
                     "author_handle": "OpenAI",
-                    "source_text": "Agent workflows need policy gates.",
+                    "source_text": "Agent workflows need policy gates, budget caps, and receipts for paid API calls.",
                     "rationale": "Compliance coverage.",
                     "opt_in_evidence": "Campaign partner opted in to AI-assisted replies.",
                 }

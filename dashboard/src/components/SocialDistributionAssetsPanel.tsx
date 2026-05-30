@@ -7,7 +7,7 @@ import {
 } from '../api'
 import { EmptyPane, OverlayModal, SectionFrame, useToast } from './workbench'
 import { AssetSummary } from './SocialDistributionBoard'
-import { AssetDetail } from './SocialDistributionDetails'
+import { AssetDetail } from './SocialDistributionAssetDetail'
 import { AssetForm } from './SocialDistributionWidgets'
 
 export function DistributionAssetsPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {

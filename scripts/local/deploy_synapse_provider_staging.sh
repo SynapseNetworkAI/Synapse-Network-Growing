@@ -3,9 +3,11 @@ set -euo pipefail
 
 REF="main"
 TARGET_REPO="${SYNAPSE_PROVIDER_REPO:-/Users/cliff/workspace/agent/Synapse-Network-Provider}"
+HELPER_REPO="${SYNAPSE_NETWORK_HELPER_REPO:-/Users/cliff/workspace/agent/Synapse-Network}"
 PROJECT_ID="${STAGING_GCP_PROJECT_ID:-fabled-archive-494108-k5}"
 REGION="${STAGING_GCP_REGION:-us-central1}"
 REPOSITORY="${STAGING_ARTIFACT_REGISTRY_REPOSITORY:-synapse-staging}"
+EXPECTED_PROJECT_ID="fabled-archive-494108-k5"
 
 usage() {
   cat >&2 <<'EOF'
@@ -46,10 +48,25 @@ require_cmd gcloud
 require_cmd git
 require_cmd node
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
+
 if [[ ! -d "${TARGET_REPO}/.git" ]]; then
   echo "target repo not found or not a git checkout: ${TARGET_REPO}" >&2
   exit 2
 fi
+if [[ ! -d "${HELPER_REPO}/.git" ]]; then
+  echo "helper repo not found or not a git checkout: ${HELPER_REPO}" >&2
+  exit 2
+fi
+
+synapse_release_env_guard \
+  --environment staging \
+  --project "${PROJECT_ID}" \
+  --expected-project "${EXPECTED_PROJECT_ID}" \
+  --region "${REGION}" \
+  --service "synapse-staging-provider" \
+  --repo "${TARGET_REPO}"
 
 git_target() {
   git --git-dir="${TARGET_REPO}/.git" --work-tree="${TARGET_REPO}" "$@"
@@ -143,7 +160,7 @@ node - <<NODE
 const fs = require('node:fs')
 fs.writeFileSync('build-images.json', JSON.stringify({services: {'provider-service': '${image_tag}'}}, null, 2) + '\\n')
 NODE
-node /Users/cliff/workspace/agent/Synapse-Network/scripts/deploy/resolve_artifact_registry_image_digests.mjs \
+node "${HELPER_REPO}/scripts/deploy/resolve_artifact_registry_image_digests.mjs" \
   --build-images build-images.json \
   --out image-digests.json
 image="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('image-digests.json','utf8')); console.log(d['provider-service'] || '')")"
@@ -163,7 +180,7 @@ run_with_timeout 8m gcloud run jobs execute synapse-staging-provider-schema-migr
   --wait
 
 echo "[local-deploy] syncing provider auxiliary job images"
-bash /Users/cliff/workspace/agent/Synapse-Network/scripts/deploy/gcp_sync_staging_jobs.sh \
+bash "${HELPER_REPO}/scripts/deploy/gcp_sync_staging_jobs.sh" \
   --project "${PROJECT_ID}" \
   --region "${REGION}" \
   --service provider \

@@ -1,6 +1,6 @@
 import type { SocialDistributionBoard } from '../apiSocialDistribution'
 
-export type TaskKindFilter = 'all' | 'content_distribution' | 'x_reply_block'
+export type TaskKindFilter = 'all' | 'content_distribution' | 'multi_platform_campaign' | 'x_article_pack' | 'x_media_post' | 'x_reply_block'
 
 export function filterBoardByKind(board: SocialDistributionBoard, filter: TaskKindFilter): SocialDistributionBoard {
   if (filter === 'all') return board
@@ -44,5 +44,8 @@ export function TaskKindFilterControl({
 const FILTER_OPTIONS: Array<{ value: TaskKindFilter; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'content_distribution', label: '内容发布' },
+  { value: 'multi_platform_campaign', label: '多平台' },
+  { value: 'x_article_pack', label: 'X Article' },
+  { value: 'x_media_post', label: 'X 图文' },
   { value: 'x_reply_block', label: 'X 回复' },
 ]

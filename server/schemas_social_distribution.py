@@ -48,6 +48,10 @@ class SocialDistributionAccountAuthStatusOut(BaseModel):
     private_web_adapter_enabled: bool = False
     blockers: list[str] = Field(default_factory=list)
     next_action: str
+    oauth_status: str | None = None
+    requires_authorization: bool = False
+    auth_message: str | None = None
+    last_checked_at: datetime | None = None
 
 
 class SocialDistributionAccountAuthStatusListOut(BaseModel):
@@ -81,6 +85,7 @@ class SocialContentAssetCreateRequest(BaseModel):
 
 class SocialContentTaskCreateRequest(BaseModel):
     title: str
+    task_type: str | None = None
     source_material: str | None = None
     target_audience: str | None = None
     target_platforms: list[str] = Field(default_factory=list)
@@ -276,6 +281,20 @@ class SocialDistributionApproveGenerateRequest(SocialDistributionGenerateTasksRe
     pass
 
 
+class SocialDistributionGenerateXArticlePackRequest(BaseModel):
+    actor: str = "operator"
+    article_url: str | None = None
+    teaser_include_article_url: bool = False
+
+
+class SocialDistributionGenerateXArticlePackOut(BaseModel):
+    asset: SocialContentAssetDetailOut
+    article_task_id: int
+    teaser_task_id: int
+    article_document_id: int
+    cover_image_path: str | None = None
+
+
 class SocialXReplySourcePostIn(BaseModel):
     source_url: str
     author_handle: str | None = None
@@ -291,6 +310,7 @@ class SocialXReplyBlockGenerateRequest(BaseModel):
     max_seconds: int | None = None
     per_reply_timeout_seconds: int | None = None
     auto_publish: bool = False
+    force_regenerate: bool = False
     source_posts: list[SocialXReplySourcePostIn] = Field(default_factory=list)
 
 

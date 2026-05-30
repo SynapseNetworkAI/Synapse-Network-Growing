@@ -44,6 +44,7 @@ SOCIAL_REPLY_CODEX_OUTPUT_SCHEMA: dict[str, Any] = {
     },
     "required": ["suggested_reply", "risk_level", "rationale"],
 }
+X_REPLY_URL_RE = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,30 @@ def _read_context_file(path: Path, *, max_chars: int, required: bool = False) ->
 
 def _normalize_for_check(value: str) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def x_reply_contains_url(value: str | None) -> bool:
+    return bool(X_REPLY_URL_RE.search(str(value or "")))
+
+
+def strip_x_reply_urls(value: str | None) -> str:
+    text = X_REPLY_URL_RE.sub("", str(value or ""))
+    text = re.sub(r"[ \t]+([,.;:!?])", r"\1", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def without_x_reply_urls(generated: GeneratedXReply) -> GeneratedXReply:
+    suggested_reply = strip_x_reply_urls(generated.suggested_reply)
+    if not suggested_reply:
+        raise ValueError("agent_reply_generation_failed: Agent reply was empty after URL removal")
+    return GeneratedXReply(
+        suggested_reply=suggested_reply,
+        risk_level=generated.risk_level,
+        rationale=generated.rationale,
+        model=generated.model,
+        generation_metadata=generated.generation_metadata,
+    )
 
 
 def _extract_first_json_object(raw: str) -> str | None:
@@ -167,6 +192,7 @@ def _build_reply_generation_prompt(
         "The reply must be specific to the source post, positive, natural, and add a useful Synapse angle. "
         "Do not write generic agreement such as 'Great point'. "
         "Do not auto-publish, ask to follow, mention private paths, expose secrets, cite workflow internals, or make financial return promises. "
+        "Do not include links, URLs, source-post URLs, docs URLs, repo URLs, or product links in suggested_reply. "
         "Do not fabricate that Synapse has already partnered with or been mentioned by the source author. "
         "Return JSON only: {'suggested_reply':'...', 'risk_level':'normal|elevated|blocked', 'rationale':'...'}."
     )
@@ -186,6 +212,7 @@ def _build_reply_generation_prompt(
         "# Task\n"
         "Generate a concise reply draft that responds to the actual source post. "
         "Add one concrete value-add perspective about agent infrastructure, governed API access, budgets, payment rails, provider monetization, or settlement only when relevant. "
+        "Do not include any URL or link in suggested_reply; if a link would be useful, say 'I can share the implementation notes if useful.' "
         "Avoid repeating the same generic Synapse thesis across unrelated posts. "
         "If the source post is not suitable for a brand reply, set risk_level to elevated or blocked and explain why in rationale. "
         "Return strict JSON only."
@@ -354,6 +381,8 @@ def _validate_generated_reply(
         raise ValueError(
             "agent_reply_generation_failed: Agent produced unsafe financial or credential language"
         )
+    if x_reply_contains_url(generated.suggested_reply):
+        raise ValueError("agent_reply_generation_failed: Agent included a URL in the reply")
     source_text = _normalize_for_check(candidate.source_text or "")
     reply_text = _normalize_for_check(generated.suggested_reply)
     if len(source_text) > 80 and source_text[:120] in reply_text:
@@ -383,11 +412,11 @@ def generate_x_reply_for_candidate(
             system_prompt, user_prompt, model, 0.7, timeout
         )
         metadata = {"provider": config.SOCIAL_CONTENT_LLM_PROVIDER, "model": model}
-    generated = _parse_generated_reply(raw_text)
+    parsed = without_x_reply_urls(_parse_generated_reply(raw_text))
     generated = GeneratedXReply(
-        suggested_reply=generated.suggested_reply,
-        risk_level=generated.risk_level,
-        rationale=generated.rationale,
+        suggested_reply=parsed.suggested_reply,
+        risk_level=parsed.risk_level,
+        rationale=parsed.rationale,
         model=model,
         generation_metadata={**metadata, "context_sources": list(context_sources)},
     )

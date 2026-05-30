@@ -10,6 +10,8 @@ PROJECT_ID="${PROD_GCP_PROJECT_ID:-synapse-network-prod}"
 REGION="${PROD_GCP_REGION:-us-central1}"
 REPOSITORY="${PROD_ARTIFACT_REGISTRY_REPOSITORY:-synapse-prod}"
 IMPERSONATE_SERVICE_ACCOUNT="${LOCAL_DEPLOY_IMPERSONATE_SERVICE_ACCOUNT:-}"
+EXPECTED_PROJECT_ID="synapse-network-prod"
+gateway_service_name="synapse-prod-gateway"
 
 usage() {
   cat >&2 <<'EOF'
@@ -55,6 +57,9 @@ require_cmd docker
 require_cmd gcloud
 require_cmd node
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
+
 GCLOUD=(gcloud)
 if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
   GCLOUD=(gcloud "--impersonate-service-account=${IMPERSONATE_SERVICE_ACCOUNT}")
@@ -67,6 +72,14 @@ if [[ ! "${STAGING_IMAGE_DIGEST}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
   echo "expected immutable staging image@sha256 digest, got: ${STAGING_IMAGE_DIGEST}" >&2
   exit 2
 fi
+
+synapse_release_env_guard \
+  --environment production \
+  --project "${PROJECT_ID}" \
+  --expected-project "${EXPECTED_PROJECT_ID}" \
+  --region "${REGION}" \
+  --service "${SERVICE:-synapse-prod-unset}" \
+  --repo "/Users/cliff/workspace/agent/Synapse-Network"
 
 prod_image_name() {
   case "$1" in
@@ -95,6 +108,13 @@ smoke_paths() {
     user-front|admin-front|docs-front) printf '/\n' ;;
     provider-service) printf '/health\n/ready\n' ;;
     *) return 2 ;;
+  esac
+}
+
+is_frontend_service() {
+  case "$1" in
+    user-front|admin-front|docs-front) return 0 ;;
+    *) return 1 ;;
   esac
 }
 
@@ -152,6 +172,24 @@ fs.writeFileSync(process.env.MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)
 NODE
 }
 
+gateway_job_env_flags=()
+
+build_gateway_job_env_flags() {
+  local gateway_service_url
+  gateway_service_url="$("${GCLOUD[@]}" run services describe "${gateway_service_name}" \
+    --project "${PROJECT_ID}" \
+    --region "${REGION}" \
+    --format='value(status.url)')"
+  [[ -n "${gateway_service_url}" ]] || {
+    echo "failed to resolve production gateway service URL" >&2
+    exit 1
+  }
+  gateway_job_env_flags=(
+    --update-env-vars
+    "DEPOSIT_INDEXER_TRIGGER_ENABLED=false,DEPOSIT_INDEXER_TRIGGER_URL=${gateway_service_url}/internal/jobs/deposit-indexer/trigger,NOTIFICATION_OUTBOX_TRIGGER_ENABLED=false,NOTIFICATION_OUTBOX_TRIGGER_URL=${gateway_service_url}/internal/jobs/notification-outbox/trigger,ALCHEMY_DEPOSIT_WEBHOOK_ENABLED=false"
+  )
+}
+
 update_gateway_prod_jobs() {
   local image="$1"
   local jobs=(
@@ -169,6 +207,7 @@ update_gateway_prod_jobs() {
       --project "${PROJECT_ID}" \
       --region "${REGION}" \
       --image "${image}" \
+      "${gateway_job_env_flags[@]}" \
       --quiet
   done
   echo "[local-prod] executing synapse-prod-db-migrate"
@@ -212,29 +251,51 @@ prod_tag="${registry}/${image_name}:${tag}"
 
 echo "[local-prod] project_key=${PROJECT_KEY} service=${SERVICE} ref=${REF}"
 echo "[local-prod] source=${STAGING_IMAGE_DIGEST}"
-echo "[local-prod] target=${prod_tag}"
-docker pull "${STAGING_IMAGE_DIGEST}"
-docker tag "${STAGING_IMAGE_DIGEST}" "${prod_tag}"
-prod_docker_config=""
-docker_host="$(docker context inspect --format '{{ (index .Endpoints "docker").Host }}' 2>/dev/null || true)"
-cleanup_prod_docker_config() {
-  [[ -z "${prod_docker_config}" ]] || rm -rf "${prod_docker_config}"
-}
-trap cleanup_prod_docker_config EXIT
-if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
-  prod_docker_config="$(mktemp -d -t synapse-prod-docker.XXXXXX)"
-  "${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}" \
-    | DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker login \
-        -u oauth2accesstoken \
-        --password-stdin "https://${REGION}-docker.pkg.dev"
-  DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker push "${prod_tag}"
+if is_frontend_service "${SERVICE}"; then
+  # Next.js public environment variables are baked into frontend bundles at
+  # build time. Do not promote a staging frontend digest to production, or the
+  # production site will keep calling staging APIs.
+  synapse_network_repo="${SYNAPSE_NETWORK_REPO:-/Users/cliff/workspace/agent/Synapse-Network}"
+  build_ref="${COMMIT_SHA:-${REF}}"
+  digest_log="$(mktemp -t synapse-prod-frontend-build.XXXXXX)"
+  echo "[local-prod] frontend production build ref=${build_ref}"
+  (
+    cd "${synapse_network_repo}"
+    bash scripts/deploy/local_build_frontend_image.sh \
+      --service "${SERVICE}" \
+      --environment production \
+      --ref "${build_ref}" \
+      --project "${PROJECT_ID}" \
+      --region "${REGION}" \
+      --repository "${REPOSITORY}" \
+      --no-attach
+  ) | tee "${digest_log}"
+  prod_digest="$(tail -n 1 "${digest_log}")"
+  rm -f "${digest_log}"
 else
-  gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-  docker push "${prod_tag}"
-fi
+  echo "[local-prod] target=${prod_tag}"
+  docker pull "${STAGING_IMAGE_DIGEST}"
+  docker tag "${STAGING_IMAGE_DIGEST}" "${prod_tag}"
+  prod_docker_config=""
+  docker_host="$(docker context inspect --format '{{ (index .Endpoints "docker").Host }}' 2>/dev/null || true)"
+  cleanup_prod_docker_config() {
+    [[ -z "${prod_docker_config}" ]] || rm -rf "${prod_docker_config}"
+  }
+  trap cleanup_prod_docker_config EXIT
+  if [[ -n "${IMPERSONATE_SERVICE_ACCOUNT}" ]]; then
+    prod_docker_config="$(mktemp -d -t synapse-prod-docker.XXXXXX)"
+    "${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}" \
+      | DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker login \
+          -u oauth2accesstoken \
+          --password-stdin "https://${REGION}-docker.pkg.dev"
+    DOCKER_CONFIG="${prod_docker_config}" DOCKER_HOST="${docker_host}" docker push "${prod_tag}"
+  else
+    gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+    docker push "${prod_tag}"
+  fi
 
-prod_token="$("${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}")"
-PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
+  prod_token="$("${GCLOUD[@]}" auth print-access-token --project "${PROJECT_ID}")"
+  PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
 const https = require('node:https')
 const image = process.env.PROD_TAG
 const token = process.env.PROD_TOKEN
@@ -276,8 +337,8 @@ req.on('error', (error) => {
 })
 req.end()
 NODE
-prod_digest="$(
-  PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
+  prod_digest="$(
+    PROD_TAG="${prod_tag}" PROD_TOKEN="${prod_token}" node - <<'NODE'
 const https = require('node:https')
 const image = process.env.PROD_TAG
 const token = process.env.PROD_TOKEN
@@ -315,14 +376,18 @@ req.on('error', (error) => {
 })
 req.end()
 NODE
-)"
+  )"
+fi
 if [[ ! "${prod_digest}" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
   echo "failed to resolve production immutable digest: ${prod_digest}" >&2
   exit 1
 fi
 
 case "${SERVICE}" in
-  gateway) update_gateway_prod_jobs "${prod_digest}" ;;
+  gateway)
+    build_gateway_job_env_flags
+    update_gateway_prod_jobs "${prod_digest}"
+    ;;
   gateway-admin) update_gateway_admin_prod_jobs "${prod_digest}" ;;
   provider-service) update_provider_prod_jobs "${prod_digest}" ;;
 esac

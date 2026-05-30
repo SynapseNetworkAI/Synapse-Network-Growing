@@ -33,4 +33,6 @@ def test_front_docs_release_task_staging_deploy_creates_local_runner_record(
     assert metadata["deploy_strategy"] == "local_deploy_runner"
     assert metadata["service_key"] == "docs-front"
     assert metadata["deployScope"] == "docs-front"
+    assert metadata["gcpProject"] == "fabled-archive-494108-k5"
+    assert metadata["environmentIsolationVersion"] == "v1"
     assert metadata["localRunnerCommand"][0:2] == ["bash", "scripts/local/deploy_synapse_staging.sh"]

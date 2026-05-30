@@ -91,6 +91,7 @@ def _platform_lint(
     body: str,
 ) -> tuple[list[PublishLintIssue], list[PublishLintIssue]]:
     issue_checks = {
+        "x": _x_issues,
         "devto": _markdown_article_issues,
         "hashnode": _markdown_article_issues,
         "reddit": _reddit_issues,
@@ -108,6 +109,17 @@ def _platform_lint(
 
 def _no_issues(_body: str) -> list[PublishLintIssue]:
     return []
+
+
+def _x_issues(body: str) -> list[PublishLintIssue]:
+    if not _URL_RE.search(body):
+        return []
+    return [
+        _issue(
+            "x_link_not_allowed_by_default",
+            "X drafts must not include URLs by default; share links only as a separate manual follow-up when explicitly requested.",
+        )
+    ]
 
 
 def _language_issues(
@@ -168,13 +180,6 @@ def _x_warnings(body: str) -> list[PublishLintIssue]:
             _issue(
                 "x_first_fold_dense",
                 "X first fold has no paragraph break; add whitespace before publishing.",
-            )
-        )
-    if len(_URL_RE.findall(body)) > 1:
-        warnings.append(
-            _issue(
-                "x_too_many_links",
-                "X draft has more than one link; keep the long post focused.",
             )
         )
     if body.count("#") > 1:

@@ -81,9 +81,17 @@ def test_release_task_production_deploy_creates_local_runner_record(
     assert metadata["gcpProject"] == "synapse-network-prod"
     assert metadata["sourceStagingDeploymentRecordId"] == int(staging_record.id)
     assert metadata["environmentIsolationVersion"] == "v1"
+    assert metadata["requiresSuccessfulStagingDigest"] is True
+    assert metadata["chain"] == "arbitrum-one"
     assert metadata["localDeployRunner"] is True
     assert metadata["deployScope"] == "gateway"
     assert metadata["stagingImageDigest"] == _staging_digest("gateway")
+    assert metadata["localRunnerCommand"][-4:] == [
+        "--project",
+        "synapse-network-prod",
+        "--region",
+        "us-central1",
+    ]
 
 
 def test_production_frontend_gate_requires_staging_evidence(monkeypatch, db_session):

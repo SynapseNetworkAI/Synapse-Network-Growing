@@ -1,0 +1,29 @@
+{
+  "article_document_id": 53,
+  "article_pack_document_status": "generated",
+  "article_task_id": 28,
+  "article_task_published_url": null,
+  "article_task_status": "needs_manual_article_publish",
+  "article_url_input": null,
+  "asset_id": 21,
+  "canonical_document_id": 52,
+  "cover_image_exists": true,
+  "cover_image_path": "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/x-article-packs/asset-21/synapse-network-x-article-cover.png",
+  "events": [
+    {
+      "created_at": "2026-05-24T07:10:17.228535",
+      "event_type": "x_article_pack_generated",
+      "id": 56,
+      "summary": "Generated X Article pack with manual publish checklist and API teaser task.",
+      "task_id": 28
+    }
+  ],
+  "include_article_url_in_teaser": false,
+  "publish_teaser_requested": false,
+  "started_at": "2026-05-24T07:10:16.900983+00:00",
+  "teaser_publish_result": null,
+  "teaser_task_external_post_id": null,
+  "teaser_task_id": 29,
+  "teaser_task_published_url": null,
+  "teaser_task_status": "needs_review"
+}

@@ -67,9 +67,15 @@ from server.services.local_secrets import (
     write_local_secret_version,
 )
 from server.services.social.defaults import DEFAULT_WATCHLIST_ACCOUNTS
-from server.services.social.reply_agent import generate_x_reply_for_candidate
+from server.services.social.reply_agent import (
+    generate_x_reply_for_candidate,
+    strip_x_reply_urls,
+    without_x_reply_urls,
+    x_reply_contains_url,
+)
 from server.services.social.reply_records import apply_generated_reply_to_row, reply_agent_failure_summary
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
+from server.services.social.x_oauth_credentials import read_x_oauth_client_id, read_x_oauth_client_secret
 DEFAULT_X_HANDLE = "SynapseNetworkA"
 DEFAULT_X_SECRET_REF = "x-official"
 X_POST_URL = "https://api.x.com/2/tweets"
@@ -1031,7 +1037,7 @@ def _pkce_challenge(verifier: str) -> str:
 
 def start_x_oauth_authorization(db: Session, *, account_id: int | None = None) -> SocialXOAuthStartOut:
     account = _get_account(db, account_id)
-    client_id = secret_store.read(config.X_OAUTH_CLIENT_ID_SECRET)
+    client_id = read_x_oauth_client_id(secret_store.read)
     state = uuid.uuid4().hex
     code_verifier = base64.urlsafe_b64encode(os.urandom(48)).decode("ascii").rstrip("=")
     redirect_uri = config.X_OAUTH_REDIRECT_URI
@@ -1475,6 +1481,7 @@ def _create_reply_from_repost_candidate(
                 candidate,
                 timeout_seconds=reply_timeout_seconds,
             )
+        generated = without_x_reply_urls(generated)
         apply_generated_reply_to_row(
             row,
             candidate,
@@ -1523,24 +1530,11 @@ def _watchlist_highlights(db: Session, *, limit: int = 6) -> list[SocialWatchlis
 
 
 X_RELEVANCE_KEYWORDS = (
-    "agent",
-    "agents",
-    "ai agent",
-    "mcp",
-    "api",
-    "apis",
-    "payment",
-    "payments",
-    "micropayment",
-    "settlement",
-    "infrastructure",
-    "infra",
-    "developer",
-    "developers",
-    "tool",
-    "tools",
-    "automation",
-    "autonomous",
+    "agent", "agents", "ai agent", "mcp", "x402", "api", "apis",
+    "payment", "payments", "monetization", "monetize", "micropayment",
+    "usdc", "wallet", "budget", "spend", "metering", "settlement",
+    "provider registry", "agent marketplace", "infrastructure", "infra",
+    "developer", "developers", "tool", "tools", "automation", "autonomous",
 )
 X_GENERIC_QUOTE_PREFIXES = (
     "great point",
@@ -1588,6 +1582,8 @@ def _x_keyword_relevance(text: str) -> float:
 
 def _x_watchlist_weight(row: SocialWatchlistAccountRow) -> float:
     weights = {
+        "agent_payment_protocol": 0.22,
+        "payment_infra": 0.20,
         "agent_founder": 0.18,
         "agent_framework": 0.18,
         "agent_protocol": 0.18,
@@ -2631,15 +2627,15 @@ class XOAuth2TokenProvider:
 
     def _refresh_token_storage(self) -> str:
         mode = os.environ.get("X_OAUTH_REFRESH_TOKEN_STORAGE", config.X_OAUTH_REFRESH_TOKEN_STORAGE).strip().lower() or "auto"
-        if mode == "auto":
-            return "local_db" if self.store is secret_store else "secret_manager"
-        if mode in {"local_db", "postgres", "db"}:
+        if mode in {"auto", "local_db", "postgres", "db"}:
             return "local_db"
-        return "secret_manager"
+        raise SocialPublishError(
+            "x_auth_failed",
+            "X OAuth refresh token runtime storage must be local_db; Secret Manager is migration-only.",
+        )
 
     def _read_refresh_token(self) -> str:
-        if self._refresh_token_storage() != "local_db":
-            return self.store.read(config.X_OAUTH_REFRESH_TOKEN_SECRET)
+        self._refresh_token_storage()
         try:
             with SessionLocal() as db:
                 return read_latest_local_secret(db, config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY)
@@ -2647,9 +2643,7 @@ class XOAuth2TokenProvider:
             raise SocialPublishError("x_auth_failed", str(exc)) from exc
 
     def _write_refresh_token(self, value: str, *, reason: str) -> None:
-        if self._refresh_token_storage() != "local_db":
-            self.store.add_version(config.X_OAUTH_REFRESH_TOKEN_SECRET, value)
-            return
+        self._refresh_token_storage()
         try:
             with SessionLocal() as db:
                 write_local_secret_version(
@@ -2673,10 +2667,7 @@ class XOAuth2TokenProvider:
         return "authorized", "OAuth refresh token is configured."
 
     def _client_credentials(self) -> tuple[str, str]:
-        return (
-            self.store.read(config.X_OAUTH_CLIENT_ID_SECRET),
-            self.store.read(config.X_OAUTH_CLIENT_SECRET_SECRET),
-        )
+        return (read_x_oauth_client_id(self.store.read), read_x_oauth_client_secret(self.store.read))
 
     def _token_request(self, form: dict[str, str]) -> dict[str, Any]:
         client_id, client_secret = self._client_credentials()
@@ -2819,6 +2810,8 @@ class XApiPublisher:
         return media_id
 
     def publish_text(self, account: SocialAccountRow, body_text: str, media_ids: list[str] | None = None) -> XPublishResult:
+        if x_reply_contains_url(body_text):
+            raise SocialPublishError("x_url_blocked", "X publish payload contains a URL; Synapse defaults to no-link X posts to control cost and avoid link-drop behavior.")
         token = _read_secret_token(account.secret_ref)
         payload_obj: dict[str, Any] = {"text": body_text}
         if media_ids:
@@ -2852,6 +2845,8 @@ class XApiPublisher:
         return XPublishResult(post_id=post_id, response_summary={"data": {"id": post_id}, "media_ids": media_ids or []})
 
     def publish_reply(self, account: SocialAccountRow, body_text: str, *, in_reply_to_tweet_id: str) -> XPublishResult:
+        if x_reply_contains_url(body_text):
+            raise SocialPublishError("x_reply_url_blocked", "X reply payload contains a URL; publish a no-link reply first and share links only in a separate manual follow-up when requested.")
         token = _read_secret_token(account.secret_ref)
         reply_to = str(in_reply_to_tweet_id or "").strip()
         if not reply_to:
@@ -3132,7 +3127,7 @@ def update_social_reply(db: Session, reply_id: int, body: SocialReplyPatchReques
     if row.status in {"published", "published_manual"}:
         raise ValueError("published replies cannot be edited")
     if body.suggested_reply is not None:
-        row.suggested_reply = str(body.suggested_reply or "").strip()
+        row.suggested_reply = strip_x_reply_urls(body.suggested_reply)
     if body.status is not None:
         status = str(body.status or "").strip()
         if status not in {"needs_review", "approved", "failed", "rejected", "published_manual"}:

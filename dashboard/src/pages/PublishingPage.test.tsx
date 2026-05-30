@@ -214,6 +214,7 @@ describe('PublishingPage v2 distribution workbench', () => {
             publish_mode: 'agent_approved_needs_manual_publish',
             approval_ref_configured: false,
             auto_publish: false,
+            reply_source_strategy: 'agent_economy_monetization',
           },
         },
       }),
@@ -255,6 +256,12 @@ describe('PublishingPage v2 distribution workbench', () => {
         metadata: {
           agent_quality_review: { status: 'passed' },
           x_reply_compliance: { approval_ref_configured: false },
+          x_reply_source_strategy: {
+            strategy: 'agent_economy_monetization',
+            source_bucket: 'direct_pain',
+            reply_angle: 'budget_cap',
+            matched_keywords: ['agent', 'payment'],
+          },
           model: 'test-reply-model',
         },
         created_at: '2026-05-01T00:00:00Z',
@@ -308,6 +315,10 @@ describe('PublishingPage v2 distribution workbench', () => {
     expect(screen.getByText('123')).toBeInTheDocument()
     expect(screen.getByText(/credential scopes, budgets, and receipts/)).toBeInTheDocument()
     expect(screen.getByText('manual publish required')).toBeInTheDocument()
+    expect(screen.getAllByText('bucket: direct_pain')).toHaveLength(2)
+    expect(screen.getAllByText('angle: budget_cap')).toHaveLength(2)
+    expect(screen.getByText('matched: agent, payment')).toBeInTheDocument()
+    expect(screen.getByText('source strategy: agent_economy_monetization')).toBeInTheDocument()
     expect(screen.queryByText('Canonical Article')).not.toBeInTheDocument()
     expect(screen.queryByText('Platform Docs')).not.toBeInTheDocument()
     expect(screen.queryByText('Channel Selection')).not.toBeInTheDocument()

@@ -8,6 +8,7 @@ TARGET_REPO="${SYNAPSE_NETWORK_REPO:-/Users/cliff/workspace/agent/Synapse-Networ
 PROJECT_ID="${STAGING_GCP_PROJECT_ID:-fabled-archive-494108-k5}"
 REGION="${STAGING_GCP_REGION:-us-central1}"
 REPOSITORY="${STAGING_ARTIFACT_REGISTRY_REPOSITORY:-synapse-staging}"
+EXPECTED_PROJECT_ID="fabled-archive-494108-k5"
 
 usage() {
   cat >&2 <<'EOF'
@@ -82,6 +83,9 @@ require_cmd git
 require_cmd mktemp
 require_cmd node
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
+
 if [[ ! -d "${TARGET_REPO}/.git" ]]; then
   echo "target repo not found or not a git checkout: ${TARGET_REPO}" >&2
   exit 2
@@ -90,6 +94,14 @@ if [[ -z "${PROJECT_ID}" || -z "${REGION}" || -z "${REPOSITORY}" ]]; then
   echo "project, region, and repository are required" >&2
   exit 2
 fi
+
+synapse_release_env_guard \
+  --environment staging \
+  --project "${PROJECT_ID}" \
+  --expected-project "${EXPECTED_PROJECT_ID}" \
+  --region "${REGION}" \
+  --service "${SERVICE:-synapse-staging-unset}" \
+  --repo "${TARGET_REPO}"
 
 git_target() {
   git \
@@ -223,19 +235,41 @@ build_synapse_network_digest() {
 
 build_frontend_digest() {
   local service="$1"
-  local output
-  output="$(
-    cd "${TARGET_REPO}"
-    STAGING_GCP_PROJECT_ID="${PROJECT_ID}" \
-      STAGING_GCP_REGION="${REGION}" \
-      STAGING_ARTIFACT_REGISTRY_REPOSITORY="${REPOSITORY}" \
-      run_in_target_worktree bash scripts/deploy/local_build_staging_image.sh \
-        --service "${service}" \
-        --ref "${REF}" \
-        --no-attach
-  )"
-  printf '%s\n' "${output}" >&2
-  printf '%s\n' "${output}" | tail -n 1
+  local target_commit short_sha timestamp tag worktree_dir build_backend image
+  target_commit="$(git_target rev-parse "${REF}^{commit}")"
+  short_sha="${target_commit:0:12}"
+  timestamp="$(date -u +%Y%m%d%H%M%S)"
+  tag="staging-local-${service}-${short_sha}-${timestamp}"
+  worktree_dir="${TMPDIR:-/tmp}/synapse-build-staging-${service}-${short_sha}-${timestamp}-$$"
+  build_backend="${FRONTEND_STAGING_IMAGE_BUILD_BACKEND:-cloudbuild}"
+  cleanup_frontend_worktree() {
+    if git_target worktree list --porcelain | grep -Fqx "worktree ${worktree_dir}"; then
+      git_target worktree remove -f "${worktree_dir}" >/dev/null 2>&1 || true
+    elif [[ -d "${worktree_dir}" ]]; then
+      rm -rf "${worktree_dir}"
+    fi
+  }
+  trap cleanup_frontend_worktree EXIT
+
+  echo "[local-deploy] ${service} ref=${REF} commit=${target_commit}" >&2
+  echo "[local-deploy] ${service} image build backend=${build_backend}" >&2
+  git_target worktree add --detach "${worktree_dir}" "${target_commit}" >&2
+  pushd "${worktree_dir}" >/dev/null
+  REGION="${REGION}" \
+    ARTIFACT_REGISTRY_REPOSITORY="${REPOSITORY}" \
+    STAGING_IMAGE_BUILD_BACKEND="${build_backend}" \
+    bash "${TARGET_REPO}/scripts/deploy/gcp_cloudbuild_staging_images.sh" "${PROJECT_ID}" \
+      --services "${service}" \
+      --tag "${tag}" \
+      --json-output build-images.json >&2
+  node "${TARGET_REPO}/scripts/deploy/resolve_artifact_registry_image_digests.mjs" \
+    --build-images build-images.json \
+    --out image-digests.json >&2
+  image="$(node -e "const fs=require('fs'); const d=JSON.parse(fs.readFileSync('image-digests.json','utf8')); console.log(d[process.argv[1]] || '')" "${service}")"
+  popd >/dev/null
+  cleanup_frontend_worktree
+  trap - EXIT
+  printf '%s\n' "${image}"
 }
 
 deploy_frontend() {

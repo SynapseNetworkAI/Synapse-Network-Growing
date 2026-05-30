@@ -233,21 +233,23 @@ def _override_get_db():
 
 
 def _reset_postgres_schema() -> None:
-    TEST_ENGINE.dispose()
-    APP_ENGINE.dispose()
+    _ensure_test_tables()
+    table_names = ", ".join(_quoted_table_name(table) for table in Base.metadata.tables.values())
+    if not table_names:
+        return
     with TEST_ENGINE.begin() as conn:
-        conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        conn.execute(text("CREATE SCHEMA public"))
+        conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+
+
+def _quoted_table_name(table) -> str:
+    schema = str(table.schema or "public").replace('"', '""')
+    name = str(table.name).replace('"', '""')
+    return f'"{schema}"."{name}"'
 
 
 def _rebuild_postgres_schema() -> None:
     with _SCHEMA_RESET_LOCK:
         _reset_postgres_schema()
-        TEST_ENGINE.dispose()
-        APP_ENGINE.dispose()
-        Base.metadata.create_all(bind=TEST_ENGINE)
-        TEST_ENGINE.dispose()
-        APP_ENGINE.dispose()
 
 
 def _drop_postgres_schema() -> None:

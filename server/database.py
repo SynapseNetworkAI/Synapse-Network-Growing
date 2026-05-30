@@ -691,15 +691,12 @@ class SocialCampaignGoalRow(Base):
     created_by = Column(Text, nullable=False, default="operator")
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class SocialTrendItemRow(Base):
     __tablename__ = "social_trend_items"
     __table_args__ = (
         Index("social_trend_items_status_idx", "status"),
         Index("social_trend_items_topic_idx", "topic"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     source_platform = Column(Text, nullable=False, default="x")
     source_url = Column(Text)
@@ -708,11 +705,10 @@ class SocialTrendItemRow(Base):
     summary = Column(Text, nullable=False)
     relevance_score = Column(Float, nullable=False, default=0.0)
     status = Column(Text, nullable=False, default="new")
+    metadata_json = Column(Text, nullable=False, default="{}")
     collected_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class SocialWatchlistAccountRow(Base):
     __tablename__ = "social_watchlist_accounts"
     __table_args__ = (
@@ -720,7 +716,6 @@ class SocialWatchlistAccountRow(Base):
         Index("social_watchlist_status_idx", "status"),
         Index("social_watchlist_category_idx", "category"),
     )
-
     id = Column(Integer, primary_key=True, autoincrement=True)
     platform = Column(Text, nullable=False, default="x")
     handle = Column(Text, nullable=False)
@@ -733,8 +728,6 @@ class SocialWatchlistAccountRow(Base):
     latest_summary = Column(Text)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
-
-
 class SocialReplyItemRow(Base):
     __tablename__ = "social_reply_items"
     __table_args__ = (
@@ -807,10 +800,11 @@ class SocialPostMetricRow(Base):
     format_kind = Column(Text)
     posted_at = Column(DateTime)
     summary = Column(Text)
+    metadata_json = Column(Text, nullable=False, default="{}")
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_social_distribution  # noqa: E402,F401
+import server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
 import server.database_scheduled_jobs  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
@@ -1695,6 +1689,10 @@ def _migrate(engine_):
         if table_name not in tables:
             logger.info("Migrating: creating '%s' table", table_name)
             row_class.__table__.create(bind=engine_, checkfirst=True)
+    if "social_trend_items" in tables and "metadata_json" not in {c["name"] for c in insp.get_columns("social_trend_items")}:
+        logger.info("Migrating: adding 'metadata_json' column to social_trend_items table")
+        with engine_.begin() as conn:
+            conn.execute(text("ALTER TABLE social_trend_items ADD COLUMN metadata_json TEXT DEFAULT '{}' NOT NULL"))
     if "social_post_metrics" in tables:
         existing = {c["name"] for c in insp.get_columns("social_post_metrics")}
         metric_cols = {
@@ -1702,6 +1700,7 @@ def _migrate(engine_):
             "bookmarks": "INTEGER DEFAULT 0 NOT NULL",
             "format_kind": "TEXT",
             "posted_at": "TIMESTAMP",
+            "metadata_json": "TEXT DEFAULT '{}' NOT NULL",
         }
         for col, col_type in metric_cols.items():
             if col not in existing:
@@ -1747,6 +1746,7 @@ def _migrate(engine_):
                 conn.execute(text("ALTER TABLE social_watchlist_accounts ADD COLUMN x_user_id TEXT")); conn.commit()
 
     server.database_social_distribution.migrate_social_distribution_schema(engine_, insp, tables)
+    server.database_social_analytics.migrate_social_analytics_schema(engine_, insp, tables)
 
     if "workflow_runs" in tables:
         existing = {c["name"] for c in insp.get_columns("workflow_runs")}

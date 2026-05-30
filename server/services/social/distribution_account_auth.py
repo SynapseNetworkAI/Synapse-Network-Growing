@@ -10,6 +10,7 @@ from server import schemas_social_distribution as dist_schema
 from server.database import utcnow
 from server.database_social_distribution import SocialDistributionAccountRow
 from server.services.social.distribution import ensure_default_distribution_accounts
+from server.services.social.publishing import SocialPublishError, x_oauth_token_provider
 
 OFFICIAL_API_PLATFORMS = {"x", "devto", "dev", "reddit", "hashnode"}
 BROWSER_ASSISTED_PLATFORMS = {
@@ -55,6 +56,14 @@ def _account_auth_status(
     private_adapter = _private_web_adapter_enabled()
     blockers: list[str] = []
     api_status = _api_status(row, platform, capabilities, blockers)
+    oauth_status: str | None = None
+    auth_message: str | None = None
+    requires_authorization = False
+    checked_at = utcnow()
+    if platform == "x" and api_status == "task_preflight_required":
+        api_status, oauth_status, auth_message, requires_authorization = (
+            _x_oauth_live_status(blockers)
+        )
     browser_status = _browser_status(row, platform, blockers)
     publish_path = _publish_path(platform, api_status, browser_status)
     return dist_schema.SocialDistributionAccountAuthStatusOut(
@@ -72,6 +81,10 @@ def _account_auth_status(
         private_web_adapter_enabled=private_adapter,
         blockers=blockers,
         next_action=_next_action(publish_path, blockers),
+        oauth_status=oauth_status,
+        requires_authorization=requires_authorization,
+        auth_message=auth_message,
+        last_checked_at=checked_at,
     )
 
 
@@ -123,6 +136,30 @@ def _x_api_status(capabilities: set[str], blockers: list[str]) -> str:
         blockers.append("x_api_capability_missing_post")
         return "missing_capability"
     return "task_preflight_required"
+
+
+def _x_oauth_live_status(blockers: list[str]) -> tuple[str, str, str, bool]:
+    try:
+        token = x_oauth_token_provider.get_access_token()
+    except SocialPublishError as exc:
+        oauth_status = _x_oauth_status_from_error(exc)
+        blockers.append(oauth_status)
+        return "blocked", oauth_status, exc.summary, True
+    message = "X OAuth refresh token is valid."
+    if token.refresh_token_rotated:
+        message = "X OAuth refresh token is valid and was rotated locally."
+    return "ready", "authorized", message, False
+
+
+def _x_oauth_status_from_error(exc: SocialPublishError) -> str:
+    summary = str(exc.summary or "").lower()
+    if exc.kind == "x_refresh_failed":
+        return "invalid_refresh_token"
+    if "local secret" in summary or "not found" in summary or "missing" in summary:
+        return "missing_local_secret"
+    if exc.kind == "x_auth_failed":
+        return "needs_authorization"
+    return "error"
 
 
 def _configured_api_status(

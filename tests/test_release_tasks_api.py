@@ -31,6 +31,35 @@ def test_create_release_task_and_query_defaults_to_local_runner(synced_client):
     assert items[0]["deployment_record_id"] is None
 
 
+def test_agent_release_task_requires_local_token(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_DEPLOY_API_TOKEN", "")
+
+    response = _create_task(synced_client, actor="codex/test-thread")
+
+    assert response.status_code == 403
+    assert "OPS_AGENT_DEPLOY_API_TOKEN" in response.json()["detail"]
+
+
+def test_agent_release_task_accepts_matching_local_token(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_DEPLOY_API_TOKEN", "deploy-token")
+
+    response = synced_client.post(
+        "/api/releases/tasks",
+        headers={"X-Growing-Agent-Deploy-Token": "deploy-token"},
+        json={
+            "project_key": "synapse-network",
+            "project_display_name": "Synapse-Network",
+            "service_key": "gateway",
+            "branch_name": "main",
+            "environment": "staging",
+            "actor": "codex/test-thread",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["actor"] == "codex/test-thread"
+
+
 def test_staging_deploy_creates_local_runner_record(synced_client, db_session):
     task = _create_task(synced_client).json()
 
@@ -48,8 +77,30 @@ def test_staging_deploy_creates_local_runner_record(synced_client, db_session):
     assert record.workflow_file == "local_deploy_runner"
     metadata = json.loads(record.metadata_json)
     assert metadata["localDeployRunner"] is True
-    assert metadata["localRunnerCommand"][0:2] == ["bash", "scripts/local/deploy_synapse_staging.sh"]
+    assert metadata["localRunnerCommand"][0:2] == [
+        "bash",
+        "scripts/local/deploy_synapse_staging.sh",
+    ]
     assert metadata["deployScope"] == "gateway"
+
+
+def test_agent_staging_deploy_requires_matching_token(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_DEPLOY_API_TOKEN", "deploy-token")
+    task = _create_task(synced_client).json()
+
+    blocked = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/deploy-staging",
+        json={"actor": "codex/test-thread"},
+    )
+    allowed = synced_client.post(
+        f"/api/releases/tasks/{task['id']}/deploy-staging",
+        headers={"X-Growing-Agent-Deploy-Token": "deploy-token"},
+        json={"actor": "codex/test-thread"},
+    )
+
+    assert blocked.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json()["deployment_record_id"] is not None
 
 
 def test_sync_deployment_statuses_only_summarizes_local_runner_records(

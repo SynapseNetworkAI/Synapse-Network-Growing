@@ -31,6 +31,7 @@ def social_distribution_board(
 ) -> dist_schema.SocialDistributionBoardOut:
     rows = (
         db.query(SocialContentAssetRow)
+        .filter(SocialContentAssetRow.status != "archived")
         .order_by(
             SocialContentAssetRow.updated_at.desc(), SocialContentAssetRow.id.desc()
         )

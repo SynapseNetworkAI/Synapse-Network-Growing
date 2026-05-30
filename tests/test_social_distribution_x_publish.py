@@ -462,7 +462,9 @@ def test_x_distribution_long_post_api_failure_records_bounded_failure(
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "failed"
-    assert payload["failure_summary"] == "X API rejected long-form text for this account."
+    assert (
+        payload["failure_summary"] == "X API rejected long-form text for this account."
+    )
 
 
 def test_x_distribution_long_post_publish_payload_validation():
@@ -535,6 +537,175 @@ def test_non_x_distribution_task_cannot_publish_via_api(
 
     assert response.status_code == 400
     assert "only X distribution tasks" in response.json()["detail"]
+
+
+def test_x_article_pack_generates_manual_article_and_api_teaser(
+    synced_client, db_session, monkeypatch, tmp_path
+):
+    patch_agent_distribution(monkeypatch)
+    monkeypatch.setattr(
+        "server.services.social.distribution_article_packs.config.PROJECT_ROOT",
+        tmp_path,
+    )
+    synced_client.get("/api/social/distribution/accounts")
+    asset = synced_client.post(
+        "/api/social/distribution/assets",
+        json={
+            "title": "Synapse platform article",
+            "summary": "Explain payment rails for AI agents.",
+        },
+    ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-x-article-pack",
+        json={"actor": "operator"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    article_task = db_session.get(SocialDistributionTaskRow, payload["article_task_id"])
+    teaser_task = db_session.get(SocialDistributionTaskRow, payload["teaser_task_id"])
+    article_doc = db_session.get(
+        SocialDistributionDocumentRow, payload["article_document_id"]
+    )
+    assert article_task is not None
+    assert teaser_task is not None
+    assert article_doc is not None
+    assert article_task.action == "x_article_manual_publish"
+    assert article_task.status == "needs_manual_article_publish"
+    assert teaser_task.action == "x_article_teaser"
+    assert teaser_task.status == "needs_review"
+    assert article_doc.document_kind == "x_article_pack"
+    article_metadata = json.loads(article_doc.metadata_json)
+    assert article_metadata["x_article_api_supported"] is False
+    assert article_metadata["cover_image"]["local_path"].endswith(".png")
+    assert article_metadata["inline_images"]
+    assert article_metadata["inline_gifs"]
+    media_manifest = article_metadata["media_manifest"]
+    assert [item["kind"] for item in media_manifest] == [
+        "cover",
+        "image",
+        "image",
+        "gif",
+    ]
+    assert media_manifest[0]["placement_after_heading"] == "top"
+    assert media_manifest[1]["placement_after_heading"] == "What the operator sees"
+    assert media_manifest[2]["placement_after_heading"] == "How providers publish services"
+    assert media_manifest[3]["placement_after_heading"] == "How an agent uses it"
+    assert payload["cover_image_path"].endswith(".png")
+    assert (
+        db_session.query(SocialDistributionEventRow)
+        .filter(SocialDistributionEventRow.event_type == "x_article_pack_generated")
+        .count()
+        == 1
+    )
+    second = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-x-article-pack",
+        json={"actor": "operator"},
+    )
+    assert second.status_code == 200
+    assert second.json()["article_task_id"] == payload["article_task_id"]
+    assert second.json()["teaser_task_id"] == payload["teaser_task_id"]
+    assert db_session.query(SocialDistributionTaskRow).count() == 2
+    db_session.refresh(article_doc)
+    assert int(article_doc.version) == 2
+
+
+def test_x_article_manual_task_cannot_publish_via_api(
+    synced_client, db_session, monkeypatch, tmp_path
+):
+    patch_agent_distribution(monkeypatch)
+    monkeypatch.setattr(
+        "server.services.social.distribution_article_packs.config.PROJECT_ROOT",
+        tmp_path,
+    )
+    synced_client.get("/api/social/distribution/accounts")
+    asset = synced_client.post(
+        "/api/social/distribution/assets",
+        json={"title": "Manual Article", "summary": "Article is manual."},
+    ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
+    generated = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-x-article-pack",
+        json={"actor": "operator"},
+    ).json()
+
+    response = synced_client.post(
+        f"/api/social/distribution/tasks/{generated['article_task_id']}/publish-x",
+        json={"actor": "operator"},
+    )
+
+    assert response.status_code == 400
+    assert "X Articles require manual publishing" in response.json()["detail"]
+
+
+def test_x_article_teaser_uploads_cover_media_before_publish(
+    synced_client, db_session, monkeypatch, tmp_path
+):
+    patch_agent_distribution(monkeypatch)
+    monkeypatch.setattr(
+        "server.services.social.distribution_article_packs.config.PROJECT_ROOT",
+        tmp_path,
+    )
+    monkeypatch.setattr(
+        "server.services.social.distribution_tasks.run_content_policy_check",
+        lambda _text: {"status": "passed", "blocked_reasons": []},
+    )
+
+    class FakeXPublisher:
+        def __init__(self):
+            self.uploads = []
+            self.posts = []
+
+        def upload_image(self, account, image_path):
+            self.uploads.append(image_path)
+            return "media-article-cover"
+
+        def publish_text(self, account, body_text, media_ids=None):
+            self.posts.append((body_text, media_ids))
+            return XPublishResult(
+                post_id="teaser-123",
+                response_summary={"data": {"id": "teaser-123"}},
+            )
+
+        def publish_reply(self, account, body_text, *, in_reply_to_tweet_id):
+            raise AssertionError("teaser must be a single root post")
+
+    fake_publisher = FakeXPublisher()
+    monkeypatch.setattr(
+        "server.services.social.distribution_tasks.x_publisher",
+        fake_publisher,
+    )
+    synced_client.get("/api/social/distribution/accounts")
+    asset = synced_client.post(
+        "/api/social/distribution/assets",
+        json={"title": "Teaser with cover", "summary": "Publish teaser media."},
+    ).json()
+    _add_approved_canonical_article(db_session, asset["id"])
+    generated = synced_client.post(
+        f"/api/social/distribution/assets/{asset['id']}/generate-x-article-pack",
+        json={"actor": "operator"},
+    ).json()
+
+    response = synced_client.post(
+        f"/api/social/distribution/tasks/{generated['teaser_task_id']}/publish-x",
+        json={"actor": "operator"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "live"
+    assert payload["external_post_id"] == "teaser-123"
+    assert fake_publisher.uploads
+    assert fake_publisher.posts[0][1] == ["media-article-cover"]
+    assert payload["metadata"]["x_teaser_media"]["x_media_id"] == "media-article-cover"
+    assert (
+        db_session.query(SocialDistributionEventRow)
+        .filter(SocialDistributionEventRow.event_type == "media_uploaded_to_x")
+        .count()
+        == 1
+    )
 
 
 def test_x_distribution_publish_policy_blocked_records_failure(

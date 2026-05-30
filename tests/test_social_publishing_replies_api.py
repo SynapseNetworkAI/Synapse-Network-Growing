@@ -218,6 +218,8 @@ def test_generate_reply_endpoint_and_publish_reply_uses_x_reply_payload(
     assert captured["handle"] == "SynapseNetworkA"
     assert captured["in_reply_to_tweet_id"] == "777"
     assert "governed access" in captured["body_text"]
+    assert "http://" not in captured["body_text"]
+    assert "https://" not in captured["body_text"]
     db_session.refresh(candidate)
     assert candidate.status == "replied"
 
@@ -542,9 +544,16 @@ def test_publish_social_reply_validation_edges(monkeypatch, synced_client, db_se
         suggested_reply="Guaranteed risk-free profit if you send funds.",
         status="approved",
     )
-    db_session.add_all([non_x, settled, empty_text, missing_source, blocked])
+    with_url = SocialReplyItemRow(
+        external_reply_id="target:6",
+        source_post_id="6",
+        incoming_text="External post.",
+        suggested_reply="Useful implementation notes: https://synapse-network.ai/docs",
+        status="approved",
+    )
+    db_session.add_all([non_x, settled, empty_text, missing_source, blocked, with_url])
     db_session.commit()
-    for row in [non_x, settled, empty_text, missing_source, blocked]:
+    for row in [non_x, settled, empty_text, missing_source, blocked, with_url]:
         db_session.refresh(row)
 
     assert (
@@ -578,6 +587,13 @@ def test_publish_social_reply_validation_edges(monkeypatch, synced_client, db_se
     assert blocked_response.status_code == 200
     assert blocked_response.json()["status"] == "failed"
     assert "Blocked:" in blocked_response.json()["failure_summary"]
+
+    url_response = synced_client.post(
+        f"/api/social/replies/{with_url.id}/publish-x", json={"actor": "operator"}
+    )
+    assert url_response.status_code == 200
+    assert url_response.json()["status"] == "failed"
+    assert url_response.json()["metadata"]["publish_failure_kind"] == "x_reply_url_blocked"
 
 
 def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
@@ -614,6 +630,15 @@ def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
     assert result.post_id == "reply-123"
     assert requests[0]["text"] == "Helpful reply"
     assert requests[0]["reply"] == {"in_reply_to_tweet_id": "123"}
+
+    with pytest.raises(social_publishing.SocialPublishError) as url_blocked:
+        social_publishing.XApiPublisher().publish_reply(
+            account,
+            "Helpful reply with https://synapse-network.ai/docs",
+            in_reply_to_tweet_id="123",
+        )
+    assert url_blocked.value.kind == "x_reply_url_blocked"
+    assert len(requests) == 1
 
     with pytest.raises(social_publishing.SocialPublishError, match="target tweet id"):
         social_publishing.XApiPublisher().publish_reply(

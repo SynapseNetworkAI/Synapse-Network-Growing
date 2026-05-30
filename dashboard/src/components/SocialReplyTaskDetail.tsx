@@ -1,4 +1,4 @@
-import type { SocialContentAssetDetail, SocialReplyItem } from '../apiSocialDistribution'
+import type { SocialContentAssetDetail, SocialDistributionAccountAuthStatus, SocialReplyItem } from '../apiSocialDistribution'
 import { InfoBlock, StateBadge, copyText, statusTone } from './SocialDistributionWidgets'
 import type { useToast } from './workbench'
 
@@ -11,6 +11,13 @@ type ReplyBlockMetadata = {
   auto_publish?: unknown
   opt_in_evidence?: unknown
   status?: unknown
+  reply_source_strategy?: unknown
+  source_bucket?: unknown
+  problem_fit_score?: unknown
+  reply_angle?: unknown
+  do_not_reply_reason?: unknown
+  total_score?: unknown
+  matched_keywords?: unknown
 }
 
 export function ReplyTaskDetailView({
@@ -19,18 +26,26 @@ export function ReplyTaskDetailView({
   busy,
   toast,
   onGenerateXReplyBlock,
+  onReconnectX,
+  onCheckXAuth,
   onMarkManualPublished,
   onPublishReplyToX,
   onRegenerateReply,
+  xAuthStatus,
+  xAuthNotice,
 }: {
   asset: SocialContentAssetDetail
   formatDateTime: (value: string | null | undefined) => string
   busy: boolean
   toast: ReturnType<typeof useToast>
   onGenerateXReplyBlock: () => void
+  onReconnectX: () => void
+  onCheckXAuth: () => void
   onMarkManualPublished: ReplyAction
   onPublishReplyToX: ReplyAction
   onRegenerateReply: ReplyAction
+  xAuthStatus?: SocialDistributionAccountAuthStatus
+  xAuthNotice?: string | null
 }) {
   const replyBlock = objectValue(asset.agent_metadata.reply_block)
   const replies = asset.reply_items ?? []
@@ -41,6 +56,18 @@ export function ReplyTaskDetailView({
   const publishedCount = replies.filter((reply) => ['published', 'published_manual'].includes(reply.status)).length
   const failedCount = replies.filter((reply) => ['failed', 'rejected'].includes(reply.status)).length
   const targetCount = numberValue(replyBlock.target_count) || numberValue(replyBlock.processed_source_count) || 5
+  const hasCompleteCandidateSet = generatedCount >= targetCount && failedCount === 0
+  const hasExplicitSourceEvidence = sourcePosts.length > 0
+  const authReady = xAuthStatus?.oauth_status === 'authorized' || xAuthStatus?.api_status === 'ready'
+  const authDisplay = xAuthDisplay(xAuthStatus, authReady)
+  const authKnownBlocked = Boolean(xAuthStatus && !authReady && xAuthStatus.requires_authorization)
+  const canGenerate = Boolean(!busy && (authReady || hasExplicitSourceEvidence))
+  const generateLabel = hasCompleteCandidateSet ? '重新生成候选' : `生成 ${targetCount} 条 X 回复候选`
+  const disabledReason = !xAuthStatus && !hasExplicitSourceEvidence
+    ? '先检查 X 状态'
+    : authKnownBlocked && !hasExplicitSourceEvidence
+      ? '先连接 X 或粘贴来源'
+      : null
   const manualQueue = replies.map((reply, index) => {
     const source = reply.source_url ? `Source: ${reply.source_url}` : `Source post: ${reply.source_post_id ?? 'unknown'}`
     return `${index + 1}. ${source}\nReply: ${reply.suggested_reply ?? ''}`.trim()
@@ -70,7 +97,48 @@ export function ReplyTaskDetailView({
         <div className="mt-3 grid gap-2 text-xs text-cyan-100/80 md:grid-cols-3">
           <span>publish mode: {stringValue(replyBlock.publish_mode, 'manual')}</span>
           <span>approval ref: {String(Boolean(replyBlock.approval_ref_configured))}</span>
-          <span>auto publish: {String(Boolean(replyBlock.auto_publish))}</span>
+          <span>source strategy: {stringValue(replyBlock.reply_source_strategy, 'manual_source_posts')}</span>
+        </div>
+      </section>
+      <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">X Source/Auth Status</div>
+            <p className="mt-1 text-sm text-[color:var(--ops-text-muted)]">
+              Trend/radar 拉源需要 X OAuth；已有明确 source posts 时可直接生成候选。
+            </p>
+          </div>
+          <StateBadge tone={authDisplay.tone}>
+            {authDisplay.label}
+          </StateBadge>
+        </div>
+        <div className="text-sm leading-6 text-[color:var(--ops-text-body)]">
+          {authReady
+            ? 'X OAuth 已授权，trend/radar 拉源可用。'
+            : hasExplicitSourceEvidence
+              ? '使用已提供的 source posts，不需要 trend/radar 拉源。'
+              : authDisplay.message}
+          {authReady && xAuthStatus?.auth_message ? (
+            <span className="ml-2 text-xs text-[color:var(--ops-text-muted)]">{xAuthStatus.auth_message}</span>
+          ) : null}
+        </div>
+        {xAuthStatus?.blockers?.length ? (
+          <div className="mt-2 text-xs text-amber-100">Blockers: {xAuthStatus.blockers.join(', ')}</div>
+        ) : null}
+        {xAuthNotice ? (
+          <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-50">
+            {xAuthNotice}
+          </div>
+        ) : null}
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" disabled={busy} className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100 disabled:opacity-50" onClick={onCheckXAuth}>
+            重新检查状态
+          </button>
+          {!authReady ? (
+            <button type="button" disabled={busy} className="rounded-xl border border-emerald-300/40 px-3 py-2 text-sm text-emerald-100 disabled:opacity-50" onClick={onReconnectX}>
+              连接 X / 重新授权
+            </button>
+          ) : null}
         </div>
       </section>
       <section>
@@ -103,8 +171,8 @@ export function ReplyTaskDetailView({
                 复制人工发布队列
               </button>
             ) : null}
-            <button type="button" disabled={busy} className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
-              {busy ? '生成中...' : '生成 5 条 X 回复候选'}
+            <button type="button" disabled={!canGenerate} className="rounded-xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onGenerateXReplyBlock}>
+              {busy ? '生成中...' : disabledReason || generateLabel}
             </button>
           </div>
         </div>
@@ -143,6 +211,22 @@ export function ReplyTaskDetailView({
   )
 }
 
+function xAuthDisplay(
+  status: SocialDistributionAccountAuthStatus | undefined,
+  authReady: boolean,
+): { label: string; message: string; tone: 'ready' | 'blocked' | 'validating' } {
+  if (authReady) return { label: '已授权', message: 'X OAuth 已授权，trend/radar 拉源可用。', tone: 'ready' }
+  if (!status) return { label: '未检查', message: '请先检查 X 授权状态。', tone: 'validating' }
+  const oauthStatus = String(status.oauth_status || '')
+  if (oauthStatus === 'invalid_refresh_token' || oauthStatus === 'needs_authorization') {
+    return { label: '需要重新授权', message: 'X 授权已失效，请连接 X 重新授权后再同步 trend/radar 来源。', tone: 'blocked' }
+  }
+  if (oauthStatus === 'missing_local_secret') {
+    return { label: '未授权', message: '本地没有可用的 X refresh token，请连接 X 完成授权。', tone: 'blocked' }
+  }
+  return { label: '授权异常', message: status.auth_message || 'X 授权状态不可用，请重新授权或检查本地配置。', tone: 'blocked' }
+}
+
 function SourcePostCard({ post }: { post: SourcePost }) {
   return (
     <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-strong)] p-4">
@@ -154,6 +238,11 @@ function SourcePostCard({ post }: { post: SourcePost }) {
         {post.sourceUrl ? <a className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100" href={post.sourceUrl} target="_blank" rel="noreferrer">打开原帖</a> : null}
       </div>
       <div className="mt-3 line-clamp-3 text-sm leading-6 text-[color:var(--ops-text-body)]">{post.sourceText || 'No source text captured.'}</div>
+      <div className="mt-3 grid gap-2 text-xs text-[color:var(--ops-text-caption)] md:grid-cols-3">
+        <span>bucket: {post.sourceBucket || 'unknown'}</span>
+        <span>score: {post.problemFitScore || 'n/a'}</span>
+        <span>angle: {post.replyAngle || 'agent_economy_context'}</span>
+      </div>
       {post.optInEvidence ? (
         <div className="mt-3 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-xs text-emerald-100">opt-in: {post.optInEvidence}</div>
       ) : null}
@@ -180,6 +269,7 @@ function ReplyCandidateCard({
 }) {
   const review = objectValue(reply.metadata.agent_quality_review)
   const compliance = objectValue(reply.metadata.x_reply_compliance)
+  const sourceStrategy = objectValue(reply.metadata.x_reply_source_strategy)
   const weightedCount = xWeightedCount(reply.suggested_reply ?? '')
   const canApiPublish = Boolean(compliance.approval_ref_configured && compliance.opt_in_evidence && reply.status === 'approved')
   return (
@@ -199,7 +289,12 @@ function ReplyCandidateCard({
         <span>{weightedCount}/280 weighted chars</span>
         <span>risk: {reply.risk_level}</span>
         <span>review: {stringValue(review.status, 'pending')}</span>
-        <span>generated: {stringValue(reply.metadata.model, 'unknown')}</span>
+        <span>angle: {stringValue(sourceStrategy.reply_angle, 'unknown')}</span>
+      </div>
+      <div className="mt-2 grid gap-2 text-xs text-[color:var(--ops-text-caption)] md:grid-cols-3">
+        <span>bucket: {stringValue(sourceStrategy.source_bucket, 'unknown')}</span>
+        <span>source score: {stringValue(sourceStrategy.total_score, 'n/a')}</span>
+        <span>matched: {arrayValue(sourceStrategy.matched_keywords).slice(0, 3).join(', ') || 'none'}</span>
       </div>
       {reply.source_text ? <div className="mt-3 line-clamp-2 text-xs leading-5 text-[color:var(--ops-text-muted)]">{reply.source_text}</div> : null}
       {reply.failure_summary ? <InfoBlock title="Blocker">{reply.failure_summary}</InfoBlock> : null}
@@ -230,12 +325,16 @@ interface SourcePost {
   sourceUrl: string | null
   sourceText: string | null
   optInEvidence: string
+  sourceBucket: string
+  problemFitScore: string
+  replyAngle: string
 }
 
 function uniqueSourcePosts(replies: SocialReplyItem[]): SourcePost[] {
   const byKey = new Map<string, SourcePost>()
   for (const reply of replies) {
     const compliance = objectValue(reply.metadata.x_reply_compliance)
+    const sourceStrategy = objectValue(reply.metadata.x_reply_source_strategy)
     const key = reply.source_post_id || reply.source_url || String(reply.id)
     if (!byKey.has(key)) {
       byKey.set(key, {
@@ -245,6 +344,9 @@ function uniqueSourcePosts(replies: SocialReplyItem[]): SourcePost[] {
         sourceUrl: reply.source_url,
         sourceText: reply.source_text,
         optInEvidence: stringValue(compliance.opt_in_evidence),
+        sourceBucket: stringValue(sourceStrategy.source_bucket),
+        problemFitScore: stringValue(sourceStrategy.problem_fit_score),
+        replyAngle: stringValue(sourceStrategy.reply_angle),
       })
     }
   }
@@ -293,6 +395,10 @@ function numberValue(value: unknown): number {
 function stringValue(value: unknown, fallback = ''): string {
   if (typeof value === 'number') return String(value)
   return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function arrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : []
 }
 
 function xWeightedCount(text: string): number {

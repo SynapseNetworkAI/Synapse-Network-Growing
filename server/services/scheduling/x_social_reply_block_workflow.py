@@ -4,7 +4,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.services.social.distribution_reply_blocks import (
+from server.services.social.distribution_reply_block_publisher import (
     run_x_social_daily_reply_block_publisher,
 )
 

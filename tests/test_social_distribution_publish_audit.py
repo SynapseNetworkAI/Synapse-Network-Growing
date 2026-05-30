@@ -3,6 +3,7 @@ from server.database_social_distribution import (
     SocialDistributionEventRow,
 )
 from server.services.social.agent_content_pack import AgentDistributionDraft
+from server.services.social.distribution_publish_lint import lint_distribution_task
 from tests.social_distribution_helpers import patch_agent_distribution
 
 
@@ -116,3 +117,18 @@ def test_distribution_task_publish_lint_blocks_bad_dev_markdown(
     issue_codes = {issue["code"] for issue in lint["issues"]}
     assert "language_mismatch" in issue_codes
     assert "markdown_heading_collapsed" in issue_codes
+
+
+def test_x_publish_lint_blocks_urls_by_default():
+    lint = lint_distribution_task(
+        platform="x",
+        channel_key="official",
+        title="No-link X draft",
+        body=(
+            "Agent payment rails should start with spend caps and receipts.\n\n"
+            "Read more at https://synapse-network.ai/docs"
+        ),
+    )
+
+    assert lint.status == "blocked"
+    assert {issue.code for issue in lint.issues} == {"x_link_not_allowed_by_default"}

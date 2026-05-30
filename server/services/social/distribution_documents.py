@@ -17,7 +17,6 @@ from server.database_social_distribution import (
 )
 from server.services.social.distribution_board_contract import document_status_for_task
 from server.services.social.distribution_core import (
-    _clean_optional,
     _normalize_platform,
     _record_event,
     _validate_document_kind,
@@ -25,12 +24,10 @@ from server.services.social.distribution_core import (
 )
 from server.services.social.distribution_document_content import (
     build_source_plan_payload,
-    clean_platform_list,
     list_from_metadata,
     parse_json_object,
     platform_document_markdown,
     source_plan_markdown,
-    summary_from_text,
     validate_source_plan_payload,
 )
 from server.services.social.agent_content_pack import generate_canonical_article_expansion
@@ -42,80 +39,6 @@ CANONICAL_ARTICLE_SKILL_PATHS: tuple[tuple[str, str], ...] = (
     ("build-in-public", ".agents/skills/build-in-public/SKILL.md"),
     ("solo-founder-narrative", ".agents/skills/solo-founder-narrative/SKILL.md"),
 )
-
-
-def create_content_task(
-    db: Session,
-    body: dist_schema.SocialContentTaskCreateRequest,
-) -> dist_schema.SocialContentAssetDetailOut:
-    from server.services.social.distribution import get_content_asset
-    if not body.title.strip():
-        raise ValueError("content task title is required.")
-    planned_publish_at = (
-        body.planned_publish_at.isoformat() if body.planned_publish_at else None
-    )
-    asset = SocialContentAssetRow(
-        asset_type="article",
-        source_type="manual_task",
-        title=body.title.strip(),
-        body=_clean_optional(body.source_material),
-        summary=summary_from_text(body.source_material) or body.title.strip(),
-        canonical_url=_clean_optional(body.canonical_url),
-        goal_key=_clean_optional(body.goal_key),
-        status="draft",
-        created_by=body.created_by.strip() or "operator",
-        agent_metadata_json=json.dumps(
-            {
-                "source_of_truth": "social_content_assets",
-                "task_shape": "symphony_style_distribution_board",
-                "target_audience": _clean_optional(body.target_audience),
-                "target_platforms": clean_platform_list(body.target_platforms),
-                "source_doc_path": _clean_optional(body.source_doc_path),
-                "campaign_key": _clean_optional(body.campaign_key),
-                "post_intent": _clean_optional(body.post_intent),
-                "planned_publish_at": planned_publish_at,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        ),
-    )
-    db.add(asset)
-    db.flush()
-    plan = build_source_plan_payload(
-        title=asset.title,
-        source_material=asset.body,
-        target_audience=body.target_audience,
-        target_platforms=body.target_platforms,
-        canonical_url=asset.canonical_url,
-        source_doc_path=body.source_doc_path,
-    )
-    _upsert_document(
-        db,
-        asset=asset,
-        task=None,
-        document_kind="source_plan",
-        platform=None,
-        channel_key=None,
-        title=f"Plan: {asset.title}",
-        body_markdown=source_plan_markdown(plan),
-        status="generated",
-        metadata={
-            "generated_by": "distribution_content_plan_v1",
-            "structured_plan": plan,
-        },
-    )
-    _record_event(
-        db,
-        asset,
-        None,
-        "content_task_created",
-        asset.created_by,
-        "Content task created with source plan document.",
-        {"target_platforms": clean_platform_list(body.target_platforms)},
-    )
-    db.commit()
-    db.refresh(asset)
-    return get_content_asset(db, int(asset.id))
 
 
 def ensure_platform_documents_for_asset(
