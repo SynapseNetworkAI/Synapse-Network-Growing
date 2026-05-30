@@ -145,10 +145,21 @@ def _x_oauth_live_status(blockers: list[str]) -> tuple[str, str, str, bool]:
         oauth_status = _x_oauth_status_from_error(exc)
         blockers.append(oauth_status)
         return "blocked", oauth_status, exc.summary, True
+    except ValueError as exc:
+        oauth_status = _x_oauth_status_from_config_error(exc)
+        blockers.append(oauth_status)
+        return "blocked", oauth_status, str(exc), True
     message = "X OAuth refresh token is valid."
     if token.refresh_token_rotated:
         message = "X OAuth refresh token is valid and was rotated locally."
     return "ready", "authorized", message, False
+
+
+def _x_oauth_status_from_config_error(exc: ValueError) -> str:
+    summary = str(exc).lower()
+    if "x_oauth_client_id" in summary or "x_oauth_client_secret" in summary:
+        return "missing_client_config"
+    return "error"
 
 
 def _x_oauth_status_from_error(exc: SocialPublishError) -> str:

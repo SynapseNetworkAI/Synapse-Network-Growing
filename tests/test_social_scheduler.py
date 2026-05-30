@@ -59,6 +59,45 @@ def test_x_social_scheduler_tick_records_errors_and_closes_session(monkeypatch):
     assert session.closed is True
 
 
+def test_x_social_scheduler_tick_blocks_missing_x_client_config_without_error(
+    monkeypatch,
+):
+    session = FakeSession()
+    rows = [FakeWorkflowRow("x_social_post_observer_sweep")]
+
+    monkeypatch.setattr(social_scheduler, "sync_recurring_workflows", lambda db: rows)
+    monkeypatch.setattr(
+        social_scheduler,
+        "recurring_workflow_to_dict",
+        lambda row: {"is_due": True},
+    )
+
+    def fail_run(_db, *, workflow_key: str, triggered_by: str):
+        raise ValueError(
+            "X_OAUTH_CLIENT_ID is required in local environment configuration."
+        )
+
+    monkeypatch.setattr(social_scheduler, "run_recurring_workflow", fail_run)
+
+    scheduler = social_scheduler.XSocialSweepScheduler(
+        session_factory=lambda: session,
+        poll_seconds=1,
+        startup_delay_seconds=0,
+    )
+    scheduler._tick()
+
+    snapshot = scheduler.status_snapshot()
+    assert snapshot["last_error"] is None
+    assert snapshot["last_results"]["x_social_post_observer_sweep"]["status"] == "blocked"
+    assert (
+        snapshot["last_results"]["x_social_post_observer_sweep"][
+            "requires_configuration"
+        ]
+        is True
+    )
+    assert session.closed is True
+
+
 def test_x_social_scheduler_start_stop_without_duplicate_thread(monkeypatch):
     ran = {"count": 0}
 
