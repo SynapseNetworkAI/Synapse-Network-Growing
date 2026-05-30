@@ -12,6 +12,21 @@ import { formatXOAuthReconnectError } from '../lib/socialXAuth'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
 const DEFAULT_CONTENT_FORM = { title: '', task_type: 'x_media_post', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
+
+function openExternalUrlInNewTab(url: string): boolean {
+  const opened = window.open(url, '_blank', 'noopener,noreferrer')
+  if (opened) return true
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  return false
+}
+
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
   const [board, setBoard] = useState<SocialDistributionBoard | null>(null)
@@ -342,8 +357,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         const message = auth.auth_message || 'X 授权不可用，请重新授权后再点击发送。'
         if (auth.requires_authorization) {
           const start = await api.startSocialXOAuth(auth.account_id)
-          const opened = window.open(start.auth_url, '_blank', 'noopener,noreferrer')
-          if (!opened) window.location.href = start.auth_url
+          openExternalUrlInNewTab(start.auth_url)
           const notice = 'X 授权页已打开。完成授权后回到这里，再点击发送。'
           setXAuthNotice(notice)
           toast.success(notice)
@@ -373,8 +387,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     try {
       setXAuthNotice(null)
       const start = await api.startSocialXOAuth()
-      const opened = window.open(start.auth_url, '_blank', 'noopener,noreferrer')
-      if (!opened) window.location.href = start.auth_url
+      openExternalUrlInNewTab(start.auth_url)
       toast.success('X 授权页已打开。完成授权后回到这里，点击“重新检查状态”。')
     } catch (error) {
       const message = formatXOAuthReconnectError(error)

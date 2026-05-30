@@ -139,6 +139,35 @@ describe('Social reply block generation gate', () => {
     openSpy.mockRestore()
   })
 
+  it('keeps Publishing open when the X OAuth popup is blocked', async () => {
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+    const replyAsset = replyBlockAsset({ complete: false })
+    apiMock.getSocialContentAsset.mockResolvedValue(replyAsset)
+    apiMock.getSocialDistributionBoard.mockResolvedValue(boardWithReplyAsset(replyAsset, 'needs_review'))
+    apiMock.getDistributionAccountAuthStatuses.mockResolvedValue(xAuthBlocked())
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-45'))
+    await user.click(await screen.findByRole('button', { name: '连接 X / 重新授权' }))
+
+    await waitFor(() => {
+      expect(apiMock.startSocialXOAuth).toHaveBeenCalledWith()
+      expect(openSpy).toHaveBeenCalledWith(
+        'https://twitter.com/i/oauth2/authorize?state=test',
+        '_blank',
+        'noopener,noreferrer',
+      )
+      expect(clickSpy).toHaveBeenCalled()
+    })
+    expect(apiMock.generateSocialXReplyBlock).not.toHaveBeenCalled()
+    clickSpy.mockRestore()
+    openSpy.mockRestore()
+  })
+
   it('shows a bounded error when X OAuth start fails', async () => {
     const user = userEvent.setup()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
