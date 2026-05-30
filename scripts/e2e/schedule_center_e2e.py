@@ -105,15 +105,16 @@ def verify_api_and_crud(args: Args) -> None:
     keys = {item["workflow_key"] for item in schedules}
     template_keys = {item["template_key"] for item in templates}
     _assert(
-        "secret_manager_version_cleanup_sweep" in keys,
-        "secret cleanup schedule missing",
+        "secret_manager_version_cleanup_sweep" not in keys,
+        "secret cleanup schedule must be disabled",
     )
     _assert(
         "artifact_registry_cleanup_sweep" in keys, "artifact cleanup schedule missing"
     )
     _assert("artifact_registry_cleanup" in template_keys, "artifact template missing")
     _assert(
-        "secret_manager_version_cleanup" in template_keys, "secret template missing"
+        "secret_manager_version_cleanup" not in template_keys,
+        "secret template must be disabled",
     )
 
     print("[schedule-e2e] verifying custom artifact schedule CRUD")
@@ -156,19 +157,12 @@ def verify_api_and_crud(args: Args) -> None:
 
 def verify_schedule_runs(args: Args) -> None:
     print("[schedule-e2e] running built-in dry-runs through Schedule API")
-    secret_run = _request(
-        "POST",
-        args.base_url,
-        "/api/schedules/secret_manager_version_cleanup_sweep/run",
-        json={"dry_run": True},
-    )
     artifact_run = _request(
         "POST",
         args.base_url,
         "/api/schedules/artifact_registry_cleanup_sweep/run",
         json={"dry_run": True},
     )
-    _assert(secret_run["result"].get("dry_run") is True, "secret dry-run flag missing")
     _assert(
         artifact_run["result"].get("dry_run") is True, "artifact dry-run flag missing"
     )
@@ -177,15 +171,8 @@ def verify_schedule_runs(args: Args) -> None:
         "artifact dry-run deleted images",
     )
 
-    secret_history = _request(
-        "GET", args.base_url, "/api/schedules/secret_manager_version_cleanup_sweep/runs"
-    )
     artifact_history = _request(
         "GET", args.base_url, "/api/schedules/artifact_registry_cleanup_sweep/runs"
-    )
-    _assert(
-        secret_history and secret_history[0]["dry_run"] is True,
-        "secret run history missing",
     )
     _assert(
         artifact_history and artifact_history[0]["dry_run"] is True,
@@ -203,22 +190,14 @@ def verify_database(args: Args) -> None:
         """
         select workflow_key, status, is_builtin, output_action_json
         from recurring_workflows
-        where workflow_key in (
-          'secret_manager_version_cleanup_sweep',
-          'artifact_registry_cleanup_sweep'
-        )
+        where workflow_key in ('artifact_registry_cleanup_sweep')
         """,
     )
-    _assert(len(workflows) == 2, "expected two cleanup workflows in DB")
+    _assert(len(workflows) == 1, "expected artifact cleanup workflow in DB")
     actions = {
         row["workflow_key"]: json.loads(row["output_action_json"])["kind"]
         for row in workflows
     }
-    _assert(
-        actions["secret_manager_version_cleanup_sweep"]
-        == "destroy_old_secret_manager_versions",
-        "secret output action mismatch",
-    )
     _assert(
         actions["artifact_registry_cleanup_sweep"]
         == "cleanup_artifact_registry_versions",
@@ -229,10 +208,7 @@ def verify_database(args: Args) -> None:
         """
         select workflow_key, status, dry_run, result_json, error_excerpt
         from recurring_workflow_runs
-        where workflow_key in (
-          'secret_manager_version_cleanup_sweep',
-          'artifact_registry_cleanup_sweep'
-        )
+        where workflow_key in ('artifact_registry_cleanup_sweep')
         order by id desc
         limit 10
         """,
@@ -284,20 +260,6 @@ def verify_real_gcp_dry_run(args: Args) -> None:
     if not args.real_gcp_dry_run:
         return
     print("[schedule-e2e] verifying remote state is unchanged by dry-runs")
-    secret_rows = _gcloud_json(
-        ["gcloud", "secrets", "list", "--project", STAGING_PROJECT, "--format=json"]
-    )
-    if secret_rows:
-        secret = str(secret_rows[0]["name"]).rsplit("/", 1)[-1]
-        before = _version_state_counts(STAGING_PROJECT, secret)
-        _request(
-            "POST",
-            args.base_url,
-            "/api/schedules/secret_manager_version_cleanup_sweep/run",
-            json={"dry_run": True},
-        )
-        after = _version_state_counts(STAGING_PROJECT, secret)
-        _assert(before == after, f"secret versions changed during dry-run: {secret}")
     if args.artifact_apply_repository:
         before = _artifact_digest_count(
             STAGING_PROJECT, args.artifact_region, args.artifact_apply_repository
@@ -317,90 +279,10 @@ def verify_real_gcp_dry_run(args: Args) -> None:
 def apply_secret_test(args: Args) -> None:
     if not args.apply_secret_test:
         return
-    _assert(args.confirm == CONFIRM_PHRASE, f"--confirm {CONFIRM_PHRASE} required")
-    print("[schedule-e2e] preparing Secret Manager test fixture")
-    existing = _gcloud_json(
-        ["gcloud", "secrets", "list", "--project", STAGING_PROJECT, "--format=json"]
+    print(
+        "[schedule-e2e] Secret Manager cleanup apply test is disabled; "
+        "Growing runtime no longer manages GCP Secret Manager."
     )
-    if CLEANUP_FIXTURE_ID not in {
-        str(row["name"]).rsplit("/", 1)[-1] for row in existing
-    }:
-        _gcloud(
-            [
-                "gcloud",
-                "secrets",
-                "create",
-                CLEANUP_FIXTURE_ID,
-                "--project",
-                STAGING_PROJECT,
-            ]
-        )
-    for index in range(5):
-        _gcloud(
-            [
-                "gcloud",
-                "secrets",
-                "versions",
-                "add",
-                CLEANUP_FIXTURE_ID,
-                "--project",
-                STAGING_PROJECT,
-                "--data-file=-",
-            ],
-            input_text=f"schedule-e2e-dummy-{index}",
-        )
-
-    workflow_key = f"custom_secret_cleanup_e2e_{int(time.time())}"
-    _request(
-        "POST",
-        args.base_url,
-        "/api/schedules",
-        json={
-            "template_key": "secret_manager_version_cleanup",
-            "workflow_key": workflow_key,
-            "display_name": "Custom Secret Cleanup E2E",
-            "input_query": {
-                "projects": [STAGING_PROJECT],
-                "secret_ids": [CLEANUP_FIXTURE_ID],
-                "keep": 3,
-            },
-        },
-    )
-    dry_run = _request(
-        "POST",
-        args.base_url,
-        f"/api/schedules/{workflow_key}/run",
-        json={"dry_run": True},
-    )
-    _assert(
-        dry_run["result"]["candidate_count"] >= 2, "secret dry-run found no candidates"
-    )
-    apply = _request(
-        "POST",
-        args.base_url,
-        f"/api/schedules/{workflow_key}/run",
-        json={"dry_run": False},
-    )
-    _assert(
-        apply["result"]["destroyed_count"] >= 2,
-        "secret apply did not destroy old versions",
-    )
-    states = _version_state_counts(STAGING_PROJECT, CLEANUP_FIXTURE_ID)
-    active = states.get("ENABLED", 0) + states.get("DISABLED", 0)
-    _assert(active <= 3, f"expected <=3 active test secret versions, got {states}")
-    _request("DELETE", args.base_url, f"/api/schedules/{workflow_key}")
-    if args.cleanup_test_secret:
-        _gcloud(
-            [
-                "gcloud",
-                "secrets",
-                "delete",
-                CLEANUP_FIXTURE_ID,
-                "--project",
-                STAGING_PROJECT,
-                "--quiet",
-            ]
-        )
 
 
 def apply_artifact_test(args: Args) -> None:

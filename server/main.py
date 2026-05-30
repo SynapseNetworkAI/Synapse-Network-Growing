@@ -17,14 +17,35 @@ from server.database import (
 )
 from server.logging_utils import bind_context, clear_context, get_logger, log_event, setup_ops_logging
 from server.schemas import DashboardStats
-from server.routers import agents, skills, copilot_auth, requirements, project_policies, project_onboarding, optimization_signals, company_review, recurring_workflows, schedules, bugs, releases, release_deployment_events, release_task_prebuilt_images, local_ci, errors, projects, workflows, planning, deployments, social
+from server.routers import (
+    agents,
+    bugs,
+    company_review,
+    copilot_auth,
+    deployments,
+    errors,
+    local_ci,
+    optimization_signals,
+    planning,
+    project_onboarding,
+    project_policies,
+    projects,
+    recurring_workflows,
+    release_deployment_events,
+    release_task_prebuilt_images,
+    releases,
+    requirements,
+    schedules,
+    skills,
+    social,
+    workflows,
+)
 from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
 from server.services.releases.deployment_status_scheduler import ReleaseDeploymentStatusSweepScheduler
 from server.services.releases.pr_status_scheduler import ReleasePrStatusSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
-from server.services.secret_manager_cleanup_scheduler import SecretManagerCleanupSweepScheduler
 from server.services.social.scheduler import XSocialSweepScheduler
 from server.services.workflows.ci_scheduler import CiStatusSweepScheduler
 
@@ -58,7 +79,6 @@ async def lifespan(app: FastAPI):
     release_pr_status_scheduler = None
     release_deployment_status_scheduler = None  # pragma: no cover - lifespan wiring
     x_social_scheduler = None
-    secret_manager_cleanup_scheduler = None
     notification_dispatcher = None
     if config.BUG_LOG_SWEEP_SCHEDULER_ENABLED:
         bug_scheduler = BugLogSweepScheduler()
@@ -84,10 +104,6 @@ async def lifespan(app: FastAPI):
         x_social_scheduler = XSocialSweepScheduler()
         x_social_scheduler.start()
         app.state.x_social_scheduler = x_social_scheduler
-    if config.SECRET_MANAGER_CLEANUP_SWEEP_SCHEDULER_ENABLED:  # pragma: no cover - lifespan wiring
-        secret_manager_cleanup_scheduler = SecretManagerCleanupSweepScheduler()
-        secret_manager_cleanup_scheduler.start()
-        app.state.secret_manager_cleanup_scheduler = secret_manager_cleanup_scheduler
     if config.NOTIFICATION_DISPATCHER_ENABLED:
         notification_dispatcher = NotificationDispatcher()
         notification_dispatcher.start()
@@ -103,8 +119,6 @@ async def lifespan(app: FastAPI):
             release_deployment_status_scheduler.stop()
         if x_social_scheduler is not None:  # pragma: no cover - lifespan wiring
             x_social_scheduler.stop()
-        if secret_manager_cleanup_scheduler is not None:  # pragma: no cover - lifespan wiring
-            secret_manager_cleanup_scheduler.stop()
         if ci_status_scheduler is not None:
             ci_status_scheduler.stop()
         if goal_planner_scheduler is not None:

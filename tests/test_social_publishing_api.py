@@ -1508,13 +1508,14 @@ def test_x_auth_failure_is_bounded_and_does_not_leak_secret(monkeypatch, synced_
 
 def test_x_oauth_start_returns_pkce_authorization_url(monkeypatch, synced_client):
     social_publishing.x_oauth_token_provider._cache.clear()
-
-    def fake_read(secret_ref):
-        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_ID_SECRET:
-            return "client-id-123"
-        raise AssertionError(f"unexpected secret read: {secret_ref}")
-
-    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id-123")
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "read",
+        lambda secret_ref: (_ for _ in ()).throw(
+            AssertionError(f"Secret Manager should not be read: {secret_ref}")
+        ),
+    )
 
     response = synced_client.get("/api/social/x/oauth/start")
 
@@ -1565,14 +1566,15 @@ def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
         "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
         "test-local-secret-key",
     )
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id-123")
+    monkeypatch.setattr(
+        social_publishing.config, "X_OAUTH_CLIENT_SECRET", "client-secret-456"
+    )
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id-123")
+    monkeypatch.setattr(
+        social_publishing.config, "X_OAUTH_CLIENT_SECRET", "client-secret-456"
+    )
     social_publishing.x_oauth_token_provider._cache.clear()
-
-    def fake_read(secret_ref):
-        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_ID_SECRET:
-            return "client-id-123"
-        if secret_ref == social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET:
-            return "client-secret-456"
-        raise AssertionError(f"unexpected secret read: {secret_ref}")
 
     class FakeTokenResponse:
         def __enter__(self):
@@ -1584,7 +1586,13 @@ def test_x_oauth_callback_stores_refresh_token_without_returning_access_token(
         def read(self, _limit):
             return b'{"access_token":"access-token-secret","refresh_token":"refresh-token-secret","expires_in":7200}'
 
-    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "read",
+        lambda secret_ref: (_ for _ in ()).throw(
+            AssertionError(f"Secret Manager should not be read: {secret_ref}")
+        ),
+    )
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
@@ -1708,6 +1716,10 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
         "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
         "test-local-secret-key",
     )
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id-123")
+    monkeypatch.setattr(
+        social_publishing.config, "X_OAUTH_CLIENT_SECRET", "client-secret-456"
+    )
     social_publishing.x_oauth_token_provider._cache.clear()
     seen_authorizations: list[str] = []
     write_local_secret_version(
@@ -1717,15 +1729,6 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
         keep_active=3,
     )
     db_session.commit()
-
-    def fake_read(secret_ref):
-        values = {
-            social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id-123",
-            social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret-456",
-        }
-        if secret_ref in values:
-            return values[secret_ref]
-        raise AssertionError(f"unexpected secret read: {secret_ref}")
 
     class FakeResponse:
         def __init__(self, raw: bytes):
@@ -1752,7 +1755,13 @@ def test_publish_refreshes_oauth_access_token_and_records_refresh_event(
             return FakeResponse(b'{"data":{"id":"1800000000000000999"}}')
         raise AssertionError(f"unexpected url: {request.full_url}")
 
-    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "read",
+        lambda secret_ref: (_ for _ in ()).throw(
+            AssertionError(f"Secret Manager should not be read: {secret_ref}")
+        ),
+    )
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
@@ -2116,166 +2125,40 @@ def test_secret_token_env_and_publisher_http_error_paths(monkeypatch):
         publisher.publish_text(account, "Safe text.")
 
 
-def test_secret_store_gcp_paths_and_version_rotation(monkeypatch):
+def test_secret_store_is_local_env_only(monkeypatch):
     store = social_publishing.SecretValueStore()
-    monkeypatch.delenv("GCP_PROJECT_ID", raising=False)
-    monkeypatch.delenv("STAGING_GCP_PROJECT_ID", raising=False)
 
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="secret reference is empty"
-    ):
-        store._secret_name("")
-    assert (
-        store._secret_name("projects/demo/secrets/x/versions/latest")
-        == "projects/demo/secrets/x/versions/latest"
-    )
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="project id is required"
-    ):
-        store._secret_name("x-secret")
-
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="secret reference is empty"
-    ):
-        store._secret_parent("")
-    assert (
-        store._secret_parent("projects/demo/secrets/x/versions/latest")
-        == "projects/demo/secrets/x"
-    )
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="project id is required"
-    ):
-        store._secret_parent("x-secret")
-
-    monkeypatch.setenv("GCP_PROJECT_ID", "demo-project")
-    assert (
-        store._secret_name("x-secret")
-        == "projects/demo-project/secrets/x-secret/versions/latest"
-    )
-    assert store._secret_parent("x-secret") == "projects/demo-project/secrets/x-secret"
     with pytest.raises(
         social_publishing.SocialPublishError, match="environment variable is missing"
     ):
         store.read("env:MISSING")
+    monkeypatch.setenv("X_TEST_TOKEN", "token-value")
+    assert store.read("env:X_TEST_TOKEN") == "token-value"
     with pytest.raises(
-        social_publishing.SocialPublishError, match="environment variable"
+        social_publishing.SocialPublishError, match="Secret Manager is disabled"
+    ):
+        store.read("x-secret")
+    with pytest.raises(
+        social_publishing.SocialPublishError, match="Secret Manager writes are disabled"
     ):
         store.add_version("env:X_REFRESH", "new-refresh")
-
-    class FakePayload:
-        data = b"secret-value"
-
-    class FakeAccessResponse:
-        payload = FakePayload()
-
-    calls: list[dict] = []
-
-    class FakeSecretManagerClient:
-        def access_secret_version(self, request):
-            calls.append({"access": request})
-            return FakeAccessResponse()
-
-        def add_secret_version(self, request):
-            calls.append({"add": request})
-
-    from google.cloud import secretmanager
-
-    monkeypatch.setattr(
-        secretmanager, "SecretManagerServiceClient", lambda: FakeSecretManagerClient()
-    )
-    assert store.read("x-secret") == "secret-value"
-    store.add_version("x-refresh", "new-refresh")
-    assert (
-        calls[0]["access"]["name"]
-        == "projects/demo-project/secrets/x-secret/versions/latest"
-    )
-    assert calls[1]["add"]["parent"] == "projects/demo-project/secrets/x-refresh"
-    assert calls[1]["add"]["payload"]["data"] == b"new-refresh"
-
-    class EmptySecretManagerClient(FakeSecretManagerClient):
-        def access_secret_version(self, request):
-            return type(
-                "Response", (), {"payload": type("Payload", (), {"data": b""})()}
-            )()
-
-    monkeypatch.setattr(
-        secretmanager, "SecretManagerServiceClient", lambda: EmptySecretManagerClient()
-    )
-    with pytest.raises(social_publishing.SocialPublishError, match="secret is empty"):
-        store.read("x-secret")
-
-
-def test_secret_store_creates_missing_refresh_secret_before_adding_version(monkeypatch):
-    store = social_publishing.SecretValueStore()
-    monkeypatch.setenv("GCP_PROJECT_ID", "demo-project")
-
-    from google.api_core import exceptions as google_exceptions
-    from google.cloud import secretmanager
-
-    calls: list[dict] = []
-
-    class FakeSecretManagerClient:
-        def __init__(self):
-            self.created = False
-
-        def add_secret_version(self, request):
-            calls.append({"add": request})
-            if not self.created:
-                raise google_exceptions.NotFound("secret missing")
-
-        def create_secret(self, request):
-            calls.append({"create": request})
-            self.created = True
-
-    client = FakeSecretManagerClient()
-    monkeypatch.setattr(secretmanager, "SecretManagerServiceClient", lambda: client)
-
-    store.add_version("x-refresh", "new-refresh")
-
-    assert calls[0]["add"]["parent"] == "projects/demo-project/secrets/x-refresh"
-    assert calls[1]["create"]["parent"] == "projects/demo-project"
-    assert calls[1]["create"]["secret_id"] == "x-refresh"
-    assert calls[1]["create"]["secret"]["replication"] == {"automatic": {}}
-    assert calls[2]["add"]["payload"]["data"] == b"new-refresh"
-
-
-def test_secret_store_create_request_rejects_invalid_secret_refs(monkeypatch):
-    store = social_publishing.SecretValueStore()
-    monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo")
-
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="reference is invalid"
-    ):
-        store._secret_create_request("x-refresh")
-
-    monkeypatch.setattr(store, "_secret_parent", lambda _ref: "projects/demo/secrets/")
-    with pytest.raises(
-        social_publishing.SocialPublishError, match="reference is invalid"
-    ):
-        store._secret_create_request("x-refresh")
-
-    assert store._is_secret_not_found(RuntimeError("404 secret not found"))
 
 
 def test_oauth_token_provider_status_and_error_paths(monkeypatch):
     class FakeStore:
         def __init__(self):
-            self.values = {
-                social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id",
-                social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret",
-                social_publishing.config.X_OAUTH_REFRESH_TOKEN_SECRET: "refresh-token",
-            }
             self.rotations: list[tuple[str, str]] = []
 
         def read(self, key):
-            value = self.values.get(key)
-            if value is None:
-                raise social_publishing.SocialPublishError("x_auth_failed", "missing")
-            return value
+            raise social_publishing.SocialPublishError("x_auth_failed", "missing")
 
         def add_version(self, key, value):
             self.rotations.append((key, value))
 
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(
+        social_publishing.config, "X_OAUTH_CLIENT_SECRET", "client-secret"
+    )
     provider = social_publishing.XOAuth2TokenProvider(FakeStore())
     monkeypatch.setattr(provider, "_read_refresh_token", lambda: "refresh-token")
     assert provider.auth_status()[0] == "authorized"
@@ -2289,21 +2172,6 @@ def test_oauth_token_provider_status_and_error_paths(monkeypatch):
         ),
     )
     assert provider_missing.auth_status() == ("needs_authorization", "missing refresh")
-
-    provider_expired = social_publishing.XOAuth2TokenProvider(FakeStore())
-    monkeypatch.setattr(
-        provider_expired,
-        "_read_refresh_token",
-        lambda: (_ for _ in ()).throw(
-            social_publishing.SocialPublishError(
-                "gcp_adc_expired", "Run `gcloud auth application-default login`"
-            )
-        ),
-    )
-    assert provider_expired.auth_status() == (
-        "gcp_adc_expired",
-        "Run `gcloud auth application-default login`",
-    )
 
     class FakeResponse:
         def __init__(self, raw: bytes):
@@ -2392,6 +2260,10 @@ def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(
     )
 
     monkeypatch.delenv("X_OAUTH_REFRESH_TOKEN_STORAGE", raising=False)
+    monkeypatch.setattr(social_publishing.config, "X_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr(
+        social_publishing.config, "X_OAUTH_CLIENT_SECRET", "client-secret"
+    )
     monkeypatch.setattr(
         social_publishing.config,
         "OPS_LOCAL_SECRET_ENCRYPTION_KEY",
@@ -2405,15 +2277,6 @@ def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(
     )
     db_session.commit()
 
-    def fake_read(secret_ref):
-        values = {
-            social_publishing.config.X_OAUTH_CLIENT_ID_SECRET: "client-id-123",
-            social_publishing.config.X_OAUTH_CLIENT_SECRET_SECRET: "client-secret-456",
-        }
-        if secret_ref in values:
-            return values[secret_ref]
-        raise AssertionError(f"unexpected Secret Manager read: {secret_ref}")
-
     class FakeResponse:
         def __enter__(self):
             return self
@@ -2424,7 +2287,13 @@ def test_x_oauth_refresh_rotation_uses_local_db_not_secret_manager(
         def read(self, _limit):
             return b'{"access_token":"access-fresh","refresh_token":"refresh-new","expires_in":7200}'
 
-    monkeypatch.setattr(social_publishing.secret_store, "read", fake_read)
+    monkeypatch.setattr(
+        social_publishing.secret_store,
+        "read",
+        lambda secret_ref: (_ for _ in ()).throw(
+            AssertionError(f"Secret Manager should not be read: {secret_ref}")
+        ),
+    )
     monkeypatch.setattr(
         social_publishing.secret_store,
         "add_version",
