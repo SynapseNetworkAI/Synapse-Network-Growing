@@ -81,6 +81,7 @@ from server.services.social.publishing import (
     request_social_post_rewrite,
     social_ops_overview,
     start_x_oauth_authorization,
+    SocialPublishError,
     update_social_post,
     update_social_reply,
     upload_social_post_image,
@@ -108,6 +109,8 @@ def start_x_oauth_endpoint(account_id: int | None = None, db: Session = Depends(
         return start_x_oauth_authorization(db, account_id=account_id)
     except ValueError as exc:
         raise _http_error(exc) from exc
+    except SocialPublishError as exc:
+        raise HTTPException(status_code=400, detail=exc.summary) from exc
 
 
 @router.get("/x/oauth/callback", response_model=SocialXOAuthCallbackOut)

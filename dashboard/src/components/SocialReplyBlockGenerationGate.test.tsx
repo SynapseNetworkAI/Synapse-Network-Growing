@@ -77,7 +77,7 @@ describe('Social reply block generation gate', () => {
     await user.click(await screen.findByTestId('distribution-board-card-44'))
 
     expect(await screen.findByText('X Source/Auth Status')).toBeInTheDocument()
-    expect(screen.getByText('Using explicit source posts, not trend/radar sync.')).toBeInTheDocument()
+    expect(screen.getByText('使用已提供的 source posts，不需要 trend/radar 拉源。')).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: '重新生成候选' })).toHaveLength(1)
 
     await user.click(screen.getByRole('button', { name: '重新生成候选' }))
@@ -94,6 +94,23 @@ describe('Social reply block generation gate', () => {
     })
   })
 
+  it('shows authorized X state and enables generation without explicit sources', async () => {
+    const user = userEvent.setup()
+    const replyAsset = replyBlockAsset({ complete: false })
+    apiMock.getSocialContentAsset.mockResolvedValue(replyAsset)
+    apiMock.getSocialDistributionBoard.mockResolvedValue(boardWithReplyAsset(replyAsset, 'needs_review'))
+    apiMock.getDistributionAccountAuthStatuses.mockResolvedValue(xAuthAuthorized())
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-45'))
+
+    expect(await screen.findByText('X Source/Auth Status')).toBeInTheDocument()
+    expect(screen.getByText('已授权')).toBeInTheDocument()
+    expect(screen.getByText('X OAuth 已授权，trend/radar 拉源可用。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '连接 X / 重新授权' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成 5 条 X 回复候选' })).toBeEnabled()
+  })
+
   it('blocks new X reply block generation when X auth is invalid and no sources exist', async () => {
     const user = userEvent.setup()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
@@ -106,6 +123,8 @@ describe('Social reply block generation gate', () => {
     await user.click(await screen.findByTestId('distribution-board-card-45'))
 
     expect(await screen.findByRole('button', { name: '先连接 X 或粘贴来源' })).toBeDisabled()
+    expect(screen.getByText('需要重新授权')).toBeInTheDocument()
+    expect(screen.getByText('X 授权已失效，请连接 X 重新授权后再同步 trend/radar 来源。')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '连接 X / 重新授权' }))
 
     await waitFor(() => {
@@ -117,6 +136,24 @@ describe('Social reply block generation gate', () => {
       )
     })
     expect(apiMock.generateSocialXReplyBlock).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+  })
+
+  it('shows a bounded error when X OAuth start fails', async () => {
+    const user = userEvent.setup()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
+    const replyAsset = replyBlockAsset({ complete: false })
+    apiMock.getSocialContentAsset.mockResolvedValue(replyAsset)
+    apiMock.getSocialDistributionBoard.mockResolvedValue(boardWithReplyAsset(replyAsset, 'needs_review'))
+    apiMock.getDistributionAccountAuthStatuses.mockResolvedValue(xAuthBlocked())
+    apiMock.startSocialXOAuth.mockRejectedValueOnce(new Error('无法生成 X 授权链接：Local Google credentials expired.'))
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-45'))
+    await user.click(await screen.findByRole('button', { name: '连接 X / 重新授权' }))
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(await screen.findByText('无法生成 X 授权链接：Local Google credentials expired.')).toBeInTheDocument()
     openSpy.mockRestore()
   })
 })
@@ -257,6 +294,32 @@ function xAuthBlocked() {
       oauth_status: 'invalid_refresh_token',
       requires_authorization: true,
       auth_message: 'Value passed for the token was invalid.',
+      last_checked_at: '2026-05-01T00:00:00Z',
+    }],
+  }
+}
+
+function xAuthAuthorized() {
+  return {
+    generated_at: '2026-05-01T00:00:00Z',
+    items: [{
+      account_id: 102,
+      platform: 'x',
+      channel_key: 'official',
+      display_name: 'X Official Account',
+      login_url: 'https://x.com/i/flow/login',
+      publish_path: 'official_api',
+      api_status: 'ready',
+      browser_status: 'manual_only',
+      api_supported: true,
+      can_publish_via_api: true,
+      can_use_browser_assist: false,
+      private_web_adapter_enabled: false,
+      blockers: [],
+      next_action: 'API publish can proceed after task-level Human Gate.',
+      oauth_status: 'authorized',
+      requires_authorization: false,
+      auth_message: 'X OAuth refresh token is valid.',
       last_checked_at: '2026-05-01T00:00:00Z',
     }],
   }
