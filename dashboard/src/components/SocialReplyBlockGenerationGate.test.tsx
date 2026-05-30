@@ -153,7 +153,8 @@ describe('Social reply block generation gate', () => {
     await user.click(await screen.findByRole('button', { name: '连接 X / 重新授权' }))
 
     expect(openSpy).not.toHaveBeenCalled()
-    expect(await screen.findByText('无法生成 X 授权链接：Local Google credentials expired.')).toBeInTheDocument()
+    expect(await screen.findAllByText(/无法生成 X 授权链接：Local Google credentials expired/)).toHaveLength(2)
+    expect(screen.getAllByText(/请配置 X_OAUTH_CLIENT_ID/)).toHaveLength(2)
     openSpy.mockRestore()
   })
 })
