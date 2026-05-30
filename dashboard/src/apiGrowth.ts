@@ -1,0 +1,161 @@
+type RequestFn = <T>(path: string, options?: RequestInit, timeoutMs?: number) => Promise<T>
+
+export interface GrowthLead {
+  id: number
+  lead_type: 'investor' | 'provider' | string
+  project_key: string
+  name: string
+  organization: string
+  role_title: string
+  public_profile_urls: string[]
+  contact_channels: Array<Record<string, unknown>>
+  source_kind: string
+  source_url: string
+  status: string
+  fit_score: number
+  confidence_score: number
+  risk_flags: string[]
+  evidence: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+  next_action: string
+  last_contacted_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthLeadList {
+  items: GrowthLead[]
+  total: number
+  limit: number
+  offset: number
+  status_counts: Record<string, number>
+  lead_type_counts: Record<string, number>
+}
+
+export interface GrowthOutreachMessage {
+  id: number
+  lead_id: number
+  campaign_id: number | null
+  channel: string
+  subject: string
+  body: string
+  personalization_evidence: Array<Record<string, unknown>>
+  status: string
+  approved_by: string | null
+  sent_at: string | null
+  failure_reason: string | null
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthOutreachEvent {
+  id: number
+  lead_id: number | null
+  message_id: number | null
+  event_type: string
+  actor: string
+  from_status: string | null
+  to_status: string | null
+  summary: string
+  metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+export interface GrowthLeadDetail {
+  lead: GrowthLead
+  messages: GrowthOutreachMessage[]
+  events: GrowthOutreachEvent[]
+}
+
+export interface GrowthAIVisibilityCheck {
+  id: number
+  query: string
+  platform: string
+  answer_summary: string
+  synapse_mentioned: boolean
+  synapse_cited: boolean
+  cited_urls: string[]
+  competitor_mentions: string[]
+  missing_facts: string[]
+  next_action: string
+  run_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthDiscoveryListing {
+  id: number
+  surface: string
+  target_repo: string
+  package_name: string
+  listing_url: string
+  status: string
+  submission_evidence: Record<string, unknown>
+  verification_evidence: Record<string, unknown>
+  failure_reason: string
+  last_checked_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthOverview {
+  lead_counts: Record<string, number>
+  message_counts: Record<string, number>
+  ai_visibility: Record<string, number>
+  discovery_counts: Record<string, number>
+}
+
+export function createGrowthApi(request: RequestFn) {
+  return {
+    getGrowthOverview: () => request<GrowthOverview>('/growth/overview'),
+    getGrowthLeads: (params?: {
+      lead_type?: string
+      status?: string
+      q?: string
+      limit?: number
+      offset?: number
+    }) => request<GrowthLeadList>(`/growth/leads${query(params)}`),
+    createGrowthLead: (data: Partial<GrowthLead>) =>
+      request<GrowthLead>('/growth/leads', { method: 'POST', body: JSON.stringify(data) }),
+    getGrowthLead: (id: number) => request<GrowthLeadDetail>(`/growth/leads/${id}`),
+    draftGrowthMessage: (id: number, data?: { channel?: string; actor?: string; notes?: string }) =>
+      request<GrowthOutreachMessage>(
+        `/growth/leads/${id}/draft-message`,
+        { method: 'POST', body: JSON.stringify(data || {}) },
+        120_000,
+      ),
+    approveGrowthMessage: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
+      request<GrowthOutreachMessage>(`/growth/messages/${id}/approve`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    queueGrowthMessage: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
+      request<GrowthOutreachMessage>(`/growth/messages/${id}/queue`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    markGrowthMessageSent: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
+      request<GrowthOutreachMessage>(`/growth/messages/${id}/mark-sent`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    recordGrowthReply: (id: number, data: { actor?: string; reply_summary: string; interested?: boolean }) =>
+      request<GrowthOutreachMessage>(`/growth/messages/${id}/reply`, { method: 'POST', body: JSON.stringify(data) }),
+    doNotContactGrowthLead: (id: number, data?: { actor?: string; summary?: string }) =>
+      request<GrowthLead>(`/growth/leads/${id}/do-not-contact`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    getGrowthAIVisibilityChecks: (params?: { q?: string; platform?: string; limit?: number; offset?: number }) =>
+      request<{ items: GrowthAIVisibilityCheck[]; total: number; limit: number; offset: number }>(
+        `/growth/ai-visibility/checks${query(params)}`,
+      ),
+    createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
+      request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
+    getGrowthDiscoveryListings: (params?: { surface?: string; status?: string; limit?: number; offset?: number }) =>
+      request<{ items: GrowthDiscoveryListing[]; total: number; limit: number; offset: number }>(
+        `/growth/discovery-listings${query(params)}`,
+      ),
+    createGrowthDiscoveryListing: (data: Partial<GrowthDiscoveryListing>) =>
+      request<GrowthDiscoveryListing>('/growth/discovery-listings', { method: 'POST', body: JSON.stringify(data) }),
+    patchGrowthDiscoveryListing: (id: number, data: Partial<GrowthDiscoveryListing>) =>
+      request<GrowthDiscoveryListing>(`/growth/discovery-listings/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  }
+}
+
+function query(params?: Record<string, unknown>) {
+  const search = new URLSearchParams()
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim()) search.set(key, String(value))
+  })
+  return search.toString() ? `?${search.toString()}` : ''
+}

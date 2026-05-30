@@ -147,6 +147,19 @@
 18. `/publishing` 交互继续遵守 **Modal-only** 与 **NEVER USE DRAWERS** 约束：所有新建、编辑、详情、发布/标记确认都必须使用居中 Modal / Dialog，禁止 Drawer、Slide-out、Offcanvas、Side Panel 或右侧滑出面板。UI 继续遵守 `ui-ux-pro-max` SaaS / Ops Console 设计约束。
 19. 一次性迁移脚本 `scripts/dev/migrate_social_distribution_v2.py` 会把旧草稿、回帖、转发候选转换为 `asset + task + event`，并在显式确认后删除旧主流程表。迁移不是长期兼容层，迁移完成后旧表不再是 Source of Truth。
 
+## 4.6 Growth Acquisition And AI Discovery
+
+当前已具备：
+
+1. `/growth` 是 Growth Acquisition + AI Discovery 工作台，用于生产站点 `https://synapse-network.ai/` 的冷启动增长、AI 搜索可见性和 MCP discovery distribution。
+2. `/growth` 包含四个 Tabs：`Investors`、`Providers`、`AI Visibility`、`MCP Discovery`。它是 Human-Agent Control Plane，不是自动 spam 或无审核外联系统。
+3. `Investor Radar` 面向 pre-seed / seed 投资人，优先 AI infra、agent infra、devtools、fintech、crypto rails、marketplace 和 API economy 投资人。系统可创建、导入、搜索、评分、生成个性化消息草稿和记录事件；发送前必须经过 operator 批准。
+4. `Provider Acquisition` 面向第一批 AI/API Provider 用户，尤其是已有 API、MCP server、data API、automation tool、LLM/RAG/search/browser tool 的开发者。核心目标是让 provider 注册接口、被 agent 调用，并在真实调用后获得收益；不得承诺保证收入。
+5. `AI Visibility` 记录 ChatGPT、Perplexity、Google AI features、Bing/Copilot 等 answer engine 查询结果、Synapse 是否被提及/引用、引用 URL、竞争对手和下一步内容任务。V1 只记录人工或后续 runner 提供的检查结果，不自动调用外部 AI search API。
+6. `MCP Discovery` 追踪 Synapse MCP server 在 Official MCP Registry、Glama、Smithery、MCP.so、PulseMCP、Awesome MCP lists 和 GitHub topics 等 discovery surfaces 的准备、提交、listed、verified 和 needs_fix 状态。V1 不自动提交 registry。
+7. 共享对象包括 `GrowthLead`、`GrowthCampaign`、`OutreachMessage`、`OutreachEvent`、`DiscoveryListing` 和 `AIVisibilityCheck`。外联发送只采用半自动模式：系统找线索、评分、起草、排队；operator 批准批次后才逐条发送并写入 append-only event。
+8. Draft Agent 会读取 `.agents/product-marketing-context.md`、`roles/growth_lead/prompts/persona.md` 和 bounded skill excerpts 来生成 investor/provider outreach 草稿。解析失败、空正文或缺少 personalization evidence 会 fail closed，不写入假 message。
+
 ## 5. Error Discovery And Intake Gate
 
 当前已具备：
@@ -237,7 +250,7 @@
 当前已具备：
 
 1. `/command-center` 作为 Human-Agent Control Plane 首页。
-2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面持久次级导航。主导航保留 `Command Center`、`Planning`、`Bug List`、`Publishing`、`Releases`、`Schedule` 六个高频控制面入口。
+2. 深色 cockpit AppShell 使用 Top Header Navigation，不再使用桌面持久次级导航。主导航保留 `Command Center`、`Planning`、`Bug List`、`Growth`、`Publishing`、`Releases`、`Schedule` 七个高频控制面入口。
 3. 顶栏右侧保留 `Needs Human` badge、`Cmd+K / Search` 低频入口和 `Alerts` 通知入口；`/gates`、`/requirements`、`/workflows`、`/projects`、`/errors` 等路由继续存在，但不占用主导航。
 4. `/gates` 集中展示 pending human gates、failed / blocked workflow。
 5. `/factory/workflows` 只读展示 workflow definitions、states、transitions、limits、risk policy。

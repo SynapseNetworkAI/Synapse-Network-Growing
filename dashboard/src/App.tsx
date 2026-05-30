@@ -20,6 +20,7 @@ import SdkReleaseTrainDetailPage from './pages/SdkReleaseTrainDetailPage'
 import PublishingPage from './pages/PublishingPage'
 import PublishingTrendResultsPage from './pages/PublishingTrendResultsPage'
 import BugsPage from './pages/BugsPage'
+import GrowthPage from './pages/GrowthPage'
 import ProjectsPage from './pages/ProjectsPage'
 import ProjectDetailPage from './pages/ProjectDetailPage'
 import ErrorsPage from './pages/ErrorsPage'
@@ -30,6 +31,7 @@ const primaryNavItems = [
   { to: '/command-center', label: 'Command Center', meta: 'Mission Control' },
   { to: '/planning', label: 'Planning', meta: 'Opportunities & Goals' },
   { to: '/bugs', label: 'Bug List', meta: 'Agent Fix Queue' },
+  { to: '/growth', label: 'Growth', meta: 'Acquisition & AI Discovery' },
   { to: '/publishing', label: 'Publishing', meta: 'Social Ops' },
   { to: '/releases', label: 'Releases', meta: 'Delivery' },
   { to: '/schedules', label: 'Schedule', meta: 'Recurring Ops' },
@@ -76,6 +78,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname.startsWith('/requirements/'), title: '需求详情', meta: 'Requirement detail' },
   { match: (pathname) => pathname === '/planning', title: '经营规划', meta: 'Planning control plane' },
   { match: (pathname) => pathname === '/bugs', title: 'Bug List', meta: 'Agent fix queue' },
+  { match: (pathname) => pathname === '/growth', title: 'Growth', meta: 'Acquisition and AI discovery' },
   { match: (pathname) => pathname === '/workflows', title: '运行轨迹', meta: 'Workflow runs' },
   { match: (pathname) => pathname.startsWith('/workflows/'), title: '工作流详情', meta: 'State machine detail' },
   { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
@@ -254,6 +257,7 @@ export default function App() {
               <Route path="/requirements/:id" element={<RequirementDetail />} />
               <Route path="/planning" element={<PlanningPage />} />
               <Route path="/bugs" element={<BugsPage />} />
+              <Route path="/growth" element={<GrowthPage />} />
               <Route path="/workflows" element={<WorkflowRunsPage />} />
               <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
               <Route path="/schedules" element={<SchedulesPage />} />

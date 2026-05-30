@@ -24,6 +24,7 @@ from server.routers import (
     copilot_auth,
     deployments,
     errors,
+    growth,
     local_ci,
     optimization_signals,
     planning,
@@ -159,6 +160,7 @@ app.include_router(bugs.router)
 app.include_router(workflows.router)
 app.include_router(planning.router)
 app.include_router(social.router)
+app.include_router(growth.router)
 
 
 @app.middleware("http")
