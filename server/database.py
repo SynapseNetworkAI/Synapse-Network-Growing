@@ -39,7 +39,6 @@ _engine_kwargs = {
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
-
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -298,6 +297,8 @@ class BugRecordRow(Base):
 
     converted_requirement = relationship("RequirementRow")
 
+
+from server.database_bugs import BugEventRow as BugEventRow, BugFixAttemptRow as BugFixAttemptRow
 
 class RequirementIntakeFingerprintRow(Base):
     __tablename__ = "requirement_intake_fingerprints"
@@ -1626,7 +1627,6 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE bug_records ADD COLUMN {col} {col_type}"))
                     conn.commit()
-
     if "requirement_intake_fingerprints" not in tables:
         logger.info("Migrating: creating 'requirement_intake_fingerprints' table")
         RequirementIntakeFingerprintRow.__table__.create(bind=engine_, checkfirst=True)
