@@ -299,7 +299,6 @@ class BugRecordRow(Base):
 
 
 from server.database_bugs import BugEventRow as BugEventRow, BugFixAttemptRow as BugFixAttemptRow
-
 class RequirementIntakeFingerprintRow(Base):
     __tablename__ = "requirement_intake_fingerprints"
     __table_args__ = (
@@ -804,7 +803,7 @@ class SocialPostMetricRow(Base):
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
+import server.database_growth, server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
 import server.database_scheduled_jobs  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"

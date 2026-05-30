@@ -24,6 +24,17 @@ export type {
 } from './apiSocialMetrics'
 import { createBugsApi } from './apiBugs'
 export type { BugAgentContext, BugClaimResult, BugDetail, BugEvent, BugFixAttempt, BugList, BugRecord } from './apiBugs'
+import { createGrowthApi } from './apiGrowth'
+export type {
+  GrowthAIVisibilityCheck,
+  GrowthDiscoveryListing,
+  GrowthLead,
+  GrowthLeadDetail,
+  GrowthLeadList,
+  GrowthOutreachEvent,
+  GrowthOutreachMessage,
+  GrowthOverview,
+} from './apiGrowth'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import { createSchedulesApi } from './apiSchedules'
 import type { RecurringWorkflowRunResult } from './apiSchedules'
@@ -2070,6 +2081,7 @@ export const api = {
   ...createSocialDistributionApi(request),
   ...createSocialMetricApi(request),
   ...createBugsApi(request),
+  ...createGrowthApi(request),
   ...createReleaseScheduledJobsApi(request),
   ...createSchedulesApi(request),
   // Agents

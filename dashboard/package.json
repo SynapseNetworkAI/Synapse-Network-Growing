@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "node node_modules/playwright/cli.js test"
   },
   "dependencies": {
     "react": "^19.0.0",

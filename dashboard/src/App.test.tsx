@@ -12,6 +12,7 @@ vi.mock('./pages/WorkflowRunsPage', () => ({ default: () => <div>Workflow Runs P
 vi.mock('./pages/WorkflowRunDetailPage', () => ({ default: () => <div>Workflow Detail Page</div> }))
 vi.mock('./pages/PlanningPage', () => ({ default: () => <div>Planning Page</div> }))
 vi.mock('./pages/BugsPage', () => ({ default: () => <div>Bugs Page</div> }))
+vi.mock('./pages/GrowthPage', () => ({ default: () => <div>Growth Page</div> }))
 vi.mock('./pages/HumanGatesPage', () => ({ default: () => <div>Human Gates Page</div> }))
 vi.mock('./pages/WorkflowDefinitionsPage', () => ({ default: () => <div>Workflow Factory Page</div> }))
 vi.mock('./pages/AtomRegistryPage', () => ({ default: () => <div>Atom Registry Page</div> }))
@@ -57,6 +58,7 @@ describe('App top navigation shell', () => {
     expect(within(primaryNav).getByRole('link', { name: 'Command Center' })).toHaveAttribute('href', '/command-center')
     expect(within(primaryNav).getByRole('link', { name: 'Planning' })).toHaveAttribute('href', '/planning')
     expect(within(primaryNav).getByRole('link', { name: 'Bug List' })).toHaveAttribute('href', '/bugs')
+    expect(within(primaryNav).getByRole('link', { name: 'Growth' })).toHaveAttribute('href', '/growth')
     expect(within(primaryNav).getByRole('link', { name: 'Publishing' })).toHaveAttribute('href', '/publishing')
     expect(within(primaryNav).getByRole('link', { name: 'Releases' })).toHaveAttribute('href', '/releases')
     expect(within(primaryNav).getByRole('link', { name: 'Schedule' })).toHaveAttribute('href', '/schedules')
@@ -77,6 +79,14 @@ describe('App top navigation shell', () => {
     expect(within(dialog).getByRole('link', { name: /Workflows/ })).toHaveAttribute('href', '/workflows')
     expect(within(dialog).queryByRole('link', { name: /Schedules/ })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Schedule' })).toHaveAttribute('href', '/schedules')
+    await waitFor(() => expect(screen.getByText('Needs Human 3')).toBeInTheDocument())
+  })
+
+  it('routes to the Growth acquisition workbench', async () => {
+    renderApp('/growth')
+
+    expect(screen.getByText('Growth Page')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Growth' })).toHaveAttribute('href', '/growth')
     await waitFor(() => expect(screen.getByText('Needs Human 3')).toBeInTheDocument())
   })
 })
