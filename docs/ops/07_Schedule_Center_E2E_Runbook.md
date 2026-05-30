@@ -124,22 +124,18 @@ Use these queries to inspect the durable schedule facts:
 ```sql
 select workflow_key, status, is_builtin, schedule_json, output_action_json
 from recurring_workflows
-where workflow_key in (
-  'secret_manager_version_cleanup_sweep',
-  'artifact_registry_cleanup_sweep'
-);
+where workflow_key in ('artifact_registry_cleanup_sweep');
 ```
 
 ```sql
 select workflow_key, status, dry_run, result_json, error_excerpt, started_at, completed_at
 from recurring_workflow_runs
-where workflow_key in (
-  'secret_manager_version_cleanup_sweep',
-  'artifact_registry_cleanup_sweep'
-)
+where workflow_key in ('artifact_registry_cleanup_sweep')
 order by id desc
 limit 20;
 ```
+
+`secret_manager_version_cleanup_sweep` is intentionally absent. Growing runtime no longer exposes GCP Secret Manager cleanup through Schedule Center.
 
 ## Acceptance
 

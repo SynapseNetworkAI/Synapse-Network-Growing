@@ -7,7 +7,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server import config
 from server.database import RecurringWorkflowRow, utcnow
 from server.services.result_objects import ServiceListResult, ServiceObjectResult
 from server.services.scheduling.artifact_registry_workflows import (
@@ -41,28 +40,6 @@ SCHEDULE_TEMPLATES: dict[str, dict[str, Any]] = {
             "read_image_payload": False,
         },
         "validation_signal": {"success_metric": "deleted_count", "min_expected": 0},
-    },
-    "secret_manager_version_cleanup": {
-        "template_key": "secret_manager_version_cleanup",
-        "display_name": "Secret Manager Version Cleanup",
-        "description": "Destroy old active secret versions while keeping recent versions.",
-        "category": "infra_cleanup",
-        "risk_level": "high",
-        "handler_key": "destroy_old_secret_manager_versions",
-        "schedule": {
-            "cadence": "daily",
-            "suggested_local_time": "12:00",
-            "timezone": config.OPERATOR_TIMEZONE,
-        },
-        "input_query": {
-            "projects": config.SECRET_MANAGER_CLEANUP_PROJECTS,
-            "keep": config.SECRET_MANAGER_CLEANUP_KEEP_VERSIONS,
-        },
-        "output_action": {
-            "kind": "destroy_old_secret_manager_versions",
-            "read_secret_payload": False,  # nosec B105 - policy flag, not a secret.
-        },
-        "validation_signal": {"success_metric": "destroyed_count", "min_expected": 0},
     },
 }
 

@@ -185,7 +185,7 @@ def delete_x_refresh_token_secret_manager(
     _ensure_delete_confirmation(dry_run=dry_run, confirmation=confirmation)
     verification = verify_local_x_refresh_token(provider=provider)
     command_runner = runner or _run_command
-    selected_secret_id = str(secret_id or config.X_OAUTH_REFRESH_TOKEN_SECRET).strip()
+    selected_secret_id = str(secret_id or config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY).strip()
     results = _delete_project_results(
         projects=_selected_projects(projects),
         secret_id=selected_secret_id,
