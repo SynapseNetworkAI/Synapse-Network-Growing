@@ -1,7 +1,7 @@
 """Release center API."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db
@@ -70,6 +70,7 @@ from server.services.releases.local_deploy_tasks import deploy_release_task_loca
 from server.services.releases.gate_status import release_task_gate_status
 from server.services.releases.task_query import query_release_tasks
 from server.services.releases.task_query_schemas import ReleaseTaskPageOut
+from server.services.releases.agent_deploy_auth import require_agent_deploy_token_for_actor
 from server.services.releases.scheduled_jobs import scheduled_job_catalog, scheduled_jobs_status
 from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
 from server.services.releases.scheduled_job_tasks import (
@@ -374,12 +375,12 @@ def retry_sdk_package_release_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 @router.post("/tasks", response_model=ReleaseTaskOut)
-def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = Depends(get_db)):
+def create_release_task_endpoint(body: ReleaseTaskCreateRequest, db: Session = Depends(get_db), x_growing_agent_deploy_token: str | None = Header(default=None)):
+    require_agent_deploy_token_for_actor(body.actor, x_growing_agent_deploy_token)
     try:
         return create_release_task(db, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
 @router.patch("/tasks/{task_id}", response_model=ReleaseTaskOut)
 def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db: Session = Depends(get_db)):
     try:
@@ -388,7 +389,6 @@ def update_release_task_endpoint(task_id: int, body: ReleaseTaskPatchRequest, db
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
-
 @router.post("/tasks/{task_id}/create-pr", response_model=ReleaseTaskOut)
 def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
     try:
@@ -399,7 +399,8 @@ def create_release_task_pr_endpoint(task_id: int, body: ReleaseTaskDeployRequest
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 @router.post("/tasks/{task_id}/deploy-staging", response_model=ReleaseTaskOut)
-def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
+def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db), x_growing_agent_deploy_token: str | None = Header(default=None)):
+    require_agent_deploy_token_for_actor(body.actor, x_growing_agent_deploy_token)
     try:
         return deploy_release_task_locally(db, task_id, body)
     except ValueError as exc:
@@ -408,7 +409,8 @@ def deploy_release_task_staging_endpoint(task_id: int, body: ReleaseTaskDeployRe
         raise HTTPException(status_code=status_code, detail=detail) from exc
 
 @router.post("/tasks/{task_id}/deploy", response_model=ReleaseTaskOut)
-def deploy_release_task_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db)):
+def deploy_release_task_endpoint(task_id: int, body: ReleaseTaskDeployRequest, db: Session = Depends(get_db), x_growing_agent_deploy_token: str | None = Header(default=None)):
+    require_agent_deploy_token_for_actor(body.actor, x_growing_agent_deploy_token)
     try:
         return deploy_release_task(db, task_id, body)
     except ValueError as exc:
