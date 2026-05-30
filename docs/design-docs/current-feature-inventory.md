@@ -161,7 +161,7 @@
    - resolved 后再次出现会创建 `Regression:` requirement。
 6. Scheduler lock 防止 bug sweep 并发重复执行。
 7. 需求去重与 Lark 通知抑制分表，不混用语义。
-8. `/bugs` 是 Agent Native Bug List：以 `bug_records` 为 bug source of truth，`bug_fix_attempts` 记录 agent claim、修复分支、commit、PR、workflow run、验证命令和截图 artifact 引用，`bug_events` 保存 append-only timeline。Agent 通过 `/api/bugs`、`/api/bugs/agent-queue`、`/api/bugs/{id}/claim`、`link-fix`、`verification`、`close`、`reopen` 读取和推进 bug，不直接写 DB。
+8. `/bugs` 是 Agent Native Bug List：以 `bug_records` 为 bug source of truth，`bug_fix_attempts` 记录 agent claim、修复分支、commit、PR、workflow run、验证命令和截图 artifact 引用，`bug_events` 保存 append-only timeline。Agent 通过 `/api/bugs`、`/api/bugs/agent-queue`、`/api/bugs/{id}/claim`、`link-fix`、`verification`、`close`、`reopen` 读取和推进 bug，不直接写 DB。Repo-local skill `.agents/skills/bug-list-agent/SKILL.md` 是操作手册；local-only MCP server `scripts/mcp/bug_list_server.py` 是结构化机器接口，只封装 allowlisted Bug List API。`scripts/mcp/register_bug_list_codex.py` 可把 skill 和 `synapse-bug-list` MCP server 注册到本机 Codex，写操作走 `OPS_AGENT_BUG_API_TOKEN` token-gated aliases。
 9. `/errors` 继续作为 runtime fingerprint 诊断面；`/bugs` 是产品 bug backlog、Agent 修复队列和验证证据账本。关闭 bug 必须有 verified fix attempt、commit 或 PR、验证命令；UI/page/frontend 类 bug 还需要截图或 artifact 引用。
 
 ## 6. Recurring Jobs And Notifications

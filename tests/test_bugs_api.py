@@ -212,6 +212,108 @@ def test_bug_workbench_fail_closed_endpoints(synced_client):
     assert missing_summary.status_code == 400
 
 
+def test_agent_bug_actions_require_matching_token(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_BUG_API_TOKEN", "bug-token")
+    bug = _create_bug(
+        synced_client,
+        title="Agent token gated bug",
+        fingerprint="agent-token-gated-bug",
+    )
+
+    missing = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/claim",
+        json={"agent_id": "codex"},
+    )
+    wrong = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/claim",
+        headers={"X-Growing-Agent-Bug-Token": "wrong-token"},
+        json={"agent_id": "codex"},
+    )
+    allowed = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/claim",
+        headers={"X-Growing-Agent-Bug-Token": "bug-token"},
+        json={"agent_id": "codex"},
+    )
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert allowed.status_code == 200
+    assert allowed.json()["bug"]["status"] == "fixing"
+
+
+def test_agent_bug_actions_cover_intake_fix_verify_and_close(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_BUG_API_TOKEN", "bug-token")
+    headers = {"X-Growing-Agent-Bug-Token": "bug-token"}
+
+    intake = synced_client.post(
+        "/api/bugs/agent-actions/intake",
+        headers=headers,
+        json={
+            "source_key": "manual_bug_report",
+            "project_key": "growing",
+            "title": "MCP smoke bug",
+            "summary": "MCP smoke needs evidence lifecycle.",
+            "severity": "normal",
+            "fingerprint": "mcp-smoke-bug",
+        },
+    )
+    assert intake.status_code == 201
+    bug = intake.json()["bug"]
+
+    assert synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/claim",
+        headers=headers,
+        json={"agent_id": "codex"},
+    ).status_code == 200
+    link = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/link-fix",
+        headers=headers,
+        json={
+            "agent_id": "codex",
+            "branch_name": "codex/mcp-smoke",
+            "commit_sha": "abc1234567890",
+            "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-Growing/pull/1",
+        },
+    )
+    assert link.status_code == 200
+    verify = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/verification",
+        headers=headers,
+        json={
+            "agent_id": "codex",
+            "status": "verified",
+            "summary": "MCP smoke validation passed.",
+            "commands": [{"command": "python scripts/e2e/bug_list_mcp_live_e2e.py", "status": "passed"}],
+            "screenshots": [{"path": "docs/archive/evidence/bugs/mcp-smoke.png", "label": "MCP smoke"}],
+        },
+    )
+    assert verify.status_code == 200
+    close = synced_client.post(
+        f"/api/bugs/agent-actions/{bug['id']}/close",
+        headers=headers,
+        json={"actor": "codex", "resolution": "verified"},
+    )
+    assert close.status_code == 200
+    assert close.json()["bug"]["status"] == "closed"
+
+
+def test_ui_bug_actions_stay_compatible_without_agent_token(monkeypatch, synced_client):
+    monkeypatch.setattr("server.config.OPS_AGENT_BUG_API_TOKEN", "bug-token")
+    bug = _create_bug(
+        synced_client,
+        title="UI compatibility bug",
+        fingerprint="ui-compatibility-bug",
+    )
+
+    response = synced_client.post(
+        f"/api/bugs/{bug['id']}/claim",
+        json={"agent_id": "codex"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["bug"]["status"] == "fixing"
+
+
 def test_bug_serializer_fallbacks_and_project_policy(db_session):
     assert json_loads(None, []) == []
     assert json_loads("{bad json", {"fallback": True}) == {"fallback": True}

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 
 from server.database import get_db
@@ -27,6 +27,7 @@ from server.schemas_bugs import (
     BugVerificationRequest,
 )
 from server.services.bugs.intake import intake_bug
+from server.services.bugs.agent_auth import require_agent_bug_token
 from server.services.bugs.external_adapter import intake_external_log_center_batch
 from server.services.bugs.sources import list_bug_source_registry
 from server.services.bugs.workbench import (
@@ -103,6 +104,81 @@ def intake_log_center_endpoint(body: ExternalLogCenterBatchRequest, db: Session 
             return ExternalLogCenterBatchResultOut(**intake_external_log_center_batch(db, body))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/agent-actions/intake", response_model=BugIntakeResultOut, status_code=201)
+def agent_intake_bug_endpoint(
+    body: BugIntakeRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return intake_bug_endpoint(body, db)
+
+
+@router.post("/agent-actions/{bug_id}/claim", response_model=BugClaimResultOut)
+def agent_claim_bug_endpoint(
+    bug_id: int,
+    body: BugClaimRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return claim_bug_endpoint(bug_id, body, db)
+
+
+@router.post("/agent-actions/{bug_id}/materialize-requirement", response_model=BugDetailOut)
+def agent_materialize_bug_requirement_endpoint(
+    bug_id: int,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return materialize_bug_requirement_endpoint(bug_id, db)
+
+
+@router.post("/agent-actions/{bug_id}/link-fix", response_model=BugDetailOut)
+def agent_link_bug_fix_endpoint(
+    bug_id: int,
+    body: BugLinkFixRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return link_bug_fix_endpoint(bug_id, body, db)
+
+
+@router.post("/agent-actions/{bug_id}/verification", response_model=BugDetailOut)
+def agent_add_bug_verification_endpoint(
+    bug_id: int,
+    body: BugVerificationRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return add_bug_verification_endpoint(bug_id, body, db)
+
+
+@router.post("/agent-actions/{bug_id}/close", response_model=BugDetailOut)
+def agent_close_bug_endpoint(
+    bug_id: int,
+    body: BugCloseRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return close_bug_endpoint(bug_id, body, db)
+
+
+@router.post("/agent-actions/{bug_id}/reopen", response_model=BugDetailOut)
+def agent_reopen_bug_endpoint(
+    bug_id: int,
+    body: BugReopenRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return reopen_bug_endpoint(bug_id, body, db)
 
 
 @router.get("/{bug_id}", response_model=BugDetailOut)
