@@ -31,8 +31,28 @@ def test_create_release_task_and_query_defaults_to_local_runner(synced_client):
     assert items[0]["deployment_record_id"] is None
 
 
+def test_get_release_task_by_id_returns_detail(synced_client):
+    task = _create_task(synced_client, service_key="docs-front").json()
+
+    response = synced_client.get(f"/api/releases/tasks/{task['id']}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == task["id"]
+    assert payload["service_key"] == "docs-front"
+    assert payload["deployment_record_id"] is None
+
+
+def test_get_release_task_by_id_handles_missing_task(synced_client):
+    response = synced_client.get("/api/releases/tasks/999999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Release task not found."
+
+
 def test_agent_release_task_requires_local_token(monkeypatch, synced_client):
     monkeypatch.setattr("server.config.OPS_AGENT_DEPLOY_API_TOKEN", "")
+    monkeypatch.delenv("OPS_AGENT_DEPLOY_API_TOKEN", raising=False)
 
     response = _create_task(synced_client, actor="codex/test-thread")
 

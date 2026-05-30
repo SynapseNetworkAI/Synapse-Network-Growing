@@ -1,0 +1,21 @@
+{
+  "name": "@synapse-network-growing/local-release-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only MCP wrapper for Growing release task creation, deploy requests, and evidence reads.",
+  "type": "module",
+  "bin": {
+    "growing-release-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "smoke:list-tools": "node test/smoke-list-tools.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.3.6"
+  }
+}
