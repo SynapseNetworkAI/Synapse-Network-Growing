@@ -59,7 +59,7 @@ def _ensure_postgres_database(database_url: str) -> None:
 
 _ensure_postgres_database(TEST_DATABASE_URL)
 
-from server.database import Base, get_db
+from server.database import Base, get_db, engine as APP_ENGINE
 from server.main import app
 from server.config import PROJECT_ROOT
 from server.services.agents.loader import ensure_agents_loaded
@@ -224,6 +224,7 @@ def _fake_generate_plan_brief_markdown_with_agent(
 
 
 def _override_get_db():
+    _ensure_test_tables()
     db = TestSession()
     try:
         yield db
@@ -232,27 +233,32 @@ def _override_get_db():
 
 
 def _reset_postgres_schema() -> None:
-    TEST_ENGINE.dispose()
-    reset_engine = create_engine(
-        TEST_DATABASE_URL, isolation_level="AUTOCOMMIT", pool_pre_ping=True
-    )
-    try:
-        with reset_engine.connect() as conn:
-            conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-            conn.execute(text("CREATE SCHEMA public"))
-    finally:
-        reset_engine.dispose()
+    _ensure_test_tables()
+    table_names = ", ".join(_quoted_table_name(table) for table in Base.metadata.tables.values())
+    if not table_names:
+        return
+    with TEST_ENGINE.begin() as conn:
+        conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+
+
+def _quoted_table_name(table) -> str:
+    schema = str(table.schema or "public").replace('"', '""')
+    name = str(table.name).replace('"', '""')
+    return f'"{schema}"."{name}"'
 
 
 def _rebuild_postgres_schema() -> None:
     with _SCHEMA_RESET_LOCK:
         _reset_postgres_schema()
-        Base.metadata.create_all(bind=TEST_ENGINE)
 
 
 def _drop_postgres_schema() -> None:
-    with _SCHEMA_RESET_LOCK:
-        _reset_postgres_schema()
+    TEST_ENGINE.dispose()
+    APP_ENGINE.dispose()
+
+
+def _ensure_test_tables() -> None:
+    Base.metadata.create_all(bind=TEST_ENGINE)
 
 
 @pytest.fixture(autouse=True)
@@ -284,6 +290,7 @@ def setup_db():
 
 @pytest.fixture
 def db_session():
+    _ensure_test_tables()
     db = TestSession()
     try:
         yield db
@@ -299,6 +306,7 @@ def client():
 @pytest.fixture
 def synced_client(client):
     """Client with agents already loaded."""
+    _ensure_test_tables()
     db = TestSession()
     ensure_agents_loaded(db)
     db.commit()
