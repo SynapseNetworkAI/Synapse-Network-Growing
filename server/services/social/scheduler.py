@@ -96,7 +96,30 @@ class XSocialSweepScheduler:
                 snapshot = recurring_workflow_to_dict(row)
                 if row.last_run_at is not None and not bool(snapshot.get("is_due")):
                     continue
-                result = run_recurring_workflow(db, workflow_key=workflow_key, triggered_by="scheduler")
+                try:
+                    result = run_recurring_workflow(
+                        db,
+                        workflow_key=workflow_key,
+                        triggered_by="scheduler",
+                    )
+                except ValueError as exc:
+                    if not _is_missing_x_oauth_client_config(exc):
+                        raise
+                    diagnostic = {
+                        "status": "blocked",
+                        "diagnostic": str(exc),
+                        "requires_configuration": True,
+                    }
+                    ran[workflow_key] = diagnostic
+                    log_event(
+                        logger,
+                        "x_social_scheduler_workflow_blocked",
+                        level=logging.WARNING,
+                        workflow_key=workflow_key,
+                        reason="missing_x_oauth_client_config",
+                        error=str(exc),
+                    )
+                    continue
                 ran[workflow_key] = dict(result.get("result") or {})
             if ran:
                 self._last_run_at = datetime.now(timezone.utc)
@@ -109,3 +132,8 @@ class XSocialSweepScheduler:
         finally:
             if db is not None:
                 db.close()
+
+
+def _is_missing_x_oauth_client_config(exc: ValueError) -> bool:
+    summary = str(exc).lower()
+    return "x_oauth_client_id" in summary or "x_oauth_client_secret" in summary
