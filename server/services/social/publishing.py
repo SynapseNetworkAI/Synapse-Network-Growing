@@ -128,15 +128,6 @@ class SocialPublishError(RuntimeError):
         self.summary = summary
 
 
-def _is_gcp_adc_reauth_error(value: object) -> bool:
-    text = str(value or "").lower()
-    return "reauthentication is needed" in text or "application-default login" in text
-
-
-def _gcp_adc_reauth_summary() -> str:
-    return "Local Google credentials expired. Run `gcloud auth application-default login` and refresh /publishing."
-
-
 @dataclass(frozen=True)
 class XPublishResult:
     post_id: str
@@ -2507,52 +2498,7 @@ class XOAuth2AccessToken:
 
 
 class SecretValueStore:
-    """Read/write secret values without exposing them to API payloads or logs."""
-
-    def _secret_name(self, secret_ref: str) -> str:
-        ref = str(secret_ref or "").strip()
-        if not ref:
-            raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
-        if ref.startswith("projects/"):
-            return ref
-        project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("STAGING_GCP_PROJECT_ID")
-        if not project_id:
-            raise SocialPublishError("x_auth_failed", "GCP project id is required to read the X credential secret.")
-        return f"projects/{project_id}/secrets/{ref}/versions/latest"
-
-    def _secret_parent(self, secret_ref: str) -> str:
-        ref = str(secret_ref or "").strip()
-        if not ref:
-            raise SocialPublishError("x_auth_failed", "X credential secret reference is empty.")
-        if ref.startswith("projects/"):
-            return ref.rsplit("/versions/", 1)[0]
-        project_id = os.environ.get("GCP_PROJECT_ID") or os.environ.get("STAGING_GCP_PROJECT_ID")
-        if not project_id:
-            raise SocialPublishError("x_auth_failed", "GCP project id is required to write the X credential secret.")
-        return f"projects/{project_id}/secrets/{ref}"
-
-    def _secret_create_request(self, secret_ref: str) -> dict[str, Any]:
-        parent = self._secret_parent(secret_ref)
-        if "/secrets/" not in parent:
-            raise SocialPublishError("x_refresh_failed", "X refresh token secret reference is invalid.")
-        project_parent, secret_id = parent.rsplit("/secrets/", 1)
-        if not project_parent or not secret_id:
-            raise SocialPublishError("x_refresh_failed", "X refresh token secret reference is invalid.")
-        return {
-            "parent": project_parent,
-            "secret_id": secret_id,
-            "secret": {"replication": {"automatic": {}}},
-        }
-
-    def _is_secret_not_found(self, exc: Exception) -> bool:
-        try:
-            from google.api_core import exceptions as google_exceptions  # type: ignore
-
-            if isinstance(exc, google_exceptions.NotFound):
-                return True
-        except Exception:  # pragma: no cover - optional dependency shape
-            pass
-        return "not found" in str(exc).lower()
+    """Read local env-backed values without exposing payloads to API responses."""
 
     def read(self, secret_ref: str) -> str:
         ref = str(secret_ref or "").strip()
@@ -2561,56 +2507,16 @@ class SecretValueStore:
             if not value:
                 raise SocialPublishError("x_auth_failed", "X credential environment variable is missing.")
             return value
-        try:
-            from google.cloud import secretmanager  # type: ignore
-        except Exception as exc:  # pragma: no cover - optional production dependency
-            raise SocialPublishError("x_auth_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
-        try:
-            response = secretmanager.SecretManagerServiceClient().access_secret_version(request={"name": self._secret_name(ref)})
-        except Exception as exc:  # pragma: no cover - credential dependent
-            if _is_gcp_adc_reauth_error(exc):
-                raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from exc
-            raise SocialPublishError("x_auth_failed", f"Secret Manager read failed: {_bounded_excerpt(str(exc))}") from exc
-        value = response.payload.data.decode("utf-8", errors="replace").strip()
-        if not value:
-            raise SocialPublishError("x_auth_failed", "X credential secret is empty.")
-        return value
+        raise SocialPublishError(
+            "x_auth_failed",
+            "GCP Secret Manager is disabled for Synapse-Network-Growing runtime; use env:<VAR> or X OAuth local DB.",
+        )
 
     def add_version(self, secret_ref: str, value: str) -> None:
-        ref = str(secret_ref or "").strip()
-        if ref.startswith("env:"):
-            raise SocialPublishError("x_refresh_failed", "X refresh token cannot be rotated into an environment variable.")
-        try:
-            from google.cloud import secretmanager  # type: ignore
-        except Exception as exc:  # pragma: no cover - optional production dependency
-            raise SocialPublishError("x_refresh_failed", "Google Secret Manager client is unavailable in this runtime.") from exc
-        client = secretmanager.SecretManagerServiceClient()
-        request = {
-            "parent": self._secret_parent(ref),
-            "payload": {"data": value.encode("utf-8")},
-        }
-        try:
-            client.add_secret_version(
-                request={
-                    "parent": request["parent"],
-                    "payload": request["payload"],
-                }
-            )
-        except Exception as exc:  # pragma: no cover - credential dependent
-            if _is_gcp_adc_reauth_error(exc):
-                raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from exc
-            if not self._is_secret_not_found(exc):
-                raise SocialPublishError("x_refresh_failed", f"Secret Manager refresh token write failed: {_bounded_excerpt(str(exc))}") from exc
-            try:
-                client.create_secret(request=self._secret_create_request(ref))
-                client.add_secret_version(request=request)
-            except Exception as retry_exc:  # pragma: no cover - credential dependent
-                if _is_gcp_adc_reauth_error(retry_exc):
-                    raise SocialPublishError("gcp_adc_expired", _gcp_adc_reauth_summary()) from retry_exc
-                raise SocialPublishError(
-                    "x_refresh_failed",
-                    f"Secret Manager refresh token write failed after creating secret: {_bounded_excerpt(str(retry_exc))}",
-                ) from retry_exc
+        raise SocialPublishError(
+            "x_refresh_failed",
+            "GCP Secret Manager writes are disabled; rotate X refresh tokens into local encrypted DB.",
+        )
 
 
 secret_store = SecretValueStore()
@@ -2661,8 +2567,6 @@ class XOAuth2TokenProvider:
         try:
             self._read_refresh_token()
         except SocialPublishError as exc:
-            if exc.kind == "gcp_adc_expired":
-                return "gcp_adc_expired", exc.summary
             return "needs_authorization", exc.summary
         return "authorized", "OAuth refresh token is configured."
 
@@ -2749,7 +2653,8 @@ def _read_secret_token(secret_ref: str) -> str:
 class XApiPublisher:
     """Narrow adapter for X API publishing.
 
-    Tests replace this object; production reads Secret Manager only at publish time.
+    Tests replace this object; runtime creates short-lived OAuth access tokens
+    from local env client credentials and the encrypted local refresh token.
     """
 
     def _auth_failure_summary(self, action: str, raw: str, *, required_scope: str) -> str:

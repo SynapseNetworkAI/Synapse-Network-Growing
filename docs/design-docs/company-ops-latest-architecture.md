@@ -308,10 +308,11 @@ intake -> execute -> validate -> deliver
 1. `/schedules` 是顶部主导航 `Schedule`，展示内置 recurring workflow registry、运行历史、健康状态、模板、手动 dry run / run now。
 2. Bug Log Sweep Scheduler 是真实自动定时运行的稳定性入口，负责日志扫描和 bug intake。
 3. Notification Dispatcher 是真实后台 loop，负责通知队列消费、dedupe、cooldown、suppression、retry 和 dead letter。
-4. `secret_manager_version_cleanup_sweep` 和 `artifact_registry_cleanup_sweep` 是内置基础设施清理任务，只读取 metadata，dry-run 先出候选，destructive apply 需要 operator 明确确认。
-5. 自定义 schedule 只能从 allowlisted template 创建、修改和删除；不允许任意 shell cron、任意 prompt runner 或没有 handler 的后台任务。
-6. 其他 recurring workflows 先作为可手动运行的一等任务定义，不由通用 scheduler 自动运行。
-7. 高风险 recurring workflow 的 `Run Now` 默认不 auto-start requirement，也不能绕过 human gate。
+4. `artifact_registry_cleanup_sweep` 是内置基础设施清理任务，只读取 metadata，dry-run 先出候选，destructive apply 需要 operator 明确确认。
+5. Growing runtime 不再注册 `secret_manager_version_cleanup_sweep`，也不通过 Schedule Center 管理 GCP Secret Manager。
+6. 自定义 schedule 只能从 allowlisted template 创建、修改和删除；不允许任意 shell cron、任意 prompt runner 或没有 handler 的后台任务。
+7. 其他 recurring workflows 先作为可手动运行的一等任务定义，不由通用 scheduler 自动运行。
+8. 高风险 recurring workflow 的 `Run Now` 默认不 auto-start requirement，也不能绕过 human gate。
 
 这让 operator 能看到“谁在后台推动系统、上次跑了什么、失败在哪里、是否卡住”，避免后台任务变成新的黑盒。
 

@@ -224,6 +224,13 @@ function xAuthDisplay(
   if (oauthStatus === 'missing_local_secret') {
     return { label: '未授权', message: '本地没有可用的 X refresh token，请连接 X 完成授权。', tone: 'blocked' }
   }
+  if (oauthStatus === 'missing_client_config') {
+    return {
+      label: '配置缺失',
+      message: '本地缺少 X_OAUTH_CLIENT_ID 或 X_OAUTH_CLIENT_SECRET。配置后重启 backend，再点击连接 X / 重新授权。',
+      tone: 'blocked',
+    }
+  }
   return { label: '授权异常', message: status.auth_message || 'X 授权状态不可用，请重新授权或检查本地配置。', tone: 'blocked' }
 }
 

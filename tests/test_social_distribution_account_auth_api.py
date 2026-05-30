@@ -105,6 +105,34 @@ def test_distribution_account_auth_status_reports_x_oauth_blockers(
         assert item["requires_authorization"] is True
 
 
+def test_distribution_account_auth_status_reports_missing_x_client_config(
+    synced_client, monkeypatch
+):
+    accounts = synced_client.get("/api/social/distribution/accounts").json()
+    x_account = next(row for row in accounts if row["platform"] == "x")
+
+    def raise_missing_client_config(*_args, **_kwargs):
+        raise ValueError("X_OAUTH_CLIENT_ID is required in local environment configuration.")
+
+    monkeypatch.setattr(
+        distribution_account_auth.x_oauth_token_provider,
+        "get_access_token",
+        raise_missing_client_config,
+    )
+
+    response = synced_client.get(
+        f"/api/social/distribution/accounts/auth-status?account_id={x_account['id']}"
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["api_status"] == "blocked"
+    assert item["oauth_status"] == "missing_client_config"
+    assert "missing_client_config" in item["blockers"]
+    assert item["requires_authorization"] is True
+    assert "X_OAUTH_CLIENT_ID is required" in item["auth_message"]
+
+
 def test_distribution_account_auth_status_marks_api_supported_but_unconfigured(
     synced_client,
 ):

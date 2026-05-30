@@ -6,8 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-# Activate venv if exists
-VENV="${OPS_VENV:-$PROJECT_ROOT/../.venv}"
+# Activate venv if exists. Prefer the repo venv so direct backend starts do not
+# accidentally run Homebrew's uvicorn without project dependencies.
+VENV="${OPS_VENV:-$PROJECT_ROOT/.venv}"
+if [[ ! -f "$VENV/bin/activate" && -f "$PROJECT_ROOT/../.venv/bin/activate" ]]; then
+  VENV="$PROJECT_ROOT/../.venv"
+fi
 if [[ -f "$VENV/bin/activate" ]]; then
   source "$VENV/bin/activate"
 fi
@@ -70,7 +74,7 @@ RELOAD_EXCLUDES=(
   "--reload-exclude" "server/logs/*"
   "--reload-exclude" "roles/*/outputs/*"
 )
-exec uvicorn server.main:app \
+exec python -m uvicorn server.main:app \
   --host 127.0.0.1 \
   --port "$PORT" \
   --reload \

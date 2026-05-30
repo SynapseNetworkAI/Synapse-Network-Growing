@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Move the X OAuth2 refresh token from Secret Manager into local encrypted DB."""
+"""Seed the X OAuth2 refresh token from local env into encrypted DB."""
 
 from __future__ import annotations
 
@@ -12,29 +12,23 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from server import config  # noqa: E402
 from server.database_local_secrets import LocalSecretVersionRow  # noqa: E402
 from server.database import SessionLocal, init_db  # noqa: E402
 from server.services.local_secrets import write_local_secret_version  # noqa: E402
 from server.services.social.publishing import (  # noqa: E402
-    SecretValueStore,
     SocialPublishError,
     XOAuth2TokenProvider,
+    secret_store,
 )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Migrate X refresh token to encrypted local DB storage."
-    )
-    parser.add_argument(
-        "--secret",
-        default=config.X_OAUTH_REFRESH_TOKEN_SECRET,
-        help="Secret Manager secret ref to read.",
+        description="Seed X refresh token to encrypted local DB storage from X_OAUTH_BOOTSTRAP_REFRESH_TOKEN."
     )
     parser.add_argument(
         "--local-key",
-        default=config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY,
+        default=os.environ.get("X_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "x-official-oauth2-refresh-token"),
         help="Local DB secret key to write.",
     )
     parser.add_argument(
@@ -48,18 +42,32 @@ def main() -> int:
     args = parser.parse_args()
 
     init_db()
-    store = SecretValueStore()
     version = None
     if not args.verify_local_only:
-        refresh_token = store.read(args.secret)
+        refresh_token = os.environ.get("X_OAUTH_BOOTSTRAP_REFRESH_TOKEN", "").strip()
+        if not refresh_token:
+            print(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "reason": "missing_X_OAUTH_BOOTSTRAP_REFRESH_TOKEN",
+                        "local_key": args.local_key,
+                        "hint": "Set X_OAUTH_BOOTSTRAP_REFRESH_TOKEN once, run this script, then remove it from local env.",
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 2
         with SessionLocal() as db:
             row = write_local_secret_version(
                 db,
                 args.local_key,
                 refresh_token,
                 metadata={
-                    "source": "secret_manager_migration",
-                    "secret_ref": args.secret,
+                    "source": "local_env_bootstrap",
+                    "env_var": "X_OAUTH_BOOTSTRAP_REFRESH_TOKEN",
                 },
                 keep_active=3,
             )
@@ -80,7 +88,7 @@ def main() -> int:
     rotated = False
     if not args.skip_verify:
         os.environ["X_OAUTH_REFRESH_TOKEN_STORAGE"] = "local_db"  # nosec B105 - storage mode, not a secret
-        provider = XOAuth2TokenProvider(store)
+        provider = XOAuth2TokenProvider(secret_store)
         try:
             token = provider.get_access_token()
             verified = bool(token.access_token)
@@ -108,6 +116,7 @@ def main() -> int:
         json.dumps(
             {
                 "status": "verified" if args.verify_local_only else "migrated",
+                "cleanup_hint": "Remove X_OAUTH_BOOTSTRAP_REFRESH_TOKEN from local env after this succeeds.",
                 "local_key": args.local_key,
                 "local_version": version,
                 "active_version_count": int(active_version_count or 0),

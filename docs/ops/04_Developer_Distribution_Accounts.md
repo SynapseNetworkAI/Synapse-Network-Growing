@@ -108,48 +108,22 @@ X API publishing uses a short-lived access token created in request memory. The 
 
 Current storage split:
 
-1. `x-official-oauth2-client-id` remains in GCP Secret Manager.
-2. `x-official-oauth2-client-secret` remains in GCP Secret Manager.
+1. `X_OAUTH_CLIENT_ID` is read from the local `.env` / process environment.
+2. `X_OAUTH_CLIENT_SECRET` is read from the local `.env` / process environment.
 3. `x-official-oauth2-refresh-token` is stored only in local Postgres table `local_secret_versions` using application-level encryption from `OPS_LOCAL_SECRET_ENCRYPTION_KEY`.
 
-The local refresh-token store is versioned. X OAuth refresh rotation writes a new encrypted row and retires older active versions so only the latest 3 active versions remain. Runtime code must not read or write the refresh token through Secret Manager.
+The local refresh-token store is versioned. X OAuth refresh rotation writes a new encrypted row and retires older active versions so only the latest 3 active versions remain. Runtime code must not read or write X OAuth credentials through GCP Secret Manager.
 
-One-time migration:
+One-time local bootstrap:
 
 ```bash
+X_OAUTH_BOOTSTRAP_REFRESH_TOKEN=<one-time-token> \
 PYTHONPATH=. python scripts/ops/migrate_x_refresh_token_to_local_db.py
 ```
 
-The script reads Secret Manager latest once, writes the encrypted local version, and verifies a token refresh without printing the token.
+The script reads `X_OAUTH_BOOTSTRAP_REFRESH_TOKEN` from the local environment, writes the encrypted local version, verifies a token refresh without printing the token, and then instructs the operator to remove the bootstrap variable.
 
-After local verification succeeds, delete the migrated refresh-token secret resource from both staging and production Secret Manager projects:
-
-```bash
-PYTHONPATH=. python scripts/ops/delete_x_refresh_token_secret_manager.py --dry-run
-PYTHONPATH=. python scripts/ops/delete_x_refresh_token_secret_manager.py \
-  --apply \
-  --confirmation DELETE_X_REFRESH_SECRET_AFTER_LOCAL_DB_VERIFIED
-```
-
-Deletion is blocked unless the local DB refresh token can obtain a short-lived X access token. If the local token is invalid or missing, reauthorize the X official account and write the new refresh token into local DB before deleting the Secret Manager resources.
-
-Secret Manager still needs version hygiene for the remaining platform and runtime secrets. The observable recurring workflow is:
-
-```text
-secret_manager_version_cleanup_sweep
-schedule: daily 12:00, OPS_OPERATOR_TIMEZONE default Asia/Kuala_Lumpur
-projects: fabled-archive-494108-k5, synapse-network-prod
-policy: keep newest 3 ENABLED/DISABLED versions per secret, destroy older active versions
-```
-
-Use `/schedules` Dry Run before applying, or run locally:
-
-```bash
-PYTHONPATH=. python scripts/ops/cleanup_secret_manager_versions.py --dry-run --keep 3
-PYTHONPATH=. python scripts/ops/cleanup_secret_manager_versions.py --apply --keep 3
-```
-
-The cleanup only lists secret metadata and destroys selected old versions. It never reads secret payloads.
+The previous GCP Secret Manager cleanup schedule is disabled for Growing runtime. Old GCP Secret Manager resources must not be deleted as part of normal app startup or Schedule Center runs; any live GCP cleanup requires a separate explicit operator action after local verification.
 
 ## 6. Channel Account Tracking
 
