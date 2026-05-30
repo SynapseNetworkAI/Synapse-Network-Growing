@@ -57,6 +57,7 @@ export function ReplyTaskDetailView({
   const hasCompleteCandidateSet = generatedCount >= targetCount && failedCount === 0
   const hasExplicitSourceEvidence = sourcePosts.length > 0
   const authReady = xAuthStatus?.oauth_status === 'authorized' || xAuthStatus?.api_status === 'ready'
+  const authDisplay = xAuthDisplay(xAuthStatus, authReady)
   const authKnownBlocked = Boolean(xAuthStatus && !authReady && xAuthStatus.requires_authorization)
   const canGenerate = Boolean(!busy && (authReady || hasExplicitSourceEvidence))
   const generateLabel = hasCompleteCandidateSet ? '重新生成候选' : `生成 ${targetCount} 条 X 回复候选`
@@ -105,16 +106,19 @@ export function ReplyTaskDetailView({
               Trend/radar 拉源需要 X OAuth；已有明确 source posts 时可直接生成候选。
             </p>
           </div>
-          <StateBadge tone={authReady ? 'ready' : xAuthStatus ? 'blocked' : 'validating'}>
-            {authReady ? 'authorized' : xAuthStatus?.oauth_status || 'unchecked'}
+          <StateBadge tone={authDisplay.tone}>
+            {authDisplay.label}
           </StateBadge>
         </div>
         <div className="text-sm leading-6 text-[color:var(--ops-text-body)]">
           {authReady
-            ? (xAuthStatus?.auth_message || 'X OAuth refresh token is valid.')
+            ? 'X OAuth 已授权，trend/radar 拉源可用。'
             : hasExplicitSourceEvidence
-              ? 'Using explicit source posts, not trend/radar sync.'
-              : 'X token unavailable. Reconnect X before syncing trend/radar sources.'}
+              ? '使用已提供的 source posts，不需要 trend/radar 拉源。'
+              : authDisplay.message}
+          {authReady && xAuthStatus?.auth_message ? (
+            <span className="ml-2 text-xs text-[color:var(--ops-text-muted)]">{xAuthStatus.auth_message}</span>
+          ) : null}
         </div>
         {xAuthStatus?.blockers?.length ? (
           <div className="mt-2 text-xs text-amber-100">Blockers: {xAuthStatus.blockers.join(', ')}</div>
@@ -198,6 +202,22 @@ export function ReplyTaskDetailView({
       </section>
     </div>
   )
+}
+
+function xAuthDisplay(
+  status: SocialDistributionAccountAuthStatus | undefined,
+  authReady: boolean,
+): { label: string; message: string; tone: 'ready' | 'blocked' | 'validating' } {
+  if (authReady) return { label: '已授权', message: 'X OAuth 已授权，trend/radar 拉源可用。', tone: 'ready' }
+  if (!status) return { label: '未检查', message: '请先检查 X 授权状态。', tone: 'validating' }
+  const oauthStatus = String(status.oauth_status || '')
+  if (oauthStatus === 'invalid_refresh_token' || oauthStatus === 'needs_authorization') {
+    return { label: '需要重新授权', message: 'X 授权已失效，请连接 X 重新授权后再同步 trend/radar 来源。', tone: 'blocked' }
+  }
+  if (oauthStatus === 'missing_local_secret') {
+    return { label: '未授权', message: '本地没有可用的 X refresh token，请连接 X 完成授权。', tone: 'blocked' }
+  }
+  return { label: '授权异常', message: status.auth_message || 'X 授权状态不可用，请重新授权或检查本地配置。', tone: 'blocked' }
 }
 
 function SourcePostCard({ post }: { post: SourcePost }) {
