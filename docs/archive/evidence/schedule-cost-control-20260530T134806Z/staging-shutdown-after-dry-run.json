@@ -1,0 +1,3528 @@
+{
+  "production_control": {
+    "cloud_run_services": [
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "1140815f-50f7-45d6-99e9-00900f90f33f",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-admin-front-765159471854.us-central1.run.app\",\"https://synapse-prod-admin-front-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "synapse-prod-github-deployer@synapse-network-prod.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-05-14T14:30:04.887286Z",
+          "generation": 16,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "prod",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-prod-admin-front",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZSmqGYYEE",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-admin-front",
+          "uid": "21f0c2d6-5ea8-4420-9f21-702e7c6b98fb"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "1",
+                "autoscaling.knative.dev/minScale": "0",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "vkidzgigjh",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 20,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "NEXT_PUBLIC_REOWN_PROJECT_ID",
+                      "value": "f0053f1a487ee7af348aa329ab83ff68"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_TX_EXPLORER_BASE_URL",
+                      "value": "https://arbiscan.io"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_CONSOLE_BASE_URL",
+                      "value": "https://www.synapse-network.ai/dashboard/overview"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_DOCS_BASE_URL",
+                      "value": "https://docs.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_ADMIN_API_BASE_URL"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_APP_ENV",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "ADMIN_API_PROXY_TARGET",
+                      "value": "https://admin-api.synapse-network.ai"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front@sha256:58d4621c29be4878df0e6baf7a3149d64d45aebb29da1a2498c0cbd9cd23863c",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-admin-front@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-admin-front-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-25T01:52:29.823041Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-25T01:51:25.641997Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-25T01:52:29.793558Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-admin-front-00016-7l7",
+          "latestReadyRevisionName": "synapse-prod-admin-front-00016-7l7",
+          "observedGeneration": 16,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-admin-front-00016-7l7"
+            }
+          ],
+          "url": "https://synapse-prod-admin-front-gqb4rdk3cq-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "85ae3b34-410d-4e16-801b-6eddf7c36816",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-docs-front-765159471854.us-central1.run.app\",\"https://synapse-prod-docs-front-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "synapse-prod-github-deployer@synapse-network-prod.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-05-14T14:30:04.916524Z",
+          "generation": 10,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "prod",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-prod-docs-front",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZS4h0Lugo",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-docs-front",
+          "uid": "3a5297f1-5419-4fca-8b6f-f7853e540f4a"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "2",
+                "autoscaling.knative.dev/minScale": "0",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "zeukvucqkr",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 40,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "NEXT_PUBLIC_REOWN_PROJECT_ID",
+                      "value": "f0053f1a487ee7af348aa329ab83ff68"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_CONSOLE_BASE_URL",
+                      "value": "https://synapse-network.ai/dashboard/overview"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_TX_EXPLORER_BASE_URL",
+                      "value": "https://arbiscan.io"
+                    },
+                    {
+                      "name": "ADMIN_API_PROXY_AUDIENCE",
+                      "value": "https://admin-api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_DOCS_BASE_URL",
+                      "value": "https://docs.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_ADMIN_API_BASE_URL"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_APP_ENV",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "ADMIN_API_PROXY_TARGET",
+                      "value": "https://admin-api.synapse-network.ai"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:5805051749bfd1f18bfa44e5d466333fe89878e33563c77442daf04746a924cf",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-frontend@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-docs-front-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-28T15:09:23.658250Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-28T15:09:09.105992Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-28T15:09:23.621120Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-docs-front-00010-frj",
+          "latestReadyRevisionName": "synapse-prod-docs-front-00010-frj",
+          "observedGeneration": 10,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-docs-front-00010-frj"
+            }
+          ],
+          "url": "https://synapse-prod-docs-front-gqb4rdk3cq-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "516a44f8-5a93-41b3-b22b-5b90ade11c87",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-gateway-765159471854.us-central1.run.app\",\"https://synapse-prod-gateway-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-05-14T14:30:04.960079Z",
+          "generation": 26,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "prod",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-prod-gateway",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZTCLPnOjc",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-gateway",
+          "uid": "fc93c19c-3f68-4ef1-b458-2888a1c142e7"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "3",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/network-interfaces": "[{\"network\":\"synapse-prod-vpc\",\"subnetwork\":\"synapse-prod-subnet\"}]",
+                "run.googleapis.com/sessionAffinity": "false",
+                "run.googleapis.com/vpc-access-egress": "private-ranges-only"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "twmzlbssvv",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 40,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "EMAIL_OUTBOX_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_GCP_KMS_KEY_NAME",
+                      "value": "projects/synapse-network-prod/locations/us-central1/keyRings/synapse-prod/cryptoKeys/synapse-prod-withdraw-signer/cryptoKeyVersions/1"
+                    },
+                    {
+                      "name": "POSTGRES_DB",
+                      "value": "synapse_gateway_prod"
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-internal-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "EMAIL_FROM",
+                      "value": "Synapse Network <alerts@synapse-network.ai>"
+                    },
+                    {
+                      "name": "WITHDRAWAL_EXPIRY_SWEEPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ANALYTICS_STRICT_KAFKA",
+                      "value": "false"
+                    },
+                    {
+                      "name": "WITHDRAWAL_TIMEOUT_ALERT_AFTER_SEC",
+                      "value": "900"
+                    },
+                    {
+                      "name": "WITHDRAWAL_AUTO_SINGLE_LIMIT_USDC",
+                      "value": "1.000000"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_TIMEOUT_SEC",
+                      "value": "3"
+                    },
+                    {
+                      "name": "GMAIL_SMTP_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gmail-username"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_POOL_MAX",
+                      "value": "5"
+                    },
+                    {
+                      "name": "DOWNSTREAM_ADAPTIVE_REDIS_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "METRICS_BEARER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-bearer-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_USER",
+                      "value": "synapse_gateway_app"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_URL",
+                      "value": "http://127.0.0.1:8000/internal/jobs/notification-outbox/trigger"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_ADDRESS",
+                      "value": "0x0d0b4b2F8d49e5210e2f023f0508e2fAB6b6c0Ee"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_MODE",
+                      "value": "gcp_kms"
+                    },
+                    {
+                      "name": "EMAIL_REPLY_TO",
+                      "value": "support@synapse-network.ai"
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-secret-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "ANALYTICS_KAFKA_BOOTSTRAP_SERVERS"
+                    },
+                    {
+                      "name": "POSTGRES_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-postgres-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "RPC_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-arbitrum-one-rpc-url"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ROUTER_ADDRESS",
+                      "value": "0x4967d23cAbe3881f809677932Cc30c11de6957B0"
+                    },
+                    {
+                      "name": "POSTGRES_MIGRATOR_USER",
+                      "value": "synapse_gateway_migrator"
+                    },
+                    {
+                      "name": "EMAIL_TRANSPORT",
+                      "value": "gmail_smtp"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_MAX_SKEW_S",
+                      "value": "300"
+                    },
+                    {
+                      "name": "PUBLIC_APP_BASE_URL",
+                      "value": "https://synapse-network.ai"
+                    },
+                    {
+                      "name": "PLATFORM_FEE_ADMIN_WALLETS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-admin-wallet"
+                        }
+                      }
+                    },
+                    {
+                      "name": "USDC_TOKEN_ADDRESS",
+                      "value": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+                    },
+                    {
+                      "name": "PROVIDER_WITHDRAW_EXPIRY_REAPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "POSTGRES_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-postgres-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "INDEXER_ADMIN_WALLETS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-admin-wallet"
+                        }
+                      }
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_FALLBACK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "POSTGRES_CONNECT_TIMEOUT_SEC",
+                      "value": "5"
+                    },
+                    {
+                      "name": "IN_APP_NOTIFICATION_CLEANUP_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "DEPLOY_ROLLOUT_MARKER",
+                      "value": "prod-address-activity-20260528"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-provider-signature-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_BACKEND",
+                      "value": "postgres"
+                    },
+                    {
+                      "name": "STAGING_ALERT_DRILL_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "AUTH_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-auth-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_WEBHOOK_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-webhook-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "CORS_ALLOW_ORIGINS",
+                      "value": "https://www.synapse-network.ai,https://synapse-network.ai"
+                    },
+                    {
+                      "name": "METRICS_BASIC_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-basic-username"
+                        }
+                      }
+                    },
+                    {
+                      "name": "REDIS_URL"
+                    },
+                    {
+                      "name": "INTERNAL_TRIGGER_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-internal-trigger-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_APP_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gmail-app-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_HOST",
+                      "value": "smtp.gmail.com"
+                    },
+                    {
+                      "name": "POSTGRES_AUTO_INIT",
+                      "value": "0"
+                    },
+                    {
+                      "name": "METRICS_BASIC_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-basic-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "V2_INDEXER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_PROCESSOR_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_PORT",
+                      "value": "587"
+                    },
+                    {
+                      "name": "POSTGRES_HOST",
+                      "value": "/cloudsql/synapse-network-prod:us-central1:synapse-prod-postgres"
+                    },
+                    {
+                      "name": "ENVIRONMENT",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_CHAIN_RECOVERY_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ANALYTICS_TRANSPORT",
+                      "value": "outbox"
+                    },
+                    {
+                      "name": "PLATFORM_FEE_RATE",
+                      "value": "0.05"
+                    },
+                    {
+                      "name": "GATEWAY_ROUTING_TAX",
+                      "value": "0.0001"
+                    },
+                    {
+                      "name": "ALCHEMY_DEPOSIT_WEBHOOK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_URL",
+                      "value": "https://synapse-prod-gateway-gqb4rdk3cq-uc.a.run.app/internal/jobs/deposit-indexer/trigger"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_DELAY_SEC",
+                      "value": "4"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_TIMEOUT_SEC",
+                      "value": "12"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_SWEEP_MAX_WAIT_SEC",
+                      "value": "20"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_SWEEP_POLL_INTERVAL_SEC",
+                      "value": "2"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_INTENT_STALE_AFTER_SEC",
+                      "value": "1800"
+                    },
+                    {
+                      "name": "ALCHEMY_DEPOSIT_WEBHOOK_SIGNING_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-alchemy-deposit-webhook-signing-key"
+                        }
+                      }
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+                  "ports": [
+                    {
+                      "containerPort": 8000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-gateway@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-gateway-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T13:11:43.383095Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:11:22.516648Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:11:43.348624Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-gateway-00026-nwj",
+          "latestReadyRevisionName": "synapse-prod-gateway-00026-nwj",
+          "observedGeneration": 26,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-gateway-00026-nwj"
+            }
+          ],
+          "url": "https://synapse-prod-gateway-gqb4rdk3cq-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "8608d87f-df63-469f-9a13-7a52c5a0ebfa",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-gateway-admin-765159471854.us-central1.run.app\",\"https://synapse-prod-gateway-admin-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-05-14T14:30:04.931858Z",
+          "generation": 16,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "prod",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-prod-gateway-admin",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZTCLUWiS4",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-gateway-admin",
+          "uid": "e31280d8-8697-4d39-99bc-b747e6203359"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "1",
+                "autoscaling.knative.dev/minScale": "0",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/network-interfaces": "[{\"network\":\"synapse-prod-vpc\",\"subnetwork\":\"synapse-prod-subnet\"}]",
+                "run.googleapis.com/sessionAffinity": "false",
+                "run.googleapis.com/vpc-access-egress": "private-ranges-only"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "nuggyyrepx",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 10,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "EMAIL_OUTBOX_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_GCP_KMS_KEY_NAME",
+                      "value": "projects/synapse-network-prod/locations/us-central1/keyRings/synapse-prod/cryptoKeys/synapse-prod-withdraw-signer/cryptoKeyVersions/1"
+                    },
+                    {
+                      "name": "POSTGRES_DB",
+                      "value": "synapse_gateway_prod"
+                    },
+                    {
+                      "name": "LARK_SECRET_P0_WAR_ROOM",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-secret-p0"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_ADMIN_WALLET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-admin-wallet"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-internal-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "EMAIL_FROM",
+                      "value": "Synapse Network <alerts@synapse-network.ai>"
+                    },
+                    {
+                      "name": "WITHDRAWAL_EXPIRY_SWEEPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ANALYTICS_STRICT_KAFKA",
+                      "value": "false"
+                    },
+                    {
+                      "name": "WITHDRAWAL_TIMEOUT_ALERT_AFTER_SEC",
+                      "value": "900"
+                    },
+                    {
+                      "name": "WITHDRAWAL_AUTO_SINGLE_LIMIT_USDC",
+                      "value": "1.000000"
+                    },
+                    {
+                      "name": "ADMIN_TOTP_SECRET_ENCRYPTION_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-admin-totp-secret-encryption-key"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_DATABASE_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-admin-database-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_PORT",
+                      "value": "8000"
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_DEBUG",
+                      "value": "false"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_TIMEOUT_SEC",
+                      "value": "3"
+                    },
+                    {
+                      "name": "LARK_WEBHOOK_P0_WAR_ROOM",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-webhook-p0"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_POOL_MAX",
+                      "value": "3"
+                    },
+                    {
+                      "name": "DOWNSTREAM_ADAPTIVE_REDIS_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "METRICS_BEARER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-bearer-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_USER",
+                      "value": "synapse_gateway_app"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_URL",
+                      "value": "http://127.0.0.1:8000/internal/jobs/notification-outbox/trigger"
+                    },
+                    {
+                      "name": "GATEWAY_FORUM_WRITE_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-forum-write-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_READONLY_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gateway-readonly-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_ADDRESS",
+                      "value": "0x0d0b4b2F8d49e5210e2f023f0508e2fAB6b6c0Ee"
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_USERNAME",
+                      "value": "synapse-gcp-alert"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_MODE",
+                      "value": "gcp_kms"
+                    },
+                    {
+                      "name": "EMAIL_REPLY_TO",
+                      "value": "support@synapse-network.ai"
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "ANALYTICS_KAFKA_BOOTSTRAP_SERVERS"
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "ADMIN_SESSION_COOKIE_SAMESITE",
+                      "value": "lax"
+                    },
+                    {
+                      "name": "ROUTER_ADDRESS",
+                      "value": "0x4967d23cAbe3881f809677932Cc30c11de6957B0"
+                    },
+                    {
+                      "name": "POSTGRES_MIGRATOR_USER",
+                      "value": "synapse_gateway_migrator"
+                    },
+                    {
+                      "name": "EMAIL_TRANSPORT",
+                      "value": "gmail_smtp"
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-gcp-alert-receiver-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_MAX_SKEW_S",
+                      "value": "300"
+                    },
+                    {
+                      "name": "ADMIN_LOGIN_LOCK_HOURS",
+                      "value": "24"
+                    },
+                    {
+                      "name": "USDC_TOKEN_ADDRESS",
+                      "value": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+                    },
+                    {
+                      "name": "PROVIDER_WITHDRAW_EXPIRY_REAPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_FALLBACK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "POSTGRES_CONNECT_TIMEOUT_SEC",
+                      "value": "5"
+                    },
+                    {
+                      "name": "IN_APP_NOTIFICATION_CLEANUP_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_ALLOWED_ORIGINS",
+                      "value": "https://admin.synapse-network.ai"
+                    },
+                    {
+                      "name": "DEPLOY_ROLLOUT_MARKER",
+                      "value": "2026-05-19-prod-admin-mfa-fernet-key-fix"
+                    },
+                    {
+                      "name": "STORAGE_BACKEND",
+                      "value": "postgres"
+                    },
+                    {
+                      "name": "STAGING_ALERT_DRILL_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ADMIN_CSRF_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-admin-csrf-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_WEBHOOK_PROD_ALERTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-webhook-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "GCP_ALERT_DEFAULT_ROUTE",
+                      "value": "prod-alerts"
+                    },
+                    {
+                      "name": "CORS_ALLOW_ORIGINS",
+                      "value": "https://www.synapse-network.ai,https://synapse-network.ai"
+                    },
+                    {
+                      "name": "METRICS_BASIC_USERNAME",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-basic-username"
+                        }
+                      }
+                    },
+                    {
+                      "name": "REDIS_URL"
+                    },
+                    {
+                      "name": "ADMIN_SESSION_COOKIE_SECURE",
+                      "value": "true"
+                    },
+                    {
+                      "name": "ADMIN_LOGIN_LOCK_THRESHOLD",
+                      "value": "5"
+                    },
+                    {
+                      "name": "GMAIL_SMTP_HOST",
+                      "value": "smtp.gmail.com"
+                    },
+                    {
+                      "name": "POSTGRES_AUTO_INIT",
+                      "value": "0"
+                    },
+                    {
+                      "name": "METRICS_BASIC_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-metrics-basic-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_DATABASE_MIGRATION_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-admin-database-migration-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "V2_INDEXER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "PUBLIC_APP_BASE_URL",
+                      "value": "https://admin.synapse-network.ai"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "EXECUTION_WORKER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_PROCESSOR_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GMAIL_SMTP_PORT",
+                      "value": "587"
+                    },
+                    {
+                      "name": "POSTGRES_HOST",
+                      "value": "/cloudsql/synapse-network-prod:us-central1:synapse-prod-postgres"
+                    },
+                    {
+                      "name": "ENVIRONMENT",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "LARK_SECRET_PROD_ALERTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-lark-secret-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_CHAIN_RECOVERY_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ANALYTICS_TRANSPORT",
+                      "value": "outbox"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+                  "ports": [
+                    {
+                      "containerPort": 8000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-gateway-admin@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-gateway-admin-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T13:12:03.260718Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:11:53.659107Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:12:03.218407Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-gateway-admin-00016-bqj",
+          "latestReadyRevisionName": "synapse-prod-gateway-admin-00016-bqj",
+          "observedGeneration": 16,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-gateway-admin-00016-bqj"
+            }
+          ],
+          "url": "https://synapse-prod-gateway-admin-gqb4rdk3cq-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "6174aebc-ea98-4b30-ab9e-c453658a24b8",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-provider-765159471854.us-central1.run.app\",\"https://synapse-prod-provider-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "synapse-prod-github-deployer@synapse-network-prod.iam.gserviceaccount.com",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-05-16T14:22:52.503612Z",
+          "generation": 12,
+          "labels": {
+            "cloud.googleapis.com/location": "us-central1"
+          },
+          "name": "synapse-prod-provider",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZTCLihKr4",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-provider",
+          "uid": "ca59daac-3b27-4463-8cc5-d0e3bbc4204d"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "3",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/network-interfaces": "[{\"network\":\"synapse-prod-vpc\",\"subnetwork\":\"synapse-prod-subnet\"}]",
+                "run.googleapis.com/startup-cpu-boost": "true",
+                "run.googleapis.com/vpc-access-egress": "private-ranges-only"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "jylyrocajw",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 80,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "SERVICE_PORT",
+                      "value": "8100"
+                    },
+                    {
+                      "name": "PROVIDER_ENV",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "PROVIDER_RUNTIME_ROLE",
+                      "value": "runtime"
+                    },
+                    {
+                      "name": "PROVIDER_PUBLIC_BASE_URL",
+                      "value": "https://provider.synapse-network.ai"
+                    },
+                    {
+                      "name": "PROVIDER_GATEWAY_REGISTRATION_EXPECTED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "PROVIDER_PUBLIC_DOCS_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "PROVIDER_STAGING_ENABLED_SERVICES_JSON",
+                      "value": "[\"web3-sentiment-index\",\"protocol-fundamental-brief\",\"oss-security-healthcheck\"]"
+                    },
+                    {
+                      "name": "PROVIDER_MAX_BODY_BYTES",
+                      "value": "131072"
+                    },
+                    {
+                      "name": "PROVIDER_MAX_RESPONSE_BYTES",
+                      "value": "1048576"
+                    },
+                    {
+                      "name": "PROVIDER_GLOBAL_QPS",
+                      "value": "5"
+                    },
+                    {
+                      "name": "PROVIDER_SERVICE_QPS_JSON",
+                      "value": "{\"web3-sentiment-index\":2,\"protocol-fundamental-brief\":1,\"oss-security-healthcheck\":1,\"deepseek-chat\":1}"
+                    },
+                    {
+                      "name": "SENTIMENT_REPOSITORY_BACKEND",
+                      "value": "postgres"
+                    },
+                    {
+                      "name": "SENTIMENT_SCHEDULER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_POOL_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_POOL_URLS_JSON",
+                      "value": "[]"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_TIMEOUT_FLOOR_S",
+                      "value": "8"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_MAX_SKEW_S",
+                      "value": "300"
+                    },
+                    {
+                      "name": "SYNAPSE_GATEWAY",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "TWITTER_X_API_BASE_URL",
+                      "value": "https://api.x.com"
+                    },
+                    {
+                      "name": "TWITTER_X_API_TIMEOUT_S",
+                      "value": "20"
+                    },
+                    {
+                      "name": "TWITTER_X_API_USER_AGENT",
+                      "value": "synapse-provider-service"
+                    },
+                    {
+                      "name": "ALLOW_INSECURE_PROD_START",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-provider-signature-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "PROVIDER_SERVICE_POSTGRES_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-postgres-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "PROVIDER_PROD_ENABLED_LLM_SERVICES_JSON",
+                      "value": "[\"deepseek-chat\"]"
+                    },
+                    {
+                      "name": "DEEPSEEK_API_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-prod-provider-deepseek-api-key"
+                        }
+                      }
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+                  "ports": [
+                    {
+                      "containerPort": 8100,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8100
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-provider@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-provider-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T13:13:02.677694Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:12:24.692973Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T13:13:02.628730Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-provider-00011-clw",
+          "latestReadyRevisionName": "synapse-prod-provider-00011-clw",
+          "observedGeneration": 12,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-provider-00011-clw"
+            }
+          ],
+          "url": "https://synapse-prod-provider-gqb4rdk3cq-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "5a7b88c1-128f-40a3-8eeb-dcf82a8b9477",
+            "run.googleapis.com/urls": "[\"https://synapse-prod-user-front-765159471854.us-central1.run.app\",\"https://synapse-prod-user-front-gqb4rdk3cq-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "synapse-prod-github-deployer@synapse-network-prod.iam.gserviceaccount.com"
+          },
+          "creationTimestamp": "2026-05-14T14:30:04.915746Z",
+          "generation": 17,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "prod",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-prod-user-front",
+          "namespace": "765159471854",
+          "resourceVersion": "AAZS4fumws4",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/765159471854/services/synapse-prod-user-front",
+          "uid": "f68dcd88-ed37-44e1-97e6-2df4cf7f7fe5"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "2",
+                "autoscaling.knative.dev/minScale": "0",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "synapse-network-prod:us-central1:synapse-prod-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "lfvcciljke",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 40,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "NEXT_PUBLIC_REOWN_PROJECT_ID",
+                      "value": "f0053f1a487ee7af348aa329ab83ff68"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_TX_EXPLORER_BASE_URL",
+                      "value": "https://arbiscan.io"
+                    },
+                    {
+                      "name": "ADMIN_API_PROXY_AUDIENCE",
+                      "value": "https://admin-api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_CONSOLE_BASE_URL",
+                      "value": "https://synapse-network.ai/dashboard/overview"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_DOCS_BASE_URL",
+                      "value": "https://docs.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_ADMIN_API_BASE_URL"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_APP_ENV",
+                      "value": "prod"
+                    },
+                    {
+                      "name": "ADMIN_API_PROXY_TARGET",
+                      "value": "https://admin-api.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_RPC_URL",
+                      "value": "https://arb1.arbitrum.io/rpc"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:ba905628c73afda9494aa2c270a6094b13600c8dfc789b071a6dfeb1660b77d6",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-prod-frontend@synapse-network-prod.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-prod-user-front-gqb4rdk3cq-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-28T15:00:03.393230Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-28T14:59:50.206563Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-28T15:00:03.339079Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-prod-user-front-00017-shc",
+          "latestReadyRevisionName": "synapse-prod-user-front-00017-shc",
+          "observedGeneration": 17,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-prod-user-front-00017-shc"
+            }
+          ],
+          "url": "https://synapse-prod-user-front-gqb4rdk3cq-uc.a.run.app"
+        }
+      }
+    ],
+    "project": "synapse-network-prod",
+    "sql_instances": [
+      {
+        "backendType": "SECOND_GEN",
+        "connectionName": "synapse-network-prod:us-central1:synapse-prod-postgres",
+        "createTime": "2026-05-14T06:31:15.599Z",
+        "databaseInstalledVersion": "POSTGRES_16_13",
+        "databaseVersion": "POSTGRES_16",
+        "etag": "bcfe4dd6cb80813ea8958d517eeb23e7e328de2860288a27ed0e90a24ce8ed05",
+        "gceZone": "us-central1-b",
+        "geminiConfig": {
+          "activeQueryEnabled": false,
+          "entitled": false,
+          "googleVacuumMgmtEnabled": false,
+          "indexAdvisorEnabled": false,
+          "oomSessionCancelEnabled": true
+        },
+        "includeReplicasForMajorVersionUpgrade": false,
+        "instanceType": "CLOUD_SQL_INSTANCE",
+        "ipAddresses": [
+          {
+            "ipAddress": "10.200.0.3",
+            "type": "PRIVATE"
+          }
+        ],
+        "kind": "sql#instance",
+        "maintenanceVersion": "POSTGRES_16_13.R20260319.00_11",
+        "name": "synapse-prod-postgres",
+        "project": "synapse-network-prod",
+        "region": "us-central1",
+        "satisfiesPzi": true,
+        "selfLink": "https://sqladmin.googleapis.com/sql/v1beta4/projects/synapse-network-prod/instances/synapse-prod-postgres",
+        "serverCaCert": {
+          "cert": "-----BEGIN CERTIFICATE-----\nMIIDcTCCAlmgAwIBAgIBADANBgkqhkiG9w0BAQsFADBwMS0wKwYDVQQuEyQ5ODk4\nNWQwOC1lMzZmLTQxNjEtYTM4Mi02YzRhMDgwYmY2Y2ExHDAaBgNVBAMTE0Nsb3Vk\nIFNRTCBTZXJ2ZXIgQ0ExFDASBgNVBAoTC0dvb2dsZSwgSW5jMQswCQYDVQQGEwJV\nUzAeFw0yNjA1MTQwNjM0NThaFw0zNjA1MTEwNjM1NThaMHAxLTArBgNVBC4TJDk4\nOTg1ZDA4LWUzNmYtNDE2MS1hMzgyLTZjNGEwODBiZjZjYTEcMBoGA1UEAxMTQ2xv\ndWQgU1FMIFNlcnZlciBDQTEUMBIGA1UEChMLR29vZ2xlLCBJbmMxCzAJBgNVBAYT\nAlVTMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApIzr2I2lHd9nx0GW\nHd36ob+ms7s9a8m5ujN54dGhe2kRXpgsvOJ8vt2J7v5Pd000NLPlkJEWgvosOwOv\nJlVaZVeuHykOaVS2c40bMIsQUIJBYZC92DxpsPcRY2bVlGqwC1C9DIUc2F1e0go4\nA8FI9ne9GQsk/nYv03EnTzaFNOe1UEqsKwF7k55EzNOueD6usDVzfx3FReqpI6yM\nxX2oh5SIPorDnC2krjbzvobHUDuyH3J5iwnM7/nqRVv4OIMQ00V/qxRsWgLMplzr\nk4WRoKNHnoRG9EgTq5qaBLoabROuC73p1rxtmPq/NsDixuN65ko8Xh6MSr301YQt\nzxNp5QIDAQABoxYwFDASBgNVHRMBAf8ECDAGAQH/AgEAMA0GCSqGSIb3DQEBCwUA\nA4IBAQA3r92309uL5scsgVPK5ihTqOAoSGBiSiN27mti7v7PQy5KR3YWugnxnwbs\nqR0v/4wUaMzLperm7B9d29bFx2DQvGjWLNqrPAgdH9AmYGyRYqAjuwF+ALWPxBYl\nVzO6TfgHtWYxK7pmDM+vv6Vr5pRSR2Hxi79kFvzEr4A7YWlQzZZjpiY39WmgMX1k\nDKXptxULYrOjiO+PIVbBpRS3y7Szs1IcBzq6xNAnz3M9nP02QjPkCklBqcGbULLj\nJ9ORyxAAgj57Wt9Utqp1eCeEhupi9Xdoe6qMsC9mpMCQtIYS2PYb+p99a0kKKhH9\nC/o1mWBzs4eOsk1EQny5r9RL1o8F\n-----END CERTIFICATE-----",
+          "certSerialNumber": "0",
+          "commonName": "C=US,O=Google\\, Inc,CN=Cloud SQL Server CA,dnQualifier=98985d08-e36f-4161-a382-6c4a080bf6ca",
+          "createTime": "2026-05-14T06:34:58.725Z",
+          "expirationTime": "2036-05-11T06:35:58.725Z",
+          "instance": "synapse-prod-postgres",
+          "kind": "sql#sslCert",
+          "sha1Fingerprint": "84077ac5a803e24df49e51785c177473c52ec47d"
+        },
+        "serviceAccountEmailAddress": "p765159471854-3m87j8@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+        "settings": {
+          "activationPolicy": "ALWAYS",
+          "availabilityType": "ZONAL",
+          "backupConfiguration": {
+            "backupRetentionSettings": {
+              "retainedBackups": 7,
+              "retentionUnit": "COUNT"
+            },
+            "backupTier": "STANDARD",
+            "enabled": true,
+            "kind": "sql#backupConfiguration",
+            "pointInTimeRecoveryEnabled": true,
+            "replicationLogArchivingEnabled": true,
+            "startTime": "19:00",
+            "transactionLogRetentionDays": 7,
+            "transactionalLogStorageState": "CLOUD_STORAGE"
+          },
+          "connectorEnforcement": "REQUIRED",
+          "dataDiskSizeGb": "20",
+          "dataDiskType": "PD_SSD",
+          "databaseFlags": [
+            {
+              "name": "cloudsql.iam_authentication",
+              "value": "on"
+            }
+          ],
+          "deletionProtectionEnabled": false,
+          "edition": "ENTERPRISE",
+          "enableDataplexIntegration": false,
+          "enableGoogleMlIntegration": false,
+          "insightsConfig": {
+            "queryInsightsEnabled": true,
+            "queryStringLength": 1024,
+            "recordApplicationTags": true
+          },
+          "ipConfiguration": {
+            "enablePrivatePathForGoogleCloudServices": true,
+            "ipv4Enabled": false,
+            "privateNetwork": "projects/synapse-network-prod/global/networks/synapse-prod-vpc",
+            "requireSsl": false,
+            "serverCaMode": "GOOGLE_MANAGED_INTERNAL_CA",
+            "serverCertificateRotationMode": "SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED",
+            "sslMode": "ENCRYPTED_ONLY"
+          },
+          "kind": "sql#settings",
+          "locationPreference": {
+            "kind": "sql#locationPreference",
+            "zone": "us-central1-b"
+          },
+          "passwordValidationPolicy": {
+            "complexity": "COMPLEXITY_DEFAULT",
+            "disallowUsernameSubstring": true,
+            "enablePasswordPolicy": true,
+            "minLength": 16,
+            "reuseInterval": 4
+          },
+          "pricingPlan": "PER_USE",
+          "replicationLagMaxSeconds": 31536000,
+          "replicationType": "SYNCHRONOUS",
+          "retainBackupsOnDelete": false,
+          "settingsVersion": "24",
+          "storageAutoResize": true,
+          "storageAutoResizeLimit": "0",
+          "tier": "db-g1-small",
+          "userLabels": {
+            "app": "synapse-network",
+            "environment": "prod",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          }
+        },
+        "sqlNetworkArchitecture": "NEW_NETWORK_ARCHITECTURE",
+        "state": "RUNNABLE"
+      }
+    ]
+  },
+  "staging": {
+    "cloud_run_services": [
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "5",
+            "run.googleapis.com/operation-id": "807b55f9-e204-4271-b0f4-627abf9d598c",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-admin-front-198885553219.us-central1.run.app\",\"https://synapse-staging-admin-front-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-04-24T08:38:57.317807Z",
+          "generation": 18,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "staging",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-staging-admin-front",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCGsA9TU",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-admin-front",
+          "uid": "793357ec-bf83-423c-a1d4-2cd22fba079b"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "1",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "iihbqjukhd",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 20,
+              "containers": [
+                {
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front@sha256:2e6d185ec2e22c8b9af7116c07f086d2d72743370277372a9568cf3f8e188377",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-admin-front-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:51:20.332597Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:15.803246Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:20.299353Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-admin-front-00015-2k5",
+          "latestReadyRevisionName": "synapse-staging-admin-front-00015-2k5",
+          "observedGeneration": 18,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-admin-front-00015-2k5"
+            }
+          ],
+          "url": "https://synapse-staging-admin-front-tjhxpumowa-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "5",
+            "run.googleapis.com/operation-id": "b07a867b-4d32-480a-a9b9-18706a57cc5a",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-docs-front-198885553219.us-central1.run.app\",\"https://synapse-staging-docs-front-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-05-03T06:08:53.124770Z",
+          "generation": 17,
+          "labels": {
+            "cloud.googleapis.com/location": "us-central1"
+          },
+          "name": "synapse-staging-docs-front",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCGtoCDE",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-docs-front",
+          "uid": "40cb75e5-0fab-456d-9207-18d7edf61747"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "2",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/startup-cpu-boost": "true"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "yjmmcklkmh",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 40,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "NEXT_PUBLIC_APP_ENV",
+                      "value": "staging"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_DOCS_BASE_URL",
+                      "value": "https://docs-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_CONSOLE_BASE_URL",
+                      "value": "https://staging.synapse-network.ai/dashboard/overview"
+                    },
+                    {
+                      "name": "NEXT_PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api-staging.synapse-network.ai"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:80ff572449bce4c26d1b39a4626451227a0d13eb2807dd206b9f46dfab7ce878",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-docs-front-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:51:27.087665Z",
+              "message": "Revision 'synapse-staging-docs-front-00016-5g2' is not ready and cannot serve traffic. Image 'us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:80ff572449bce4c26d1b39a4626451227a0d13eb2807dd206b9f46dfab7ce878' not found.",
+              "reason": "RevisionFailed",
+              "status": "False",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:27.003621Z",
+              "message": "Image 'us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:80ff572449bce4c26d1b39a4626451227a0d13eb2807dd206b9f46dfab7ce878' not found.",
+              "status": "False",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:27.004988Z",
+              "message": "Revision 'synapse-staging-docs-front-00016-5g2' is not ready and cannot serve traffic. Image 'us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:80ff572449bce4c26d1b39a4626451227a0d13eb2807dd206b9f46dfab7ce878' not found.",
+              "reason": "RevisionFailed",
+              "status": "False",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-docs-front-00016-5g2",
+          "latestReadyRevisionName": "synapse-staging-docs-front-00015-r8r",
+          "observedGeneration": 17,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-docs-front-00015-r8r"
+            }
+          ],
+          "url": "https://synapse-staging-docs-front-tjhxpumowa-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "5",
+            "run.googleapis.com/operation-id": "3ee5e1b2-af4c-41fd-a459-d84ae8b7d307",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-gateway-198885553219.us-central1.run.app\",\"https://synapse-staging-gateway-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-04-24T07:08:24.303667Z",
+          "generation": 67,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "staging",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-staging-gateway",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCGjCRB4",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-gateway",
+          "uid": "1cbeea7a-e6ae-44f5-a679-44e7b57fb6b3"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "2",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false",
+                "run.googleapis.com/startup-cpu-boost": "true"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "surzjhiufx",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 20,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "EMAIL_OUTBOX_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "WITHDRAWAL_EXPIRY_SWEEPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ANALYTICS_STRICT_KAFKA",
+                      "value": "false"
+                    },
+                    {
+                      "name": "WITHDRAWAL_TIMEOUT_ALERT_AFTER_SEC",
+                      "value": "900"
+                    },
+                    {
+                      "name": "WITHDRAWAL_AUTO_SINGLE_LIMIT_USDC",
+                      "value": "1.000000"
+                    },
+                    {
+                      "name": "AUTH_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-auth-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_HOST",
+                      "value": "/cloudsql/fabled-archive-494108-k5:us-central1:synapse-staging-postgres"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_TIMEOUT_SEC",
+                      "value": "3"
+                    },
+                    {
+                      "name": "POSTGRES_POOL_MAX",
+                      "value": "5"
+                    },
+                    {
+                      "name": "DOWNSTREAM_ADAPTIVE_REDIS_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "POSTGRES_USER",
+                      "value": "synapse_gateway_app"
+                    },
+                    {
+                      "name": "ROUTER_ADDRESS",
+                      "value": "0x0bA1dcE1Cc8d877052ab1C3CE2362830459D8FF4"
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_TRIGGER_URL",
+                      "value": "http://127.0.0.1:8000/internal/jobs/notification-outbox/trigger"
+                    },
+                    {
+                      "name": "USDC_TOKEN_ADDRESS",
+                      "value": "0xfad31daE42B0046aFA106BCf56ED0dDaCA4463B9"
+                    },
+                    {
+                      "name": "PRIVATE_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-private-key"
+                        }
+                      }
+                    },
+                    {
+                      "name": "CORS_ALLOW_ORIGINS",
+                      "value": "https://staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "EMAIL_REPLY_TO",
+                      "value": "support@synapse-network.ai"
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "ANALYTICS_KAFKA_BOOTSTRAP_SERVERS"
+                    },
+                    {
+                      "name": "POSTGRES_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-postgres-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "POSTGRES_MIGRATOR_USER",
+                      "value": "synapse_gateway_migrator"
+                    },
+                    {
+                      "name": "STAGING_ALERT_DRILL_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-alert-drill-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "EMAIL_TRANSPORT",
+                      "value": "gmail_smtp"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_MAX_SKEW_S",
+                      "value": "300"
+                    },
+                    {
+                      "name": "PROVIDER_WITHDRAW_EXPIRY_REAPER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "INTERNAL_TRIGGER_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-internal-trigger-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "RPC_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-arbitrum-sepolia-rpc-url"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gateway-internal-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "NOTIFICATION_OUTBOX_FALLBACK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "POSTGRES_CONNECT_TIMEOUT_SEC",
+                      "value": "5"
+                    },
+                    {
+                      "name": "IN_APP_NOTIFICATION_CLEANUP_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-provider-signature-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "EMAIL_FROM",
+                      "value": "Synapse Network Staging <staging-alerts@synapse-network.ai>"
+                    },
+                    {
+                      "name": "JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "METRICS_BEARER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-metrics-bearer-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "STORAGE_BACKEND",
+                      "value": "postgres"
+                    },
+                    {
+                      "name": "PUBLIC_APP_BASE_URL",
+                      "value": "https://staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "REDIS_URL"
+                    },
+                    {
+                      "name": "GMAIL_SMTP_APP_PASSWORD",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gmail-app-password"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_HOST",
+                      "value": "smtp.gmail.com"
+                    },
+                    {
+                      "name": "POSTGRES_AUTO_INIT",
+                      "value": "0"
+                    },
+                    {
+                      "name": "PUBLIC_GATEWAY_BASE_URL",
+                      "value": "https://api-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "ENVIRONMENT",
+                      "value": "staging"
+                    },
+                    {
+                      "name": "V2_INDEXER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "POSTGRES_DB",
+                      "value": "synapse_gateway_staging"
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_PROCESSOR_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "POSTGRES_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-postgres-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_WEBHOOK_URL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-webhook-staging-drill"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_PORT",
+                      "value": "587"
+                    },
+                    {
+                      "name": "CONSUMER_WITHDRAW_CHAIN_RECOVERY_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "STAGING_ALERT_DRILL_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "WITHDRAW_SIGNER_MODE",
+                      "value": "local_private_key"
+                    },
+                    {
+                      "name": "TRANSACTION_LARK_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-secret-staging-drill"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ANALYTICS_TRANSPORT",
+                      "value": "outbox"
+                    },
+                    {
+                      "name": "ALCHEMY_DEPOSIT_WEBHOOK_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_URL",
+                      "value": "https://synapse-staging-gateway-tjhxpumowa-uc.a.run.app/internal/jobs/deposit-indexer/trigger"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_DELAY_SEC",
+                      "value": "4"
+                    },
+                    {
+                      "name": "DEPOSIT_INDEXER_TRIGGER_TIMEOUT_SEC",
+                      "value": "12"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_SWEEP_MAX_WAIT_SEC",
+                      "value": "20"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_SWEEP_POLL_INTERVAL_SEC",
+                      "value": "2"
+                    },
+                    {
+                      "name": "DEPOSIT_PENDING_INTENT_STALE_AFTER_SEC",
+                      "value": "1800"
+                    },
+                    {
+                      "name": "DEPLOY_ROLLOUT_MARKER",
+                      "value": "staging-address-activity-20260527-2"
+                    },
+                    {
+                      "name": "ALCHEMY_DEPOSIT_WEBHOOK_SIGNING_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-alchemy-deposit-webhook-signing-key"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GMAIL_SMTP_USERNAME",
+                      "value": "cliff@synapse-network.ai"
+                    },
+                    {
+                      "name": "PLATFORM_FEE_ADMIN_WALLETS",
+                      "value": "0xA371Fc6DE9CAf4483f73B64E65435df39Cd520f4"
+                    },
+                    {
+                      "name": "INDEXER_ADMIN_WALLETS",
+                      "value": "0xA371Fc6DE9CAf4483f73B64E65435df39Cd520f4"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+                  "ports": [
+                    {
+                      "containerPort": 8000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-gateway-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:50:42.669598Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:50:23.507334Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:50:42.636147Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-gateway-00065-hdp",
+          "latestReadyRevisionName": "synapse-staging-gateway-00065-hdp",
+          "observedGeneration": 67,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-gateway-00065-hdp"
+            }
+          ],
+          "url": "https://synapse-staging-gateway-tjhxpumowa-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "5",
+            "run.googleapis.com/operation-id": "acd21647-e1ff-4646-91a9-035955532f7a",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-gateway-admin-198885553219.us-central1.run.app\",\"https://synapse-staging-gateway-admin-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-04-24T08:38:57.337902Z",
+          "generation": 31,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "staging",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-staging-gateway-admin",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCGmgHdE",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-gateway-admin",
+          "uid": "4542f68c-bac8-4d78-a1b3-9c1eeaf3c523"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "1",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "jafwscrchz",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 10,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "POSTGRES_POOL_MAX",
+                      "value": "3"
+                    },
+                    {
+                      "name": "EXECUTION_WORKER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_DEBUG",
+                      "value": "false"
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_PORT",
+                      "value": "8000"
+                    },
+                    {
+                      "name": "ADMIN_GATEWAY_ALLOWED_ORIGINS",
+                      "value": "https://admin-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "ADMIN_SESSION_COOKIE_SECURE",
+                      "value": "true"
+                    },
+                    {
+                      "name": "ADMIN_SESSION_COOKIE_SAMESITE",
+                      "value": "lax"
+                    },
+                    {
+                      "name": "ADMIN_SESSION_COOKIE_DOMAIN",
+                      "value": ".synapse-network.ai"
+                    },
+                    {
+                      "name": "ADMIN_LOGIN_LOCK_THRESHOLD",
+                      "value": "5"
+                    },
+                    {
+                      "name": "ADMIN_LOGIN_LOCK_HOURS",
+                      "value": "24"
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_BASE_URL",
+                      "value": "https://api-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_USERNAME",
+                      "value": "synapse-gcp-alert"
+                    },
+                    {
+                      "name": "GCP_ALERT_DEFAULT_ROUTE",
+                      "value": "staging-drill"
+                    },
+                    {
+                      "name": "METRICS_BEARER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-metrics-bearer-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_CSRF_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-admin-csrf-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_DATABASE_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-admin-database-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_DATABASE_MIGRATION_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-admin-database-migration-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "ADMIN_TOTP_SECRET_ENCRYPTION_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-admin-totp-secret-encryption-key"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_READONLY_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gateway-readonly-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_FORUM_WRITE_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gateway-forum-write-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_JWT_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gateway-internal-jwt-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GCP_ALERT_RECEIVER_TOKEN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-gcp-alert-receiver-token"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_WEBHOOK_STAGING_DRILL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-webhook-staging-drill"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_SECRET_STAGING_DRILL",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-secret-staging-drill"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_WEBHOOK_P0_WAR_ROOM",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-webhook-p0"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_SECRET_P0_WAR_ROOM",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-secret-p0"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_WEBHOOK_PROD_ALERTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-webhook-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "LARK_SECRET_PROD_ALERTS",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-lark-secret-prod-alerts"
+                        }
+                      }
+                    },
+                    {
+                      "name": "GATEWAY_INTERNAL_ADMIN_WALLET",
+                      "value": "0xA371Fc6DE9CAf4483f73B64E65435df39Cd520f4"
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+                  "ports": [
+                    {
+                      "containerPort": 8000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-gateway-admin-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:50:57.208785Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:50:47.967384Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:50:57.156572Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-gateway-admin-00029-vfs",
+          "latestReadyRevisionName": "synapse-staging-gateway-admin-00029-vfs",
+          "observedGeneration": 31,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-gateway-admin-00029-vfs"
+            }
+          ],
+          "url": "https://synapse-staging-gateway-admin-tjhxpumowa-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "3",
+            "run.googleapis.com/operation-id": "ea93aa3e-cd29-48c3-a8dd-a662bdabd4a0",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-provider-198885553219.us-central1.run.app\",\"https://synapse-staging-provider-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "synapse-staging-github-deploy@fabled-archive-494108-k5.iam.gserviceaccount.com",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-04-26T16:19:45.090246Z",
+          "generation": 32,
+          "labels": {
+            "cloud.googleapis.com/location": "us-central1",
+            "secret-refresh": "postgres-20260505050029"
+          },
+          "name": "synapse-staging-provider",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCG2Ev0c",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-provider",
+          "uid": "ecd23845-e4f9-4530-9c85-5ac8af7ea8bc"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "3",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+                "run.googleapis.com/startup-cpu-boost": "true"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "uzenfdgefd",
+                "run.googleapis.com/startupProbeType": "Default",
+                "secret-refresh": "postgres-20260505050029"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 80,
+              "containers": [
+                {
+                  "env": [
+                    {
+                      "name": "SERVICE_PORT",
+                      "value": "8100"
+                    },
+                    {
+                      "name": "PROVIDER_ENV",
+                      "value": "staging"
+                    },
+                    {
+                      "name": "PROVIDER_RUNTIME_ROLE",
+                      "value": "runtime"
+                    },
+                    {
+                      "name": "PROVIDER_PUBLIC_BASE_URL",
+                      "value": "https://provider-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "PROVIDER_GATEWAY_REGISTRATION_EXPECTED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "PROVIDER_PUBLIC_DOCS_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "PROVIDER_STAGING_ENABLED_SERVICES_JSON",
+                      "value": "[\"synapse-echo\",\"synapse-mock-cost-1usdc\",\"web3-sentiment-index\",\"protocol-fundamental-brief\",\"oss-security-healthcheck\",\"deepseek-chat\"]"
+                    },
+                    {
+                      "name": "PROVIDER_MAX_BODY_BYTES",
+                      "value": "131072"
+                    },
+                    {
+                      "name": "PROVIDER_MAX_RESPONSE_BYTES",
+                      "value": "1048576"
+                    },
+                    {
+                      "name": "PROVIDER_GLOBAL_QPS",
+                      "value": "5"
+                    },
+                    {
+                      "name": "PROVIDER_SERVICE_QPS_JSON",
+                      "value": "{\"synapse-echo\":2,\"synapse-mock-cost-1usdc\":1,\"web3-sentiment-index\":2,\"protocol-fundamental-brief\":1,\"oss-security-healthcheck\":1}"
+                    },
+                    {
+                      "name": "SENTIMENT_REPOSITORY_BACKEND",
+                      "value": "postgres"
+                    },
+                    {
+                      "name": "SENTIMENT_SCHEDULER_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_POOL_ENABLED",
+                      "value": "false"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_POOL_URLS_JSON",
+                      "value": "[]"
+                    },
+                    {
+                      "name": "SENTIMENT_PROXY_TIMEOUT_FLOOR_S",
+                      "value": "8"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_ENABLED",
+                      "value": "true"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_MAX_SKEW_S",
+                      "value": "300"
+                    },
+                    {
+                      "name": "SYNAPSE_GATEWAY",
+                      "value": "https://api-staging.synapse-network.ai"
+                    },
+                    {
+                      "name": "VIDEO_STORAGE_BACKEND",
+                      "value": "minio"
+                    },
+                    {
+                      "name": "VIDEO_STORAGE_MINIO_BUCKET",
+                      "value": "synapse-provider-assets-staging"
+                    },
+                    {
+                      "name": "VIDEO_STORAGE_MINIO_SECURE",
+                      "value": "false"
+                    },
+                    {
+                      "name": "TWITTER_X_API_BASE_URL",
+                      "value": "https://api.x.com"
+                    },
+                    {
+                      "name": "TWITTER_X_API_TIMEOUT_S",
+                      "value": "20"
+                    },
+                    {
+                      "name": "TWITTER_X_API_USER_AGENT",
+                      "value": "synapse-provider-service"
+                    },
+                    {
+                      "name": "ALLOW_INSECURE_PROD_START",
+                      "value": "false"
+                    },
+                    {
+                      "name": "GATEWAY_PROVIDER_SIGNATURE_SECRET",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-provider-signature-secret"
+                        }
+                      }
+                    },
+                    {
+                      "name": "PROVIDER_SERVICE_POSTGRES_DSN",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-provider-postgres-dsn"
+                        }
+                      }
+                    },
+                    {
+                      "name": "DEEPSEEK_API_KEY",
+                      "valueFrom": {
+                        "secretKeyRef": {
+                          "key": "latest",
+                          "name": "synapse-staging-provider-deepseek-api-key"
+                        }
+                      }
+                    }
+                  ],
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+                  "ports": [
+                    {
+                      "containerPort": 8100,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 8100
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-provider-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:52:02.523975Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:32.719048Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:52:02.483026Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-provider-00031-fwk",
+          "latestReadyRevisionName": "synapse-staging-provider-00031-fwk",
+          "observedGeneration": 32,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-provider-00031-fwk"
+            }
+          ],
+          "url": "https://synapse-staging-provider-tjhxpumowa-uc.a.run.app"
+        }
+      },
+      {
+        "apiVersion": "serving.knative.dev/v1",
+        "kind": "Service",
+        "metadata": {
+          "annotations": {
+            "run.googleapis.com/client-name": "gcloud",
+            "run.googleapis.com/client-version": "568.0.0",
+            "run.googleapis.com/ingress": "all",
+            "run.googleapis.com/ingress-status": "all",
+            "run.googleapis.com/invoker-iam-disabled": "true",
+            "run.googleapis.com/maxScale": "5",
+            "run.googleapis.com/operation-id": "734e3543-0b9b-493d-9b12-4a27df853b31",
+            "run.googleapis.com/urls": "[\"https://synapse-staging-user-front-198885553219.us-central1.run.app\",\"https://synapse-staging-user-front-tjhxpumowa-uc.a.run.app\"]",
+            "serving.knative.dev/creator": "cliff@synapse-network.ai",
+            "serving.knative.dev/lastModifier": "cliff@synapse-network.ai"
+          },
+          "creationTimestamp": "2026-04-24T08:38:57.320995Z",
+          "generation": 27,
+          "labels": {
+            "app": "synapse-network",
+            "cloud.googleapis.com/location": "us-central1",
+            "environment": "staging",
+            "goog-terraform-provisioned": "true",
+            "managed_by": "terraform",
+            "owner": "synapse",
+            "runtime": "cloud-run"
+          },
+          "name": "synapse-staging-user-front",
+          "namespace": "198885553219",
+          "resourceVersion": "AAZTCGpa0ZI",
+          "selfLink": "/apis/serving.knative.dev/v1/namespaces/198885553219/services/synapse-staging-user-front",
+          "uid": "7ffb3329-ffe2-4a05-871c-bfeebb744e2a"
+        },
+        "spec": {
+          "template": {
+            "metadata": {
+              "annotations": {
+                "autoscaling.knative.dev/maxScale": "2",
+                "run.googleapis.com/client-name": "gcloud",
+                "run.googleapis.com/client-version": "568.0.0",
+                "run.googleapis.com/cloudsql-instances": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+                "run.googleapis.com/cpu-throttling": "true",
+                "run.googleapis.com/sessionAffinity": "false"
+              },
+              "labels": {
+                "client.knative.dev/nonce": "nocycltvwf",
+                "run.googleapis.com/startupProbeType": "Default"
+              }
+            },
+            "spec": {
+              "containerConcurrency": 40,
+              "containers": [
+                {
+                  "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:47ccf386d5d0c52c723acc3a31b946c4dc1edf97b9b49a6c29ecd4912161a3c2",
+                  "ports": [
+                    {
+                      "containerPort": 3000,
+                      "name": "http1"
+                    }
+                  ],
+                  "resources": {
+                    "limits": {
+                      "cpu": "1000m",
+                      "memory": "512Mi"
+                    }
+                  },
+                  "startupProbe": {
+                    "failureThreshold": 1,
+                    "periodSeconds": 240,
+                    "tcpSocket": {
+                      "port": 3000
+                    },
+                    "timeoutSeconds": 240
+                  }
+                }
+              ],
+              "serviceAccountName": "synapse-staging-runtime@fabled-archive-494108-k5.iam.gserviceaccount.com",
+              "timeoutSeconds": 300
+            }
+          },
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100
+            }
+          ]
+        },
+        "status": {
+          "address": {
+            "url": "https://synapse-staging-user-front-tjhxpumowa-uc.a.run.app"
+          },
+          "conditions": [
+            {
+              "lastTransitionTime": "2026-05-30T12:51:09.444498Z",
+              "status": "True",
+              "type": "Ready"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:04.708003Z",
+              "status": "True",
+              "type": "ConfigurationsReady"
+            },
+            {
+              "lastTransitionTime": "2026-05-30T12:51:09.411753Z",
+              "status": "True",
+              "type": "RoutesReady"
+            }
+          ],
+          "latestCreatedRevisionName": "synapse-staging-user-front-00024-29r",
+          "latestReadyRevisionName": "synapse-staging-user-front-00024-29r",
+          "observedGeneration": 27,
+          "traffic": [
+            {
+              "latestRevision": true,
+              "percent": 100,
+              "revisionName": "synapse-staging-user-front-00024-29r"
+            }
+          ],
+          "url": "https://synapse-staging-user-front-tjhxpumowa-uc.a.run.app"
+        }
+      }
+    ],
+    "cloud_sql_instance": {
+      "backendType": "SECOND_GEN",
+      "connectionName": "fabled-archive-494108-k5:us-central1:synapse-staging-postgres",
+      "createTime": "2026-04-23T11:08:00.902Z",
+      "databaseInstalledVersion": "POSTGRES_16_13",
+      "databaseVersion": "POSTGRES_16",
+      "etag": "0666e0d7f1a48477db691773ea5b7df8af68d52147b6967403fc07bb11077e45",
+      "gceZone": "us-central1-a",
+      "geminiConfig": {
+        "activeQueryEnabled": false,
+        "entitled": false,
+        "googleVacuumMgmtEnabled": false,
+        "indexAdvisorEnabled": false,
+        "oomSessionCancelEnabled": true
+      },
+      "includeReplicasForMajorVersionUpgrade": false,
+      "instanceType": "CLOUD_SQL_INSTANCE",
+      "ipAddresses": [
+        {
+          "ipAddress": "34.28.120.176",
+          "type": "PRIMARY"
+        },
+        {
+          "ipAddress": "34.61.130.164",
+          "type": "OUTGOING"
+        }
+      ],
+      "kind": "sql#instance",
+      "maintenanceVersion": "POSTGRES_16_13.R20260319.00_11",
+      "name": "synapse-staging-postgres",
+      "project": "fabled-archive-494108-k5",
+      "region": "us-central1",
+      "satisfiesPzi": true,
+      "selfLink": "https://sqladmin.googleapis.com/sql/v1beta4/projects/fabled-archive-494108-k5/instances/synapse-staging-postgres",
+      "serverCaCert": {
+        "cert": "-----BEGIN CERTIFICATE-----\nMIIDcTCCAlmgAwIBAgIBADANBgkqhkiG9w0BAQsFADBwMS0wKwYDVQQuEyRjYTI0\nMjM1OC1iMWVjLTQyNzAtOWE0MS0yOTY5N2NjNDQ5ZGMxHDAaBgNVBAMTE0Nsb3Vk\nIFNRTCBTZXJ2ZXIgQ0ExFDASBgNVBAoTC0dvb2dsZSwgSW5jMQswCQYDVQQGEwJV\nUzAeFw0yNjA0MjMxMTA4MzNaFw0zNjA0MjAxMTA5MzNaMHAxLTArBgNVBC4TJGNh\nMjQyMzU4LWIxZWMtNDI3MC05YTQxLTI5Njk3Y2M0NDlkYzEcMBoGA1UEAxMTQ2xv\ndWQgU1FMIFNlcnZlciBDQTEUMBIGA1UEChMLR29vZ2xlLCBJbmMxCzAJBgNVBAYT\nAlVTMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAukvPKHGNE8Vhm1Gv\nauwYqVn2xo3/EmYchL2GtlJB3z3D2uL5IgOKf3vA2NVOw0g0d3fFLbEgFauannwp\njiZLlLrFESukFinVFQIkM2LMaKpXmMQLJoCs40Ek6V/6LYB6W9tl4HcdIUA4mHHQ\ndjiA+r4Qe1vW6c+ZqXklRifHKwg+MoRrkIhmnmYmiQ/PrSnajCkW1bzTedAacOnf\nXPfyCDhHMrIAhraHjXFAjk148t0aZ4DRwEF0pTS7ChPtfCOyBMZQX4uRjhE4K+bP\nalIc8VJzOuqaI1cluEakl1Uyo60eGf4e6WdpPSsjDb5x0DaP2OHtfs6NbzYn4xVC\n76j+bwIDAQABoxYwFDASBgNVHRMBAf8ECDAGAQH/AgEAMA0GCSqGSIb3DQEBCwUA\nA4IBAQAX6DtwD4Or52jnD8gjMjppB0vFYTwakNCi8mD+10wFlEV5bcEIHaJgEDmf\n2zc6xNvbqn54RK3RCywlM4J05OY9ENV+DX2fRb/7178OCOFhYC45r255KR70583t\nrXTRV8WEjOwp8oFjTwGkK0TJHglfPlmzVZiSZsGZrV0ej9G239a6eoGwJTMJiKFD\nYZ4OW21GxSlMMFKTiDmHqh2EAktJ82FHAR6zCvk4s9kCiFkVego31oS1LBabeogi\ni+FGE855aZW6hZ4k7NC/79FppwhwivT5OrN/TO0ZD3lKv8Xxi9g3jYIIV1OWvIaA\nCVBsymUfDycFGNM/iaTIRS12/rkA\n-----END CERTIFICATE-----",
+        "certSerialNumber": "0",
+        "commonName": "C=US,O=Google\\, Inc,CN=Cloud SQL Server CA,dnQualifier=ca242358-b1ec-4270-9a41-29697cc449dc",
+        "createTime": "2026-04-23T11:08:33.096Z",
+        "expirationTime": "2036-04-20T11:09:33.096Z",
+        "instance": "synapse-staging-postgres",
+        "kind": "sql#sslCert",
+        "sha1Fingerprint": "045f6ccbb7e6c9e9cf465b173f3550770e289817"
+      },
+      "serviceAccountEmailAddress": "p198885553219-bx06v6@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+      "settings": {
+        "activationPolicy": "ALWAYS",
+        "availabilityType": "ZONAL",
+        "backupConfiguration": {
+          "backupRetentionSettings": {
+            "retainedBackups": 3,
+            "retentionUnit": "COUNT"
+          },
+          "backupTier": "STANDARD",
+          "enabled": true,
+          "kind": "sql#backupConfiguration",
+          "pointInTimeRecoveryEnabled": true,
+          "replicationLogArchivingEnabled": true,
+          "startTime": "19:00",
+          "transactionLogRetentionDays": 1,
+          "transactionalLogStorageState": "CLOUD_STORAGE"
+        },
+        "connectorEnforcement": "REQUIRED",
+        "dataDiskSizeGb": "20",
+        "dataDiskType": "PD_SSD",
+        "databaseFlags": [
+          {
+            "name": "cloudsql.iam_authentication",
+            "value": "on"
+          }
+        ],
+        "deletionProtectionEnabled": false,
+        "edition": "ENTERPRISE",
+        "enableDataplexIntegration": false,
+        "enableGoogleMlIntegration": false,
+        "insightsConfig": {
+          "queryInsightsEnabled": true,
+          "queryStringLength": 1024,
+          "recordApplicationTags": true
+        },
+        "ipConfiguration": {
+          "ipv4Enabled": true,
+          "message": "Configuring authorized network or using CloudSQL auth proxy or language connectors is a prerequisite for connecting to Public IP. Please refer to the documentation for more details https://cloud.google.com/sql/docs/mysql/authorize-networks.",
+          "requireSsl": false,
+          "serverCaMode": "GOOGLE_MANAGED_INTERNAL_CA",
+          "serverCertificateRotationMode": "SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED",
+          "sslMode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+        },
+        "kind": "sql#settings",
+        "locationPreference": {
+          "kind": "sql#locationPreference",
+          "zone": "us-central1-a"
+        },
+        "passwordValidationPolicy": {
+          "complexity": "COMPLEXITY_DEFAULT",
+          "disallowUsernameSubstring": true,
+          "enablePasswordPolicy": true,
+          "minLength": 16,
+          "reuseInterval": 4
+        },
+        "pricingPlan": "PER_USE",
+        "replicationLagMaxSeconds": 31536000,
+        "replicationType": "SYNCHRONOUS",
+        "retainBackupsOnDelete": false,
+        "settingsVersion": "63",
+        "storageAutoResize": true,
+        "storageAutoResizeLimit": "0",
+        "tier": "db-f1-micro",
+        "userLabels": {
+          "app": "synapse-network",
+          "environment": "staging",
+          "managed_by": "terraform",
+          "owner": "synapse",
+          "runtime": "cloud-run"
+        }
+      },
+      "sqlNetworkArchitecture": "NEW_NETWORK_ARCHITECTURE",
+      "state": "MAINTENANCE"
+    },
+    "project": "fabled-archive-494108-k5",
+    "scheduler_jobs": [
+      {
+        "attemptDeadline": "180s",
+        "httpTarget": {
+          "headers": {
+            "User-Agent": "Google-Cloud-Scheduler"
+          },
+          "httpMethod": "POST",
+          "oauthToken": {
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "serviceAccountEmail": "synapse-staging-scheduler@fabled-archive-494108-k5.iam.gserviceaccount.com"
+          },
+          "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/fabled-archive-494108-k5/jobs/synapse-staging-withdrawal-expiry-sweeper:run"
+        },
+        "lastAttemptTime": "2026-05-30T13:30:05.452647Z",
+        "name": "projects/fabled-archive-494108-k5/locations/us-central1/jobs/synapse-staging-withdrawal-expiry-sweeper-schedule",
+        "retryConfig": {
+          "maxBackoffDuration": "3600s",
+          "maxDoublings": 5,
+          "maxRetryDuration": "0s",
+          "minBackoffDuration": "5s"
+        },
+        "schedule": "*/30 * * * *",
+        "scheduleTime": "2026-05-30T14:00:04.771375Z",
+        "state": "ENABLED",
+        "status": {},
+        "timeZone": "Etc/UTC",
+        "userUpdateTime": "2026-05-30T12:24:13.846079Z"
+      },
+      {
+        "attemptDeadline": "180s",
+        "httpTarget": {
+          "headers": {
+            "User-Agent": "Google-Cloud-Scheduler"
+          },
+          "httpMethod": "POST",
+          "oauthToken": {
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "serviceAccountEmail": "synapse-staging-scheduler@fabled-archive-494108-k5.iam.gserviceaccount.com"
+          },
+          "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/fabled-archive-494108-k5/jobs/synapse-staging-in-app-notification-cleanup:run"
+        },
+        "name": "projects/fabled-archive-494108-k5/locations/us-central1/jobs/synapse-staging-in-app-notification-cleanup-schedule",
+        "retryConfig": {
+          "maxBackoffDuration": "3600s",
+          "maxDoublings": 5,
+          "maxRetryDuration": "0s",
+          "minBackoffDuration": "5s"
+        },
+        "schedule": "0 19 * * *",
+        "state": "PAUSED",
+        "status": {
+          "code": -1
+        },
+        "timeZone": "Etc/UTC",
+        "userUpdateTime": "2026-05-30T12:52:12.037394Z"
+      },
+      {
+        "attemptDeadline": "180s",
+        "httpTarget": {
+          "headers": {
+            "User-Agent": "Google-Cloud-Scheduler"
+          },
+          "httpMethod": "POST",
+          "oauthToken": {
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "serviceAccountEmail": "synapse-staging-scheduler@fabled-archive-494108-k5.iam.gserviceaccount.com"
+          },
+          "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/fabled-archive-494108-k5/jobs/synapse-staging-notification-outbox-drain:run"
+        },
+        "name": "projects/fabled-archive-494108-k5/locations/us-central1/jobs/synapse-staging-notification-outbox-drain-schedule",
+        "retryConfig": {
+          "maxBackoffDuration": "3600s",
+          "maxDoublings": 5,
+          "maxRetryDuration": "0s",
+          "minBackoffDuration": "5s",
+          "retryCount": 1
+        },
+        "schedule": "*/30 * * * *",
+        "state": "PAUSED",
+        "status": {
+          "code": -1
+        },
+        "timeZone": "Etc/UTC",
+        "userUpdateTime": "2026-05-30T12:52:10.242531Z"
+      },
+      {
+        "attemptDeadline": "180s",
+        "httpTarget": {
+          "headers": {
+            "User-Agent": "Google-Cloud-Scheduler"
+          },
+          "httpMethod": "POST",
+          "oauthToken": {
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "serviceAccountEmail": "synapse-staging-scheduler@fabled-archive-494108-k5.iam.gserviceaccount.com"
+          },
+          "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/fabled-archive-494108-k5/jobs/synapse-staging-deposit-indexer:run"
+        },
+        "name": "projects/fabled-archive-494108-k5/locations/us-central1/jobs/synapse-staging-deposit-indexer-schedule",
+        "retryConfig": {
+          "maxBackoffDuration": "3600s",
+          "maxDoublings": 5,
+          "maxRetryDuration": "0s",
+          "minBackoffDuration": "5s"
+        },
+        "schedule": "*/30 * * * *",
+        "state": "PAUSED",
+        "status": {
+          "code": -1
+        },
+        "timeZone": "Etc/UTC",
+        "userUpdateTime": "2026-05-30T12:52:05.241921Z"
+      },
+      {
+        "attemptDeadline": "180s",
+        "httpTarget": {
+          "headers": {
+            "User-Agent": "Google-Cloud-Scheduler"
+          },
+          "httpMethod": "POST",
+          "oauthToken": {
+            "scope": "https://www.googleapis.com/auth/cloud-platform",
+            "serviceAccountEmail": "synapse-staging-scheduler@fabled-archive-494108-k5.iam.gserviceaccount.com"
+          },
+          "uri": "https://us-central1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/fabled-archive-494108-k5/jobs/synapse-staging-consumer-withdraw-chain-recovery:run"
+        },
+        "lastAttemptTime": "2026-05-30T13:30:04.357870Z",
+        "name": "projects/fabled-archive-494108-k5/locations/us-central1/jobs/synapse-staging-consumer-withdraw-chain-recovery-schedule",
+        "retryConfig": {
+          "maxBackoffDuration": "3600s",
+          "maxDoublings": 5,
+          "maxRetryDuration": "0s",
+          "minBackoffDuration": "5s"
+        },
+        "schedule": "*/30 * * * *",
+        "scheduleTime": "2026-05-30T14:00:03.596690Z",
+        "state": "ENABLED",
+        "status": {},
+        "timeZone": "Etc/UTC",
+        "userUpdateTime": "2026-05-30T12:24:11.544862Z"
+      }
+    ]
+  }
+}

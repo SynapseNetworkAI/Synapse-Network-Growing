@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 """Centralized configuration for Synapse Ops Dashboard."""
+import json
 import os
 from pathlib import Path
 
@@ -36,6 +37,24 @@ def _env_flag(name: str, default: str = "false") -> bool:
 
 
 _OPS_E2E_MODE = _env_flag("OPS_E2E_MODE")
+
+
+def _json_env_list(name: str, default: list[dict[str, str]]) -> list[dict[str, str]]:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError:
+        return default
+    if not isinstance(value, list):
+        return default
+    items: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        items.append({str(key): str(val).strip() for key, val in item.items()})
+    return items or default
 
 # ── Paths ─────────────────────────────────────────────────────
 PROJECT_ROOT = _PROJECT_ROOT
@@ -129,6 +148,16 @@ SECRET_MANAGER_CLEANUP_SWEEP_SCHEDULER_ENABLED = os.environ.get(
 ).lower() in {"1", "true", "yes", "on"}
 SECRET_MANAGER_CLEANUP_SWEEP_POLL_SECONDS = max(300, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_SWEEP_POLL_SECONDS", "1800")))
 SECRET_MANAGER_CLEANUP_SWEEP_STARTUP_DELAY_SECONDS = max(0, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_SWEEP_STARTUP_DELAY_SECONDS", "60")))
+COST_CONTROL_SCHEDULER_ENABLED = _env_flag(
+    "OPS_COST_CONTROL_SCHEDULER_ENABLED",
+    "true" if ENV == "local" and not _OPS_E2E_MODE else "false",
+)
+COST_CONTROL_SCHEDULER_POLL_SECONDS = max(
+    300, int(os.environ.get("OPS_COST_CONTROL_SCHEDULER_POLL_SECONDS", "300"))
+)
+COST_CONTROL_STARTUP_DELAY_SECONDS = max(
+    0, int(os.environ.get("OPS_COST_CONTROL_STARTUP_DELAY_SECONDS", "75"))
+)
 X_DAILY_PLANNER_GENERATING_TIMEOUT_MINUTES = max(1, int(os.environ.get("OPS_X_DAILY_PLANNER_GENERATING_TIMEOUT_MINUTES", "15")))
 X_DAILY_PLANNER_MAX_CREATED_PER_TICK = max(1, int(os.environ.get("OPS_X_DAILY_PLANNER_MAX_CREATED_PER_TICK", "3")))
 X_READ_DAILY_REQUEST_BUDGET = max(0, int(os.environ.get("OPS_X_READ_DAILY_REQUEST_BUDGET", "20")))
@@ -190,7 +219,7 @@ SECRET_MANAGER_CLEANUP_PROJECTS = [
     for item in os.environ.get("OPS_SECRET_MANAGER_CLEANUP_PROJECTS", "fabled-archive-494108-k5,synapse-network-prod").split(",")
     if item.strip()
 ]
-SECRET_MANAGER_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_KEEP_VERSIONS", "3")))
+SECRET_MANAGER_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_SECRET_MANAGER_CLEANUP_KEEP_VERSIONS", "2")))
 ARTIFACT_REGISTRY_CLEANUP_PROJECTS = [
     item.strip()
     for item in os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_PROJECTS", "fabled-archive-494108-k5,synapse-network-prod").split(",")
@@ -198,8 +227,34 @@ ARTIFACT_REGISTRY_CLEANUP_PROJECTS = [
 ]
 ARTIFACT_REGISTRY_CLEANUP_REGION = os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_REGION", "us-central1").strip() or "us-central1"
 ARTIFACT_REGISTRY_CLEANUP_REPOSITORY = os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_REPOSITORY", "synapse-staging").strip() or "synapse-staging"
-ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS", "10")))
-ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS = max(0, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS", "45")))
+ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS = max(1, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS", "3")))
+ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS = max(0, int(os.environ.get("OPS_ARTIFACT_REGISTRY_CLEANUP_OLDER_THAN_DAYS", "0")))
+ARTIFACT_REGISTRY_CLEANUP_TARGETS = _json_env_list(
+    "OPS_ARTIFACT_REGISTRY_CLEANUP_TARGETS_JSON",
+    [
+        {
+            "project": "fabled-archive-494108-k5",
+            "region": ARTIFACT_REGISTRY_CLEANUP_REGION,
+            "repository": ARTIFACT_REGISTRY_CLEANUP_REPOSITORY,
+        },
+        {
+            "project": "synapse-network-prod",
+            "region": ARTIFACT_REGISTRY_CLEANUP_REGION,
+            "repository": "synapse-prod",
+        },
+    ],
+)
+STAGING_ENVIRONMENT_PROJECT = os.environ.get("OPS_STAGING_ENVIRONMENT_PROJECT", "fabled-archive-494108-k5").strip() or "fabled-archive-494108-k5"
+STAGING_ENVIRONMENT_REGION = os.environ.get("OPS_STAGING_ENVIRONMENT_REGION", "us-central1").strip() or "us-central1"
+STAGING_CLOUD_SQL_INSTANCE = os.environ.get("OPS_STAGING_CLOUD_SQL_INSTANCE", "synapse-staging-postgres").strip()
+STAGING_CLOUD_RUN_SERVICES = [
+    item.strip()
+    for item in os.environ.get(
+        "OPS_STAGING_CLOUD_RUN_SERVICES",
+        "synapse-staging-gateway,synapse-staging-gateway-admin,synapse-staging-user-front,synapse-staging-admin-front,synapse-staging-docs-front,synapse-staging-provider",
+    ).split(",")
+    if item.strip()
+]
 MAX_CONTEXT_SIZE = int(os.environ.get("MAX_CONTEXT_SIZE", "500000"))
 MAX_FILE_SIZE = int(os.environ.get("MAX_FILE_SIZE", "100000"))
 

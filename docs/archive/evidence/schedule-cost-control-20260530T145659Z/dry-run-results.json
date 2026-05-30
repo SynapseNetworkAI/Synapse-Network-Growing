@@ -1,0 +1,670 @@
+{
+  "artifacts": {
+    "result": {
+      "candidate_count": 0,
+      "deleted_count": 0,
+      "dry_run": true,
+      "error_count": 0,
+      "generated_at": "2026-05-30T14:58:20.905637+00:00",
+      "image_count": 38,
+      "keep": 3,
+      "kept_count": 38,
+      "older_than_days": 0,
+      "project_count": 2,
+      "projects": [
+        {
+          "candidates": [],
+          "deleted_count": 0,
+          "errors": [],
+          "kept": [
+            {
+              "digest": "sha256:2f08ce9b6ddf36e31dc361744f1193b9de7f9f54c0d1762dc94f84aea67dde52",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin@sha256:2f08ce9b6ddf36e31dc361744f1193b9de7f9f54c0d1762dc94f84aea67dde52",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-admin-6cc5c5d85b2d-20260530135606",
+                "staging-local-gateway-admin-6cc5c5d85b2d-20260530141953"
+              ],
+              "updated_at": "2026-05-30T14:20:02.130623+00:00"
+            },
+            {
+              "digest": "sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway@sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-6cc5c5d85b2d-20260530133731",
+                "staging-local-gateway-6cc5c5d85b2d-20260530141452"
+              ],
+              "updated_at": "2026-05-30T14:15:03.057055+00:00"
+            },
+            {
+              "digest": "sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-provider-service-c9896d007329-20260530083846"
+              ],
+              "updated_at": "2026-05-30T08:39:00.546495+00:00"
+            },
+            {
+              "digest": "sha256:ba4c2a268097d385757f2a70eb17d17fdd0ba94a3c70b293e5886dfecc179e10",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider@sha256:ba4c2a268097d385757f2a70eb17d17fdd0ba94a3c70b293e5886dfecc179e10",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-provider-service-3c9651d486de-20260530081700"
+              ],
+              "updated_at": "2026-05-30T08:17:14.448367+00:00"
+            },
+            {
+              "digest": "sha256:056a1001bfc7f672a16da80f03de549843a21d20c9253369f68a4f6e759a3203",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider@sha256:056a1001bfc7f672a16da80f03de549843a21d20c9253369f68a4f6e759a3203",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-provider-service-737f9a3de2e3-20260530080112"
+              ],
+              "updated_at": "2026-05-30T08:04:49.042495+00:00"
+            },
+            {
+              "digest": "sha256:47ccf386d5d0c52c723acc3a31b946c4dc1edf97b9b49a6c29ecd4912161a3c2",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:47ccf386d5d0c52c723acc3a31b946c4dc1edf97b9b49a6c29ecd4912161a3c2",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-user-front-34d3c3944d4b-20260528141030"
+              ],
+              "updated_at": "2026-05-28T14:25:12.317823+00:00"
+            },
+            {
+              "digest": "sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-34d3c3944d4b-20260528140639"
+              ],
+              "updated_at": "2026-05-28T14:07:02.815023+00:00"
+            },
+            {
+              "digest": "sha256:bb976a6567906ef3d2c1727eec58063816b71014740def5364ac483ed22a624e",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:bb976a6567906ef3d2c1727eec58063816b71014740def5364ac483ed22a624e",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-user-front-b2d93da3873c-20260528132819"
+              ],
+              "updated_at": "2026-05-28T13:39:38.489183+00:00"
+            },
+            {
+              "digest": "sha256:02f6fb9024b176409a2b89322e2a7c4669f34e309d0405c7bc2ed5d614d46124",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway@sha256:02f6fb9024b176409a2b89322e2a7c4669f34e309d0405c7bc2ed5d614d46124",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-b2d93da3873c-20260528132053"
+              ],
+              "updated_at": "2026-05-28T13:22:41.944335+00:00"
+            },
+            {
+              "digest": "sha256:82c897cf1a17448dc2a945bec1bcbcec733cef1cd8de4937d57933adf5c5ff9c",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:82c897cf1a17448dc2a945bec1bcbcec733cef1cd8de4937d57933adf5c5ff9c",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-user-front-4f7a5ce31834-20260528020913"
+              ],
+              "updated_at": "2026-05-28T02:21:32.393663+00:00"
+            },
+            {
+              "digest": "sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-admin-11f75b7e68ff-20260525024950"
+              ],
+              "updated_at": "2026-05-25T02:50:02.780735+00:00"
+            },
+            {
+              "digest": "sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin@sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-gateway-admin-cebb8fbc9a3c-20260525023211"
+              ],
+              "updated_at": "2026-05-25T02:32:26.439823+00:00"
+            },
+            {
+              "digest": "sha256:2e6d185ec2e22c8b9af7116c07f086d2d72743370277372a9568cf3f8e188377",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front@sha256:2e6d185ec2e22c8b9af7116c07f086d2d72743370277372a9568cf3f8e188377",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-admin-front-f80eface1c98-20260524173542"
+              ],
+              "updated_at": "2026-05-24T17:42:38.946255+00:00"
+            },
+            {
+              "digest": "sha256:38ca5cb167b7b6fd5812c05b7fd580ec2b14c78967cb552d4424d236035c7338",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front@sha256:38ca5cb167b7b6fd5812c05b7fd580ec2b14c78967cb552d4424d236035c7338",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-admin-front-a6ad54a46aba-20260524172609"
+              ],
+              "updated_at": "2026-05-24T17:32:35.942879+00:00"
+            },
+            {
+              "digest": "sha256:25c59f29eef4c7003e7133f72e2603866eac74f6a284b78e7e58a3791b236340",
+              "image": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front@sha256:25c59f29eef4c7003e7133f72e2603866eac74f6a284b78e7e58a3791b236340",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "staging-local-admin-front-de7a9aab84e9-20260524171502"
+              ],
+              "updated_at": "2026-05-24T17:22:01.655663+00:00"
+            }
+          ],
+          "project": "fabled-archive-494108-k5",
+          "region": "us-central1",
+          "repository": "synapse-staging",
+          "skipped": []
+        },
+        {
+          "candidates": [],
+          "deleted_count": 0,
+          "errors": [],
+          "kept": [
+            {
+              "digest": "sha256:2f08ce9b6ddf36e31dc361744f1193b9de7f9f54c0d1762dc94f84aea67dde52",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin@sha256:2f08ce9b6ddf36e31dc361744f1193b9de7f9f54c0d1762dc94f84aea67dde52",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-admin-20260530142833"
+              ],
+              "updated_at": "2026-05-30T14:28:55.449071+00:00"
+            },
+            {
+              "digest": "sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway@sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-20260530142355"
+              ],
+              "updated_at": "2026-05-30T14:24:22.718719+00:00"
+            },
+            {
+              "digest": "sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-provider-20260530084346",
+                "prod-promote-provider-20260530085325"
+              ],
+              "updated_at": "2026-05-30T08:53:34.659983+00:00"
+            },
+            {
+              "digest": "sha256:5805051749bfd1f18bfa44e5d466333fe89878e33563c77442daf04746a924cf",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:5805051749bfd1f18bfa44e5d466333fe89878e33563c77442daf04746a924cf",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-docs-front-34d3c3944d4b-20260528150505"
+              ],
+              "updated_at": "2026-05-28T15:08:51.716815+00:00"
+            },
+            {
+              "digest": "sha256:ba905628c73afda9494aa2c270a6094b13600c8dfc789b071a6dfeb1660b77d6",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:ba905628c73afda9494aa2c270a6094b13600c8dfc789b071a6dfeb1660b77d6",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-user-front-34d3c3944d4b-20260528144303"
+              ],
+              "updated_at": "2026-05-28T14:58:12.669887+00:00"
+            },
+            {
+              "digest": "sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-20260528143651"
+              ],
+              "updated_at": "2026-05-28T14:37:17.593519+00:00"
+            },
+            {
+              "digest": "sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway@sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-20260528022843",
+                "prod-promote-gateway-20260528023431"
+              ],
+              "updated_at": "2026-05-28T02:34:45.448271+00:00"
+            },
+            {
+              "digest": "sha256:20bf37e2b15da9e393bdb85109ac98e3c371d460f3e4172482b242b189e4e683",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway@sha256:20bf37e2b15da9e393bdb85109ac98e3c371d460f3e4172482b242b189e4e683",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-address-activity-20260528"
+              ],
+              "updated_at": "2026-05-28T01:17:54.183151+00:00"
+            },
+            {
+              "digest": "sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-admin-20260525025813"
+              ],
+              "updated_at": "2026-05-25T02:58:30.388271+00:00"
+            },
+            {
+              "digest": "sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin@sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-admin-20260525023652"
+              ],
+              "updated_at": "2026-05-25T02:37:11.198303+00:00"
+            },
+            {
+              "digest": "sha256:58d4621c29be4878df0e6baf7a3149d64d45aebb29da1a2498c0cbd9cd23863c",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front@sha256:58d4621c29be4878df0e6baf7a3149d64d45aebb29da1a2498c0cbd9cd23863c",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-admin-front-f80eface1c98-20260525014423"
+              ],
+              "updated_at": "2026-05-25T01:50:50.301295+00:00"
+            },
+            {
+              "digest": "sha256:4ae252d335fc0e80b434f313e2a0cf59a488e8e6070242ee5c125ebfdfd51aa9",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front@sha256:4ae252d335fc0e80b434f313e2a0cf59a488e8e6070242ee5c125ebfdfd51aa9",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-admin-front-f80eface1c98-20260525013436"
+              ],
+              "updated_at": "2026-05-25T01:41:16.584975+00:00"
+            },
+            {
+              "digest": "sha256:b86e191cc7e0e25486bc6735a7a6d989da50eb04392a33daf0fc3f05e30bce16",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front@sha256:b86e191cc7e0e25486bc6735a7a6d989da50eb04392a33daf0fc3f05e30bce16",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-admin-front-f80eface1c98-20260524174414"
+              ],
+              "updated_at": "2026-05-24T17:51:16.813823+00:00"
+            },
+            {
+              "digest": "sha256:d2e21ca169833463856b09c1f6d32b24cf68f5b9b23c73de5d9e64aab37729e7",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:d2e21ca169833463856b09c1f6d32b24cf68f5b9b23c73de5d9e64aab37729e7",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-user-front-4799baf8818b-20260524162337"
+              ],
+              "updated_at": "2026-05-24T16:37:53.692239+00:00"
+            },
+            {
+              "digest": "sha256:48fd993022351836da9a593c353d79e8efa415a155ce39147aec04d7d640e5f0",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:48fd993022351836da9a593c353d79e8efa415a155ce39147aec04d7d640e5f0",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "production-local-user-front-7b81d43aab30-20260524150232"
+              ],
+              "updated_at": "2026-05-24T15:14:42.222959+00:00"
+            },
+            {
+              "digest": "sha256:b648220bba9e90d1f93d69b5074ae2a74180a9aebc6e6f318523c0b744c7cefc",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider@sha256:b648220bba9e90d1f93d69b5074ae2a74180a9aebc6e6f318523c0b744c7cefc",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-provider-20260524115725"
+              ],
+              "updated_at": "2026-05-24T11:58:06.400863+00:00"
+            },
+            {
+              "digest": "sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin@sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-gateway-admin-20260524115058"
+              ],
+              "updated_at": "2026-05-24T11:51:19.874463+00:00"
+            },
+            {
+              "digest": "sha256:4f42e4e5a5e965da407c24d29dd8d51f0b400a25a2c2a9d10a8c8f70e52d3bd6",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:4f42e4e5a5e965da407c24d29dd8d51f0b400a25a2c2a9d10a8c8f70e52d3bd6",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-docs-front-20260524114358"
+              ],
+              "updated_at": "2026-05-24T11:44:28.269503+00:00"
+            },
+            {
+              "digest": "sha256:6b76b682128ea65206b2ade1d1b88986a48aa2670e3c6bcc229f62277debb65c",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:6b76b682128ea65206b2ade1d1b88986a48aa2670e3c6bcc229f62277debb65c",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-docs-front-20260523081957"
+              ],
+              "updated_at": "2026-05-23T08:20:25.941775+00:00"
+            },
+            {
+              "digest": "sha256:9d87e58c90aa92fa951dd3efad9db73ba379f12c916805e26274ed47086a997b",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider@sha256:9d87e58c90aa92fa951dd3efad9db73ba379f12c916805e26274ed47086a997b",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-promote-provider-20260520103820"
+              ],
+              "updated_at": "2026-05-20T10:39:08.015471+00:00"
+            },
+            {
+              "digest": "sha256:c001e20cfce880b7453a8bc819f7cdb1c4d9cd53fffeb7e6a5e82df23ad62a1e",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service@sha256:c001e20cfce880b7453a8bc819f7cdb1c4d9cd53fffeb7e6a5e82df23ad62a1e",
+              "reason": "recent_or_promoted",
+              "tags": [],
+              "updated_at": "2026-05-16T14:36:17.033887+00:00"
+            },
+            {
+              "digest": "sha256:7ba6a0d29a3dd4f086cc0170ab5f4bae1e6639056b5d29035855032b5c2415d0",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service@sha256:7ba6a0d29a3dd4f086cc0170ab5f4bae1e6639056b5d29035855032b5c2415d0",
+              "reason": "recent_or_promoted",
+              "tags": [],
+              "updated_at": "2026-05-16T14:36:15.456287+00:00"
+            },
+            {
+              "digest": "sha256:b9f58a8346804528c781ce869aededdfed678becc3f95f1c630d87ee64dabdac",
+              "image": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service@sha256:b9f58a8346804528c781ce869aededdfed678becc3f95f1c630d87ee64dabdac",
+              "reason": "recent_or_promoted",
+              "tags": [
+                "prod-main-9a85efae3703-2026-05-16-143349"
+              ],
+              "updated_at": "2026-05-16T14:36:08.361359+00:00"
+            }
+          ],
+          "project": "synapse-network-prod",
+          "region": "us-central1",
+          "repository": "synapse-prod",
+          "skipped": []
+        }
+      ],
+      "skipped_count": 0
+    },
+    "run_id": 22956,
+    "run_started_at": "2026-05-30T14:58:14.773246",
+    "status": "completed",
+    "workflow_key": "artifact_registry_cleanup_sweep"
+  },
+  "secrets": {
+    "result": {
+      "candidate_count": 0,
+      "destroyed_count": 0,
+      "dry_run": true,
+      "error_count": 0,
+      "generated_at": "2026-05-30T14:59:23.889153+00:00",
+      "keep": 2,
+      "kept_count": 109,
+      "project_count": 2,
+      "projects": [
+        {
+          "candidate_count": 0,
+          "candidates": [],
+          "destroyed_count": 0,
+          "errors": [],
+          "kept_count": 50,
+          "project": "fabled-archive-494108-k5",
+          "secret_count": 40,
+          "skipped": [
+            {
+              "reason": "no_active_versions",
+              "secret": "SYNAPSE_STAGING_AGENT_KEY"
+            }
+          ],
+          "version_count": 50
+        },
+        {
+          "candidate_count": 0,
+          "candidates": [],
+          "destroyed_count": 0,
+          "errors": [],
+          "kept_count": 59,
+          "project": "synapse-network-prod",
+          "secret_count": 38,
+          "skipped": [
+            {
+              "reason": "no_active_versions",
+              "secret": "synapse-prod-deployer-private-key"
+            }
+          ],
+          "version_count": 59
+        }
+      ],
+      "secret_count": 78,
+      "skipped_count": 2,
+      "version_count": 109
+    },
+    "run_id": 22957,
+    "run_started_at": "2026-05-30T14:58:20.934836",
+    "status": "completed",
+    "workflow_key": "secret_manager_version_cleanup_sweep"
+  },
+  "staging_shutdown": {
+    "result": {
+      "action_count": 12,
+      "actions": [
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-gateway",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-gateway",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-gateway-admin",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-gateway-admin",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-user-front",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-user-front",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-admin-front",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-admin-front",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-docs-front",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-docs-front",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "run",
+            "services",
+            "update",
+            "synapse-staging-provider",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--region",
+            "us-central1",
+            "--min-instances",
+            "0"
+          ],
+          "reason": "cloud_run_min_instances_already_zero",
+          "status": "skipped",
+          "target": "synapse-staging-provider",
+          "target_type": "cloud_run_service"
+        },
+        {
+          "command": [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "pause",
+            "synapse-staging-consumer-withdraw-chain-recovery-schedule",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--location",
+            "us-central1"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-consumer-withdraw-chain-recovery-schedule",
+          "target_type": "cloud_scheduler_job"
+        },
+        {
+          "command": [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "pause",
+            "synapse-staging-deposit-indexer-schedule",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--location",
+            "us-central1"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-deposit-indexer-schedule",
+          "target_type": "cloud_scheduler_job"
+        },
+        {
+          "command": [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "pause",
+            "synapse-staging-in-app-notification-cleanup-schedule",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--location",
+            "us-central1"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-in-app-notification-cleanup-schedule",
+          "target_type": "cloud_scheduler_job"
+        },
+        {
+          "command": [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "pause",
+            "synapse-staging-notification-outbox-drain-schedule",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--location",
+            "us-central1"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-notification-outbox-drain-schedule",
+          "target_type": "cloud_scheduler_job"
+        },
+        {
+          "command": [
+            "gcloud",
+            "scheduler",
+            "jobs",
+            "pause",
+            "synapse-staging-withdrawal-expiry-sweeper-schedule",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--location",
+            "us-central1"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-withdrawal-expiry-sweeper-schedule",
+          "target_type": "cloud_scheduler_job"
+        },
+        {
+          "command": [
+            "gcloud",
+            "sql",
+            "instances",
+            "patch",
+            "synapse-staging-postgres",
+            "--project",
+            "fabled-archive-494108-k5",
+            "--activation-policy",
+            "NEVER",
+            "--quiet"
+          ],
+          "status": "planned",
+          "target": "synapse-staging-postgres",
+          "target_type": "cloud_sql_instance"
+        }
+      ],
+      "dry_run": true,
+      "failed_count": 0,
+      "generated_at": "2026-05-30T14:59:27.583004+00:00",
+      "planned_count": 6,
+      "project": "fabled-archive-494108-k5",
+      "region": "us-central1",
+      "skipped_count": 6,
+      "succeeded_count": 0
+    },
+    "run_id": 22959,
+    "run_started_at": "2026-05-30T14:59:23.937574",
+    "status": "completed",
+    "workflow_key": "staging_environment_shutdown_sweep"
+  }
+}

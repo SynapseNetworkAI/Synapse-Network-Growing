@@ -10,12 +10,13 @@ from server.services.result_objects import ServiceObjectResult, service_object_r
 
 
 ARTIFACT_REGISTRY_CLEANUP_SCHEDULE: dict[str, Any] = {
-    "cadence": "daily",
-    "suggested_local_time": "12:20",
+    "cadence": "interval",
+    "interval_minutes": 30,
     "timezone": config.OPERATOR_TIMEZONE,
 }
 
 ARTIFACT_REGISTRY_CLEANUP_INPUT_QUERY: dict[str, Any] = {
+    "targets": config.ARTIFACT_REGISTRY_CLEANUP_TARGETS,
     "projects": config.ARTIFACT_REGISTRY_CLEANUP_PROJECTS,
     "region": config.ARTIFACT_REGISTRY_CLEANUP_REGION,
     "repository": config.ARTIFACT_REGISTRY_CLEANUP_REPOSITORY,
@@ -49,6 +50,7 @@ ARTIFACT_REGISTRY_CLEANUP_WORKFLOW: dict[str, Any] = {
 @service_object_result
 def run_artifact_registry_cleanup_workflow(*, dry_run: bool) -> ServiceObjectResult:
     return cleanup_artifact_registry_versions(
+        targets=config.ARTIFACT_REGISTRY_CLEANUP_TARGETS,
         projects=config.ARTIFACT_REGISTRY_CLEANUP_PROJECTS,
         region=config.ARTIFACT_REGISTRY_CLEANUP_REGION,
         repository=config.ARTIFACT_REGISTRY_CLEANUP_REPOSITORY,

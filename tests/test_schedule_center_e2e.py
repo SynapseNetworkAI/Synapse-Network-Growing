@@ -57,7 +57,8 @@ def test_schedule_center_api_run_history_and_db_evidence(
     assert schedules.status_code == 200
     keys = {item["workflow_key"] for item in schedules.json()}
     assert "artifact_registry_cleanup_sweep" in keys
-    assert "secret_manager_version_cleanup_sweep" not in keys
+    assert "secret_manager_version_cleanup_sweep" in keys
+    assert "staging_environment_shutdown_sweep" in keys
 
     workflow = _db_workflow(db_session, "artifact_registry_cleanup_sweep")
     assert workflow is not None
@@ -89,7 +90,7 @@ def test_schedule_center_api_run_history_and_db_evidence(
     assert result["deleted_count"] == 0
 
 
-def test_schedule_center_secret_manager_template_is_disabled(synced_client):
+def test_schedule_center_secret_manager_template_is_enabled(synced_client):
     create = synced_client.post(
         "/api/schedules",
         json={
@@ -103,5 +104,5 @@ def test_schedule_center_secret_manager_template_is_disabled(synced_client):
             },
         },
     )
-    assert create.status_code == 400
-    assert "Unknown schedule template" in create.json()["detail"]
+    assert create.status_code == 200
+    assert create.json()["handler_key"] == "destroy_old_secret_manager_versions"

@@ -13,6 +13,14 @@ from server.services.scheduling.artifact_registry_workflows import (
     ARTIFACT_REGISTRY_CLEANUP_INPUT_QUERY,
     ARTIFACT_REGISTRY_CLEANUP_SCHEDULE,
 )
+from server.services.scheduling.secret_manager_workflows import (
+    SECRET_MANAGER_CLEANUP_INPUT_QUERY,
+    SECRET_MANAGER_CLEANUP_SCHEDULE,
+)
+from server.services.scheduling.staging_environment_workflows import (
+    STAGING_ENVIRONMENT_SHUTDOWN_INPUT_QUERY,
+    STAGING_ENVIRONMENT_SHUTDOWN_SCHEDULE,
+)
 from server.services.scheduling.recurring_workflows import (
     get_recurring_workflow,
     list_recurring_workflow_runs,
@@ -40,6 +48,36 @@ SCHEDULE_TEMPLATES: dict[str, dict[str, Any]] = {
             "read_image_payload": False,
         },
         "validation_signal": {"success_metric": "deleted_count", "min_expected": 0},
+    },
+    "secret_manager_version_cleanup": {
+        "template_key": "secret_manager_version_cleanup",
+        "display_name": "Secret Manager Version Cleanup",
+        "description": "Destroy old active Secret Manager versions without reading payloads.",
+        "category": "infra_cleanup",
+        "risk_level": "high",
+        "handler_key": "destroy_old_secret_manager_versions",
+        "schedule": SECRET_MANAGER_CLEANUP_SCHEDULE,
+        "input_query": SECRET_MANAGER_CLEANUP_INPUT_QUERY,
+        "output_action": {
+            "kind": "destroy_old_secret_manager_versions",
+            "payload_access": "metadata_only",
+        },
+        "validation_signal": {"success_metric": "destroyed_count", "min_expected": 0},
+    },
+    "staging_environment_shutdown": {
+        "template_key": "staging_environment_shutdown",
+        "display_name": "Staging Environment Shutdown",
+        "description": "Put staging Cloud Run, Scheduler, and Cloud SQL into a low-cost posture.",
+        "category": "infra_cleanup",
+        "risk_level": "high",
+        "handler_key": "shutdown_staging_environment",
+        "schedule": STAGING_ENVIRONMENT_SHUTDOWN_SCHEDULE,
+        "input_query": STAGING_ENVIRONMENT_SHUTDOWN_INPUT_QUERY,
+        "output_action": {
+            "kind": "shutdown_staging_environment",
+            "allow_production": False,
+        },
+        "validation_signal": {"success_metric": "succeeded_count", "min_expected": 0},
     },
 }
 
@@ -236,6 +274,7 @@ def _risk_level_for(payload: dict[str, Any]) -> str:
     if handler in {
         "cleanup_artifact_registry_versions",
         "destroy_old_secret_manager_versions",
+        "shutdown_staging_environment",
     }:
         return "high"
     if bool(payload.get("is_builtin")) and str(

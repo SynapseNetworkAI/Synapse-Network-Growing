@@ -185,9 +185,10 @@
    - release
 12. Cooldown、suppression、rollup、retry、dead letter。
 13. Dispatcher queue health 展示 queued、dead letter、open fingerprints、suppressed count。
-14. `artifact_registry_cleanup_sweep` 是可观测 recurring workflow：默认每天 12:20 扫描 staging / production Artifact Registry Docker image metadata，保留最新版本和 promoted / production / release tags，dry-run 展示候选，apply 只删除候选镜像并记录 kept / deleted / skipped / error 明细。
-15. `secret_manager_version_cleanup_sweep` 已从 Growing 运行时 registry 和 Schedule Center templates 移除；Growing 不再通过后台任务管理 GCP Secret Manager。
-16. `/api/schedules` 是 Schedule Center v1 统一 API，保留 `/api/recurring-workflows` 兼容路径；自定义 schedule 只能从 allowlisted template 创建，不支持任意 shell cron。
+14. `artifact_registry_cleanup_sweep` 是可观测 recurring workflow：默认每 30 分钟扫描 staging / production Artifact Registry Docker image metadata，按 image package 保留最新 3 个版本和 promoted / production / release tags，apply 删除候选镜像并记录 kept / deleted / skipped / error 明细。
+15. `secret_manager_version_cleanup_sweep` 是可观测 recurring workflow：默认每 30 分钟扫描 staging / production Secret Manager metadata，不读取 secret payload，每个 secret 只保留最新 2 个 active versions，其余执行 destroy 并记录候选 / destroyed / skipped / error 明细。
+16. `staging_environment_shutdown_sweep` 是可观测 recurring workflow：每天 23:00 只作用 staging project，将 staging Cloud Run services 设为 `min-instances=0`、暂停 staging Cloud Scheduler jobs、将 staging Cloud SQL activation policy 设为 `NEVER`；不自动早启，不触碰 production。
+17. `/api/schedules` 是 Schedule Center v1 统一 API，保留 `/api/recurring-workflows` 兼容路径；自定义 schedule 只能从 allowlisted template 创建，不支持任意 shell cron。
 
 ## 7. Project And Policy
 
