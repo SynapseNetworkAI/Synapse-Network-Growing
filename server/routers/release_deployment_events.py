@@ -12,11 +12,22 @@ from server.services.releases.deployment_event_schemas import (
     ReleaseTaskResetRunningRequest,
 )
 from server.services.releases.deployment_events import list_deployment_events
+from server.services.releases.task_detail import get_release_task
 from server.services.releases.release_task_reset import (
     reset_release_task_running_deployment,
 )
 
 router = APIRouter(prefix="/api/releases", tags=["release-deployment-events"])
+
+
+@router.get("/tasks/{task_id}", response_model=ReleaseTaskOut)
+def get_release_task_endpoint(task_id: int, db: Session = Depends(get_db)):
+    try:
+        return get_release_task(db, task_id)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
 
 @router.get(
