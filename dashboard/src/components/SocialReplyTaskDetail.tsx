@@ -32,6 +32,7 @@ export function ReplyTaskDetailView({
   onPublishReplyToX,
   onRegenerateReply,
   xAuthStatus,
+  xAuthNotice,
 }: {
   asset: SocialContentAssetDetail
   formatDateTime: (value: string | null | undefined) => string
@@ -44,6 +45,7 @@ export function ReplyTaskDetailView({
   onPublishReplyToX: ReplyAction
   onRegenerateReply: ReplyAction
   xAuthStatus?: SocialDistributionAccountAuthStatus
+  xAuthNotice?: string | null
 }) {
   const replyBlock = objectValue(asset.agent_metadata.reply_block)
   const replies = asset.reply_items ?? []
@@ -122,6 +124,11 @@ export function ReplyTaskDetailView({
         </div>
         {xAuthStatus?.blockers?.length ? (
           <div className="mt-2 text-xs text-amber-100">Blockers: {xAuthStatus.blockers.join(', ')}</div>
+        ) : null}
+        {xAuthNotice ? (
+          <div className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-50">
+            {xAuthNotice}
+          </div>
         ) : null}
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" disabled={busy} className="rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100 disabled:opacity-50" onClick={onCheckXAuth}>

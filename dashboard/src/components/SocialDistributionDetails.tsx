@@ -193,6 +193,7 @@ export function ContentTaskDetailModal({
   onOpenTask,
   toast,
   xAuthStatus,
+  xAuthNotice,
 }: {
   asset: SocialContentAssetDetail | null
   accounts: SocialDistributionAccount[]
@@ -215,6 +216,7 @@ export function ContentTaskDetailModal({
   onRegenerateReply: (reply: SocialReplyItem) => void
   onOpenTask: (task: SocialDistributionTask) => void
   xAuthStatus?: SocialDistributionAccountAuthStatus
+  xAuthNotice?: string | null
 }) {
   const documents = asset?.documents ?? []
   const metadata = asset?.agent_metadata ?? {}
@@ -281,6 +283,7 @@ export function ContentTaskDetailModal({
             onPublishReplyToX={onPublishReplyToX}
             onRegenerateReply={onRegenerateReply}
             xAuthStatus={xAuthStatus}
+            xAuthNotice={xAuthNotice}
           />
         ) : (
         <div className="space-y-5">

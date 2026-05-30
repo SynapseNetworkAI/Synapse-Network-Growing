@@ -75,6 +75,7 @@ from server.services.social.reply_agent import (
 )
 from server.services.social.reply_records import apply_generated_reply_to_row, reply_agent_failure_summary
 from server.services.social.x_client import XApiAuthError, XApiClient, XApiRateLimitError, XApiTransientError, XPost
+from server.services.social.x_oauth_credentials import read_x_oauth_client_id, read_x_oauth_client_secret
 DEFAULT_X_HANDLE = "SynapseNetworkA"
 DEFAULT_X_SECRET_REF = "x-official"
 X_POST_URL = "https://api.x.com/2/tweets"
@@ -1036,7 +1037,7 @@ def _pkce_challenge(verifier: str) -> str:
 
 def start_x_oauth_authorization(db: Session, *, account_id: int | None = None) -> SocialXOAuthStartOut:
     account = _get_account(db, account_id)
-    client_id = secret_store.read(config.X_OAUTH_CLIENT_ID_SECRET)
+    client_id = read_x_oauth_client_id(secret_store.read)
     state = uuid.uuid4().hex
     code_verifier = base64.urlsafe_b64encode(os.urandom(48)).decode("ascii").rstrip("=")
     redirect_uri = config.X_OAUTH_REDIRECT_URI
@@ -2666,10 +2667,7 @@ class XOAuth2TokenProvider:
         return "authorized", "OAuth refresh token is configured."
 
     def _client_credentials(self) -> tuple[str, str]:
-        return (
-            self.store.read(config.X_OAUTH_CLIENT_ID_SECRET),
-            self.store.read(config.X_OAUTH_CLIENT_SECRET_SECRET),
-        )
+        return (read_x_oauth_client_id(self.store.read), read_x_oauth_client_secret(self.store.read))
 
     def _token_request(self, form: dict[str, str]) -> dict[str, Any]:
         client_id, client_secret = self._client_credentials()

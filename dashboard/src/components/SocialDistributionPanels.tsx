@@ -8,6 +8,7 @@ export { DistributionSettingsPanel } from './SocialDistributionSettingsPanel'
 import { useSocialDistributionAuthStatus } from './useSocialDistributionAuthStatus'
 import { TaskKindFilterControl, filterBoardByKind, type TaskKindFilter } from './SocialDistributionTaskKindFilter'
 import { ContentTaskForm } from './SocialDistributionWidgets'
+import { formatXOAuthReconnectError } from '../lib/socialXAuth'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
 const DEFAULT_CONTENT_FORM = { title: '', task_type: 'x_media_post', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
@@ -332,7 +333,6 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       toast.error(error instanceof Error ? error.message : '跳过失败')
     }
   }
-
   async function publishX(task: SocialDistributionTask) {
     try {
       setBusy(true)
@@ -369,18 +369,19 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setBusy(false)
     }
   }
-
   async function reconnectX() {
     try {
+      setXAuthNotice(null)
       const start = await api.startSocialXOAuth()
       const opened = window.open(start.auth_url, '_blank', 'noopener,noreferrer')
       if (!opened) window.location.href = start.auth_url
       toast.success('X 授权页已打开。完成授权后回到这里，点击“重新检查状态”。')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '打开 X 授权失败')
+      const message = formatXOAuthReconnectError(error)
+      setXAuthNotice(message)
+      toast.error(message)
     }
   }
-
   async function runAssetPlanner() {
     try {
       setPlannerBusy(true)
@@ -399,10 +400,8 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       setPlannerBusy(false)
     }
   }
-
   const visibleBoard = board ? filterBoardByKind(board, taskKindFilter) : null
   const xAuthStatus = Object.values(authStatuses).find((item) => item.platform === 'x')
-
   return (
     <SectionFrame
       eyebrow="Distribution Tasks"
@@ -452,6 +451,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
         onPublishReplyToX={(reply) => void publishReplyToX(reply)}
         onRegenerateReply={(reply) => void regenerateReply(reply)}
         xAuthStatus={xAuthStatus}
+        xAuthNotice={xAuthNotice}
         onOpenTask={(task) => {
           setTaskDetail(task)
           setManualUrl(task.published_url ?? '')
