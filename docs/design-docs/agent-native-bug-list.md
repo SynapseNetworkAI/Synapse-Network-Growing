@@ -106,7 +106,49 @@ Write APIs:
 - `POST /api/bugs/{id}/close`
 - `POST /api/bugs/{id}/reopen`
 
+Agent MCP writes use token-gated aliases:
+
+- `POST /api/bugs/agent-actions/intake`
+- `POST /api/bugs/agent-actions/{id}/claim`
+- `POST /api/bugs/agent-actions/{id}/materialize-requirement`
+- `POST /api/bugs/agent-actions/{id}/link-fix`
+- `POST /api/bugs/agent-actions/{id}/verification`
+- `POST /api/bugs/agent-actions/{id}/close`
+- `POST /api/bugs/agent-actions/{id}/reopen`
+
 `agent_context` is the stable machine-readable contract for agents. It includes target project path, evidence, reproduction data, acceptance checks, linked requirement, and allowed next actions.
+
+## Agent Access: Skill + MCP
+
+Bug List exposes two agent access layers:
+
+1. Repo-local skill: `.agents/skills/bug-list-agent/SKILL.md`
+   - Human-readable operating guide for Codex, Claude Code, and local agents.
+   - Documents the safe flow: queue, detail, claim, fix, link evidence, verify, close or reopen.
+   - Includes curl examples for every supported Bug List action.
+
+2. Local MCP server: `scripts/mcp/bug_list_server.py`
+   - Stdio-only adapter for agents that support MCP tools.
+   - Wraps only allowlisted `/api/bugs/*` routes.
+   - Does not expose shell, SQL, arbitrary HTTP proxying, or direct database writes.
+   - Uses `OPS_BASE_URL` for the local Ops API and `OPS_AGENT_BUG_API_TOKEN` for write tools.
+
+Local Codex registration is handled by `scripts/mcp/register_bug_list_codex.py --force`. The script links the skill into `~/.codex/skills/bug-list-agent`, registers the `synapse-bug-list` stdio MCP server, and redacts the local token from output. Registration smoke is covered by `scripts/e2e/bug_list_codex_registration_e2e.py`; live lifecycle smoke is covered by `scripts/e2e/bug_list_mcp_live_e2e.py`.
+
+MCP tools:
+
+- `bugs_list`
+- `bugs_get`
+- `bugs_agent_queue`
+- `bugs_intake`
+- `bugs_claim`
+- `bugs_materialize_requirement`
+- `bugs_link_fix`
+- `bugs_add_verification`
+- `bugs_close`
+- `bugs_reopen`
+
+The MCP adapter is only a machine interface over the canonical API. It does not create a second bug state machine. Backend close and claim rules remain authoritative.
 
 ## Verification Rules
 

@@ -66,6 +66,7 @@ LARK_RELEASE_KEYWORD = os.environ.get("OPS_LARK_RELEASE_KEYWORD", "发布").stri
 LARK_DELIVERY_DRY_RUN = os.environ.get("OPS_LARK_DELIVERY_DRY_RUN", "false").lower() in {"1", "true", "yes", "on"}
 OPS_BASE_URL = os.environ.get("OPS_BASE_URL", "").strip().rstrip("/")
 OPS_AGENT_DEPLOY_API_TOKEN = os.environ.get("OPS_AGENT_DEPLOY_API_TOKEN", "").strip()
+OPS_AGENT_BUG_API_TOKEN = os.environ.get("OPS_AGENT_BUG_API_TOKEN", "").strip()
 NOTIFICATION_DISPATCHER_ENABLED = _env_flag("OPS_NOTIFICATION_DISPATCHER_ENABLED", "false" if _OPS_E2E_MODE else "true")
 NOTIFICATION_DISPATCH_INTERVAL_SECONDS = max(1, int(os.environ.get("OPS_NOTIFICATION_DISPATCH_INTERVAL_SECONDS", "5")))
 NOTIFICATION_ALERT_BURST_PER_MINUTE = max(1, int(os.environ.get("OPS_NOTIFICATION_ALERT_BURST_PER_MINUTE", "5")))

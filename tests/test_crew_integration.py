@@ -2,8 +2,6 @@ from __future__ import annotations
 
 """Tests for skill_loader, context_loader, crew_engine, llm_adapter, and skills API."""
 import json
-import os
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -18,6 +16,7 @@ def test_list_skills():
     assert len(skills) > 0
     assert "seo-audit" in skills
     assert "copywriting" in skills
+    assert "bug-list-agent" in skills
 
 
 def test_load_skill_exists():
@@ -26,6 +25,16 @@ def test_load_skill_exists():
     assert isinstance(text, str)
     assert len(text) > 100
     assert "SEO" in text.upper()
+
+
+def test_load_bug_list_agent_skill():
+    from server.services.agents.skills import load_skill_metadata
+
+    skill = load_skill_metadata("bug-list-agent")
+
+    assert skill.name == "bug-list-agent"
+    assert "MCP" in skill.description
+    assert "bugs_agent_queue" in skill.body
 
 
 def test_load_skill_not_found():
