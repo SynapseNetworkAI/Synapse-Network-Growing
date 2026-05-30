@@ -74,13 +74,14 @@ graph TD
 
 1. Watcher may read signals, logs, metrics, webhooks and schedules.
 2. Watcher may create or update `RequirementCandidate`, `Requirement`, error fingerprints, notification events, and run history.
-3. Watcher must not write code, patch files, move funds, deploy, approve gates, or publish external content.
-4. Planner Sweep is stateless. It reads active Operating Manifest and aggregate progress, then creates `RequirementCandidate` records only.
-5. Planner must not directly create official requirements unless the candidate was operator-approved and explicitly materialized.
-6. Agent Atom may reason, diagnose, draft, patch, summarize, or recommend through structured output.
-7. Agent Atom must not mutate workflow state directly.
-8. Deterministic Runner owns state transitions, retry budget, terminal state, evidence persistence, and human gate routing.
-9. Oracle is the operator-facing control plane. Agents may recommend approval decisions but must not write final approval status.
+3. Watcher may create or update `BugRecord` intake facts, but remediation must flow through `BugFixAttempt -> Requirement/Workflow -> Evidence -> Verified`. Agents use `/api/bugs/*` to claim, link commits/PRs, and submit verification; they must not write bug tables directly.
+4. Watcher must not write code, patch files, move funds, deploy, approve gates, or publish external content.
+5. Planner Sweep is stateless. It reads active Operating Manifest and aggregate progress, then creates `RequirementCandidate` records only.
+6. Planner must not directly create official requirements unless the candidate was operator-approved and explicitly materialized.
+7. Agent Atom may reason, diagnose, draft, patch, summarize, or recommend through structured output.
+8. Agent Atom must not mutate workflow state directly.
+9. Deterministic Runner owns state transitions, retry budget, terminal state, evidence persistence, and human gate routing.
+10. Oracle is the operator-facing control plane. Agents may recommend approval decisions but must not write final approval status.
 
 ## 3. Workflow Constraints
 

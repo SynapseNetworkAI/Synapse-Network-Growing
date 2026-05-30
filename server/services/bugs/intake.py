@@ -9,8 +9,8 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.database import BugRecordRow
-from server.schemas import BugIntakeRequest
+from server.database import BugEventRow, BugRecordRow
+from server.schemas import BugIntakeRequest, BugIntakeResultOut, BugRecordOut
 from server.services.bugs.sources import get_bug_source_definition
 
 _MAX_EVIDENCE_ITEMS = 5
@@ -19,6 +19,14 @@ _MAX_STACK_TRACE_LINES = 8
 _SEVERITY_RANK = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 _SEVERITY_BASE_SCORE = {"low": 5.0, "normal": 15.0, "high": 35.0, "critical": 50.0}
 _TRACEBACK_HEADER_RE = re.compile(r"^Traceback \(most recent call last\):$")
+
+
+class _BugIntakeServiceResult(BugIntakeResultOut):
+    def get(self, key: str, default: object = None) -> object:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> object:
+        return getattr(self, key)
 
 
 def _utcnow() -> datetime:
@@ -231,6 +239,28 @@ def _merge_evidence(existing: list[dict[str, object]], incoming: dict[str, objec
     return merged[:_MAX_EVIDENCE_ITEMS], False
 
 
+def _append_bug_event(
+    db: Session,
+    row: BugRecordRow,
+    event_type: str,
+    *,
+    actor: str = "bug_intake",
+    message: str = "",
+    metadata: dict[str, object] | None = None,
+) -> None:
+    db.add(
+        BugEventRow(
+            bug_id=int(row.id),
+            event_type=event_type,
+            actor=actor,
+            from_status=None,
+            to_status=str(row.status or ""),
+            message=message,
+            metadata_json=_json_dumps(metadata or {}),
+        )
+    )
+
+
 def serialize_bug_record(row: BugRecordRow) -> dict[str, object]:
     discovery = _json_loads(getattr(row, "discovery_recommendation_json", None), {})
     return {
@@ -263,7 +293,7 @@ def serialize_bug_record(row: BugRecordRow) -> dict[str, object]:
     }
 
 
-def intake_bug(db: Session, body: BugIntakeRequest) -> dict[str, object]:
+def intake_bug(db: Session, body: BugIntakeRequest) -> BugIntakeResultOut:
     source = get_bug_source_definition(body.source_key)
     title = _clean_text(body.title)
     if not title:
@@ -313,11 +343,13 @@ def intake_bug(db: Session, body: BugIntakeRequest) -> dict[str, object]:
         db.add(row)
         db.commit()
         db.refresh(row)
+        _append_bug_event(db, row, "intake_created", metadata={"source_ref": source_ref})
+        db.commit()
         from server.services.requirements.sources import materialize_bug_backlog
 
         materialize_bug_backlog(db, refresh=False, auto_start=True, min_score=60.0, max_created=1, bug_ids=[int(row.id)])
         db.refresh(row)
-        return {"result": "created", "bug": serialize_bug_record(row)}
+        return _BugIntakeServiceResult(result="created", bug=BugRecordOut(**serialize_bug_record(row)))
 
     evidence_items = _json_loads(existing.evidence_json, [])
     merged_evidence, deduped = _merge_evidence(evidence_items, evidence_entry)
@@ -346,11 +378,18 @@ def intake_bug(db: Session, body: BugIntakeRequest) -> dict[str, object]:
     db.add(existing)
     db.commit()
     db.refresh(existing)
+    _append_bug_event(
+        db,
+        existing,
+        "deduped" if deduped else "intake_updated",
+        metadata={"source_ref": source_ref, "occurrence_count": int(existing.occurrence_count or 0)},
+    )
+    db.commit()
     from server.services.requirements.sources import materialize_bug_backlog
 
     materialize_bug_backlog(db, refresh=False, auto_start=True, min_score=60.0, max_created=1, bug_ids=[int(existing.id)])
     db.refresh(existing)
-    return {
-        "result": "deduped" if deduped else "updated",
-        "bug": serialize_bug_record(existing),
-    }
+    return _BugIntakeServiceResult(
+        result="deduped" if deduped else "updated",
+        bug=BugRecordOut(**serialize_bug_record(existing)),
+    )

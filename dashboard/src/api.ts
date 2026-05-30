@@ -12,6 +12,8 @@ export type {
 } from './apiSocialDistribution'
 import { createSocialMetricApi } from './apiSocialMetrics'
 export type { SocialPostMetric, SocialPostMetricDaily, SocialPostMetricDailyResult, SocialPostMetricDetail, SocialPostMetricQueryResult } from './apiSocialMetrics'
+import { createBugsApi } from './apiBugs'
+export type { BugAgentContext, BugClaimResult, BugDetail, BugEvent, BugFixAttempt, BugList, BugRecord } from './apiBugs'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import { createSchedulesApi } from './apiSchedules'
 import type { RecurringWorkflowRunResult } from './apiSchedules'
@@ -2057,6 +2059,7 @@ export interface PlanningMissionControl {
 export const api = {
   ...createSocialDistributionApi(request),
   ...createSocialMetricApi(request),
+  ...createBugsApi(request),
   ...createReleaseScheduledJobsApi(request),
   ...createSchedulesApi(request),
   // Agents
