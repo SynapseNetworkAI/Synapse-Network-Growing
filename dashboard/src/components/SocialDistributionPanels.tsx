@@ -9,23 +9,10 @@ import { useSocialDistributionAuthStatus } from './useSocialDistributionAuthStat
 import { TaskKindFilterControl, filterBoardByKind, type TaskKindFilter } from './SocialDistributionTaskKindFilter'
 import { ContentTaskForm } from './SocialDistributionWidgets'
 import { formatXOAuthReconnectError } from '../lib/socialXAuth'
+import { openExternalUrlInNewTab } from '../lib/openExternalUrl'
 export { DistributionAssetsPanel } from './SocialDistributionAssetsPanel'
 
 const DEFAULT_CONTENT_FORM = { title: '', task_type: 'x_media_post', source_material: '', target_audience: '一人公司创业者、独立开发者、AI agent builder', target_platforms: 'x', canonical_url: '', source_doc_path: '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/plans/solo-company-codex-collaboration-content-series-outline.md', campaign_key: '', post_intent: 'brand_positioning' }
-
-function openExternalUrlInNewTab(url: string): boolean {
-  const opened = window.open(url, '_blank', 'noopener,noreferrer')
-  if (opened) return true
-  const link = document.createElement('a')
-  link.href = url
-  link.target = '_blank'
-  link.rel = 'noopener noreferrer'
-  link.style.display = 'none'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  return false
-}
 
 export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (value: string | null | undefined) => string }) {
   const toast = useToast()
@@ -207,6 +194,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     }
     try {
       setBusy(true)
+      setXAuthNotice(null)
       const result = await api.generateSocialXReplyBlock(detail.id, {
         actor: 'agent',
         target_count: targetCount,
@@ -218,7 +206,11 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
       await loadTasks()
       toast.success(`X 回复候选已生成：${result.reply_ids.length} 条，失败 ${result.failed_reply_ids.length} 条`)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '生成 X 回复候选失败')
+      const message = error instanceof Error ? error.message : '生成 X 回复候选失败'
+      if (message.includes('X OAuth') || message.includes('X token') || message.includes('source posts')) {
+        setXAuthNotice(message)
+      }
+      toast.error(message)
     } finally {
       setBusy(false)
     }
@@ -502,12 +494,5 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
 }
 
 const stringValue = (value: unknown): string => (typeof value === 'string' ? value : '')
-
-function numberValue(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  return typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : 0
-}
-
-function targetPlatformsForForm(form: typeof DEFAULT_CONTENT_FORM): string[] {
-  return ['x_article_pack', 'x_media_post', 'x_reply_block'].includes(form.task_type) ? ['x'] : form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean)
-}
+const numberValue = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : 0)
+const targetPlatformsForForm = (form: typeof DEFAULT_CONTENT_FORM): string[] => (['x_article_pack', 'x_media_post', 'x_reply_block'].includes(form.task_type) ? ['x'] : form.target_platforms.split(',').map((item) => item.trim()).filter(Boolean))

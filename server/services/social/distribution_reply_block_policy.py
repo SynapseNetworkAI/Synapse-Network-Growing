@@ -63,6 +63,27 @@ def require_source_sync_auth_if_needed(
         return
     try:
         x_oauth_token_provider.get_access_token()
+    except ValueError as exc:
+        oauth_status = x_source_auth_status_from_config_error(exc)
+        _record_event(
+            db,
+            asset,
+            None,
+            "x_source_sync_blocked",
+            actor,
+            "X source sync is blocked because X OAuth client configuration is missing.",
+            {
+                "oauth_status": oauth_status,
+                "requires_authorization": True,
+                "auth_message": str(exc),
+            },
+        )
+        db.commit()
+        raise ValueError(
+            "X OAuth client configuration missing. Configure X_OAUTH_CLIENT_ID and "
+            "X_OAUTH_CLIENT_SECRET, restart backend, then reconnect X before syncing "
+            "trend/radar sources."
+        ) from exc
     except SocialPublishError as exc:
         _record_event(
             db,
@@ -107,6 +128,13 @@ def x_source_auth_status_from_error(exc: SocialPublishError) -> str:
         return "missing_local_secret"
     if exc.kind == "x_auth_failed":
         return "needs_authorization"
+    return "error"
+
+
+def x_source_auth_status_from_config_error(exc: ValueError) -> str:
+    summary = str(exc).lower()
+    if "x_oauth_client_id" in summary or "x_oauth_client_secret" in summary:
+        return "missing_client_config"
     return "error"
 
 

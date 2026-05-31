@@ -283,6 +283,12 @@ def _usable_reply_posts_or_raise(
     )
     if usable_posts:
         return usable_posts
+    if not source_posts:
+        raise ValueError(
+            "X OAuth is available, but no usable X source posts were found. "
+            "Sync watchlist trends first, or provide 5 source posts with "
+            "source_url and source_text."
+        )
     raise ValueError(
         "reply block requires real X source posts with text; provide 5 source URLs or sync watchlist trends first."
     )
