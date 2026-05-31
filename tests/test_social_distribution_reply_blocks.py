@@ -252,6 +252,61 @@ def test_generate_x_reply_block_fails_closed_without_real_sources(
     assert db_session.query(SocialReplyItemRow).count() == 0
     event = db_session.query(SocialDistributionEventRow).one()
     assert event.event_type == "x_source_sync_blocked"
+    payload = json.loads(event.payload_json)
+    assert payload["oauth_status"] in {"missing_local_secret", "invalid_refresh_token", "needs_authorization", "error"}
+
+
+def test_generate_x_reply_block_missing_client_config_has_bounded_error(
+    synced_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("X_OAUTH_CLIENT_ID is required in local environment configuration.")
+        ),
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 5},
+    )
+
+    assert response.status_code == 400
+    assert "X OAuth client configuration missing" in response.json()["detail"]
+    event = db_session.query(SocialDistributionEventRow).one()
+    assert event.event_type == "x_source_sync_blocked"
+    payload = json.loads(event.payload_json)
+    assert payload["oauth_status"] == "missing_client_config"
+
+
+def test_generate_x_reply_block_reports_empty_trend_inventory(
+    synced_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
+            "access-token", refreshed=False
+        ),
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 5},
+    )
+
+    assert response.status_code == 400
+    assert "no usable X source posts were found" in response.json()["detail"]
+    assert db_session.query(SocialReplyItemRow).count() == 0
 
 
 def test_generate_x_reply_block_selects_agent_economy_sources_from_trends(
@@ -327,6 +382,59 @@ def test_generate_x_reply_block_selects_agent_economy_sources_from_trends(
         json.loads(row.metadata_json)["reply_source_strategy"]["do_not_reply_reason"]
         for row in rejected
     )
+
+
+def test_generate_x_reply_block_selects_agentic_economy_payment_rail_posts(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
+            "access-token", refreshed=False
+        ),
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    for index, text in enumerate(
+        [
+            "The agentic economy needs programmable, real-time rails for dynamic endpoints, microtransactions, and activity at machine scale.",
+            "Financial rails built with agents as economic actors can let software pay for services without unlimited API keys.",
+            "Developers building secure autonomous workflows need embedded wallets and stablecoin payments that stay scoped to the task.",
+        ],
+        start=1,
+    ):
+        db_session.add(
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url=f"https://x.com/circle/status/{910 + index}",
+                author_handle="circle",
+                topic=text,
+                summary=f"{text} Source: X watchlist @circle.",
+                relevance_score=0.95,
+                status="new",
+            )
+        )
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 3, "agent_review": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["reply_ids"]) == 3
+    replies = db_session.query(SocialReplyItemRow).order_by(SocialReplyItemRow.id).all()
+    assert len(replies) == 3
+    for reply in replies:
+        strategy = json.loads(reply.metadata_json)["x_reply_source_strategy"]
+        assert strategy["source_bucket"] == "ecosystem_discussion"
+        assert strategy["reply_angle"] in {"api_metering", "agent_economy_context"}
+        assert strategy["selected"] is True
+        assert strategy["do_not_reply_reason"] is None
 
 
 def test_generate_x_reply_block_rejects_generic_or_unsafe_sources(

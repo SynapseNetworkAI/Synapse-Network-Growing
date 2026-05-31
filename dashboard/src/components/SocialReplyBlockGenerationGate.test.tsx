@@ -111,6 +111,27 @@ describe('Social reply block generation gate', () => {
     expect(screen.getByRole('button', { name: '生成 5 条 X 回复候选' })).toBeEnabled()
   })
 
+  it('keeps an empty trend inventory error visible in the auth/source card', async () => {
+    const user = userEvent.setup()
+    const replyAsset = replyBlockAsset({ complete: false })
+    apiMock.getSocialContentAsset.mockResolvedValue(replyAsset)
+    apiMock.getSocialDistributionBoard.mockResolvedValue(boardWithReplyAsset(replyAsset, 'needs_review'))
+    apiMock.getDistributionAccountAuthStatuses.mockResolvedValue(xAuthAuthorized())
+    apiMock.generateSocialXReplyBlock.mockRejectedValueOnce(
+      new Error('X OAuth is available, but no usable X source posts were found. Sync watchlist trends first.'),
+    )
+
+    renderWithToast(<DistributionTasksPanel formatDateTime={formatDateTime} />)
+    await user.click(await screen.findByTestId('distribution-board-card-45'))
+    await user.click(await screen.findByRole('button', { name: '生成 5 条 X 回复候选' }))
+
+    expect(await screen.findAllByText(/no usable X source posts were found/)).toHaveLength(2)
+    expect(apiMock.generateSocialXReplyBlock).toHaveBeenCalledWith(45, expect.objectContaining({
+      force_regenerate: false,
+      target_count: 5,
+    }))
+  })
+
   it('blocks new X reply block generation when X auth is invalid and no sources exist', async () => {
     const user = userEvent.setup()
     const openSpy = vi.spyOn(window, 'open').mockReturnValue({} as Window)
