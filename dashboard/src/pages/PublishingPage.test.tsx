@@ -130,7 +130,7 @@ describe('PublishingPage v2 distribution workbench', () => {
             column_key: 'ready_to_publish',
             task_count: 1,
             task_kind_code: 'content_distribution',
-            task_kind_label: '内容分发',
+            task_kind_label: '通用内容发布',
             task_kind_action: 'approve_and_generate_platform_docs',
             document_count: 2,
             platform_count: 1,
@@ -305,9 +305,10 @@ describe('PublishingPage v2 distribution workbench', () => {
     apiMock.getSocialContentAsset.mockResolvedValue(replyDetail)
 
     render(<PublishingPage />)
-    await userEvent.click(await screen.findByRole('button', { name: '内容发布' }))
+    expect(await screen.findByText('任务类型是互斥过滤；每张卡只属于一个类型。看板列表示生命周期状态，不是分类。')).toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: /通用内容发布/ }))
     expect(screen.queryByText('X Week 1 Reply Block Day 5')).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'X 回复' }))
+    await userEvent.click(screen.getByRole('button', { name: /X 回复/ }))
     expect(await screen.findByText('X Week 1 Reply Block Day 5')).toBeInTheDocument()
     await userEvent.click(await screen.findByText('X Week 1 Reply Block Day 5'))
 

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import Any
 
 from server.database_social_distribution import SocialContentAssetRow
+from server.services.social.distribution_task_type_backfill import infer_task_type_for_asset
+from server.services.social.distribution_task_types import (
+    CONTENT_DISTRIBUTION,
+    LEGACY_UNCLASSIFIED,
+    MANUAL_PLATFORM_POST,
+    MULTI_PLATFORM_CAMPAIGN,
+    X_ARTICLE_PACK,
+    X_MEDIA_POST,
+    X_REPLY_BLOCK,
+)
 
 
 @dataclass(frozen=True)
@@ -18,7 +26,7 @@ class SocialDistributionTaskKind:
 
 CONTENT_DISTRIBUTION_KIND = SocialDistributionTaskKind(
     code="content_distribution",
-    label="内容分发",
+    label="通用内容发布",
     action="approve_and_generate_platform_docs",
 )
 MULTI_PLATFORM_KIND = SocialDistributionTaskKind(
@@ -46,35 +54,27 @@ MANUAL_PLATFORM_POST_KIND = SocialDistributionTaskKind(
     label="人工平台帖",
     action="approve_and_generate_platform_docs",
 )
+LEGACY_UNCLASSIFIED_KIND = SocialDistributionTaskKind(
+    code="legacy_unclassified",
+    label="历史/未分类",
+    action="review_legacy_content_task",
+)
 
 
 def task_kind_for_asset(asset: SocialContentAssetRow) -> SocialDistributionTaskKind:
-    metadata = _json_object(getattr(asset, "agent_metadata_json", None))
-    task_type = str(metadata.get("task_type") or "").strip().lower()
-    if task_type == "x_article_pack":
+    task_type, _ = infer_task_type_for_asset(asset)
+    if task_type == X_ARTICLE_PACK:
         return X_ARTICLE_PACK_KIND
-    if task_type == "x_media_post":
+    if task_type == X_MEDIA_POST:
         return X_MEDIA_POST_KIND
-    if task_type == "x_reply_block":
+    if task_type == X_REPLY_BLOCK:
         return X_REPLY_BLOCK_KIND
-    if task_type == "multi_platform_campaign":
+    if task_type == MULTI_PLATFORM_CAMPAIGN:
         return MULTI_PLATFORM_KIND
-    if task_type == "manual_platform_post":
+    if task_type == MANUAL_PLATFORM_POST:
         return MANUAL_PLATFORM_POST_KIND
-    post_intent = str(metadata.get("post_intent") or "").strip().lower()
-    asset_type = str(getattr(asset, "asset_type", "") or "").strip().lower()
-    target_platforms = metadata.get("target_platforms")
-    is_x_only = target_platforms == ["x"] or target_platforms == ("x",)
-    if post_intent == "engagement_reply" or asset_type in {"reply", "engagement_reply"}:
-        return X_REPLY_BLOCK_KIND
-    if post_intent == "reply" and is_x_only:
-        return X_REPLY_BLOCK_KIND
+    if task_type == LEGACY_UNCLASSIFIED:
+        return LEGACY_UNCLASSIFIED_KIND
+    if task_type == CONTENT_DISTRIBUTION:
+        return CONTENT_DISTRIBUTION_KIND
     return CONTENT_DISTRIBUTION_KIND
-
-
-def _json_object(value: str | None) -> dict[str, Any]:
-    try:
-        payload = json.loads(value or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return payload if isinstance(payload, dict) else {}
