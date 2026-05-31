@@ -11,7 +11,9 @@ from server.database import (
     AgentRow,
     HumanGateRequestRow,
     RequirementRow,
+    SessionLocal,
     WorkflowRunRow,
+    engine,
     get_db,
     init_db,
 )
@@ -46,6 +48,13 @@ from server.services.agents.loader import ensure_agents_loaded
 from server.services.bugs.log_scheduler import BugLogSweepScheduler
 from server.services.planning.scheduler import GoalPlannerSweepScheduler
 from server.services.releases.deployment_status_scheduler import ReleaseDeploymentStatusSweepScheduler
+from server.services.releases.mcp_server_catalog_service import (
+    ensure_default_mcp_server,
+    migrate_mcp_server_release_schema,
+)
+from server.services.releases.mcp_surface_config_service import (
+    migrate_mcp_surface_config_schema,
+)
 from server.services.releases.pr_status_scheduler import ReleasePrStatusSweepScheduler
 from server.services.runtime.notification_dispatcher import NotificationDispatcher
 from server.services.scheduling.cost_control_scheduler import CostControlScheduler
@@ -75,6 +84,13 @@ async def lifespan(app: FastAPI):
         log_file=f"{config.LOG_DIR}/{config.LOG_FILE}",
     )
     init_db()
+    migrate_mcp_server_release_schema(engine)
+    migrate_mcp_surface_config_schema(engine)
+    db = SessionLocal()
+    try:
+        ensure_default_mcp_server(db)
+    finally:
+        db.close()
     log_event(logger, "database_initialized", database_backend="postgresql")  # pragma: no cover - lifespan wiring
     bug_scheduler = None
     goal_planner_scheduler = None
@@ -153,6 +169,7 @@ app.include_router(skills.router)
 app.include_router(copilot_auth.router)
 app.include_router(requirements.router)
 app.include_router(mcp_server_releases.router)
+app.include_router(mcp_server_releases.surface_router)
 app.include_router(releases.router)
 app.include_router(release_deployment_events.router)
 app.include_router(release_task_prebuilt_images.router)

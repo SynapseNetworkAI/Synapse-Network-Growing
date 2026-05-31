@@ -26,6 +26,7 @@ class McpServerReleaseRow(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    mcp_server_id = Column(Integer, ForeignKey("mcp_servers.id"))
     server_key = Column(Text, nullable=False)
     server_name = Column(Text, nullable=False)
     package_name = Column(Text, nullable=False)
@@ -46,12 +47,95 @@ class McpServerReleaseRow(Base):
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
+    server = relationship("McpServerRow", back_populates="releases")
     surfaces = relationship(
         "McpServerSurfaceRow",
         back_populates="release",
         order_by="McpServerSurfaceRow.id",
         cascade="all, delete-orphan",
     )
+
+
+class McpServerRow(Base):
+    __tablename__ = "mcp_servers"
+    __table_args__ = (
+        UniqueConstraint("server_key", name="mcp_servers_key_uq"),
+        Index("mcp_servers_status_idx", "status"),
+        Index("mcp_servers_package_idx", "package_name"),
+        Index("mcp_servers_transport_idx", "transport_kind"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    server_key = Column(Text, nullable=False)
+    server_name = Column(Text, nullable=False)
+    repo_full_name = Column(Text, nullable=False)
+    repo_url = Column(Text, nullable=False)
+    local_repo_path = Column(Text)
+    package_name = Column(Text, nullable=False)
+    package_registry = Column(Text, nullable=False, default="npm")
+    registry_name = Column(Text, nullable=False)
+    transport_kind = Column(Text, nullable=False, default="stdio")
+    remote_endpoint_url = Column(Text)
+    install_command = Column(Text, nullable=False)
+    tools_json = Column(Text, nullable=False, default="[]")
+    security_boundary = Column(Text)
+    status = Column(Text, nullable=False, default="active")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+    releases = relationship(
+        "McpServerReleaseRow",
+        back_populates="server",
+        order_by="McpServerReleaseRow.updated_at.desc()",
+    )
+
+
+class McpDiscoverySurfaceRow(Base):
+    __tablename__ = "mcp_discovery_surfaces"
+    __table_args__ = (
+        UniqueConstraint("surface_key", name="mcp_discovery_surfaces_key_uq"),
+        Index("mcp_discovery_surfaces_category_idx", "category"),
+        Index("mcp_discovery_surfaces_priority_idx", "priority"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    surface_key = Column(Text, nullable=False)
+    surface_label = Column(Text, nullable=False)
+    category = Column(Text, nullable=False)
+    requires_npm = Column(Integer, nullable=False, default=0)
+    requires_remote_http = Column(Integer, nullable=False, default=0)
+    supports_auto_submit = Column(Integer, nullable=False, default=0)
+    submission_url = Column(Text)
+    docs_url = Column(Text)
+    priority = Column(Integer, nullable=False, default=100)
+    status = Column(Text, nullable=False, default="active")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class McpSurfaceConfigRow(Base):
+    __tablename__ = "mcp_surface_configs"
+    __table_args__ = (
+        UniqueConstraint("surface_key", name="mcp_surface_configs_key_uq"),
+        Index("mcp_surface_configs_status_idx", "verification_status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    surface_key = Column(Text, nullable=False)
+    submission_mode = Column(Text, nullable=False, default="manual")
+    auth_mode = Column(Text, nullable=False, default="manual")
+    credential_ref = Column(Text)
+    required_env_vars_json = Column(Text, nullable=False, default="[]")
+    docs_url = Column(Text)
+    submission_url = Column(Text)
+    is_enabled = Column(Integer, nullable=False, default=1)
+    verification_status = Column(Text, nullable=False, default="not_configured")
+    verification_summary = Column(Text)
+    last_verified_at = Column(DateTime)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class McpServerReleaseEventRow(Base):
@@ -96,10 +180,14 @@ class McpServerSurfaceRow(Base):
     )
     surface_key = Column(Text, nullable=False)
     surface_label = Column(Text, nullable=False)
+    category = Column(Text, nullable=False, default="directory")
     status = Column(Text, nullable=False, default="candidate")
     listing_url = Column(Text)
+    submission_url = Column(Text)
     failure_reason = Column(Text)
+    operator_note = Column(Text)
     evidence_json = Column(Text, nullable=False, default="{}")
+    last_checked_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
