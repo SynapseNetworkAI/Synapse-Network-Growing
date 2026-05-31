@@ -12,12 +12,17 @@ from server.database_growth import GrowthDiscoveryListingRow
 from server.services.growth.serializer import json_dumps
 from server.services.releases.mcp_server_catalog import (
     DEFAULT_MCP_SERVER,
-    DEFAULT_SURFACES,
     MCP_LOCAL_RUN_PREFIX,
     MCP_RELEASE_CONFIRM_PREFIX,
     MCP_RELEASE_STATUSES,
     MCP_SURFACE_STATUSES,
     MCP_TERMINAL_STATUSES,
+)
+from server.services.releases.mcp_server_catalog_service import (
+    create_release_for_server,
+    create_release_surfaces,
+    ensure_default_mcp_server,
+    sync_release_surfaces,
 )
 from server.services.releases.mcp_server_helpers import (
     clean,
@@ -44,6 +49,7 @@ from server.services.releases.mcp_server_schemas import (
     McpServerReleaseSyncResult,
     McpServerSurfaceOut,
     McpServerSurfacePatchRequest,
+    McpServerSurfaceSubmitRequest,
 )
 
 
@@ -93,8 +99,13 @@ def list_mcp_server_releases(
 def create_mcp_server_release(
     db: Session, body: McpServerReleaseCreateRequest
 ) -> McpServerReleaseOut:
+    if body.mcp_server_id is not None:
+        return create_release_for_server(db, int(body.mcp_server_id), body)
     version = validate_version(body.package_version)
+    default_server = ensure_default_mcp_server(db)
     server_key = clean(body.server_key) or DEFAULT_MCP_SERVER["server_key"]
+    if server_key != clean(default_server.server_key):
+        raise ValueError("Unknown MCP server_key. Create a catalog server first.")
     existing = (
         db.query(McpServerReleaseRow)
         .filter(
@@ -106,14 +117,15 @@ def create_mcp_server_release(
     if existing is not None:
         return release_to_out(existing)
     row = McpServerReleaseRow(
+        mcp_server_id=int(default_server.id),
         server_key=server_key,
-        server_name=DEFAULT_MCP_SERVER["server_name"],
-        package_name=DEFAULT_MCP_SERVER["package_name"],
-        package_registry=DEFAULT_MCP_SERVER["package_registry"],
+        server_name=default_server.server_name,
+        package_name=default_server.package_name,
+        package_registry=default_server.package_registry,
         package_version=version,
-        registry_name=DEFAULT_MCP_SERVER["registry_name"],
+        registry_name=default_server.registry_name,
         git_tag=git_tag_for(version),
-        install_command=DEFAULT_MCP_SERVER["install_command"],
+        install_command=default_server.install_command,
         release_notes=clean(body.release_notes) or None,
         metadata_json=json_dump(
             {"distribution_channel": "npm_stdio", "remote_mcp": "future"}
@@ -121,15 +133,7 @@ def create_mcp_server_release(
     )
     db.add(row)
     db.flush()
-    for key, label in DEFAULT_SURFACES:
-        db.add(
-            McpServerSurfaceRow(
-                mcp_server_release_id=int(row.id),
-                surface_key=key,
-                surface_label=label,
-                status="candidate",
-            )
-        )
+    create_release_surfaces(db, row, default_server)
     record_event(
         db,
         row,
@@ -223,10 +227,15 @@ def patch_mcp_surface(
         row.status = body.status
     if body.listing_url is not None:
         row.listing_url = clean(body.listing_url) or None
+    if body.submission_url is not None:
+        row.submission_url = clean(body.submission_url) or None
     if body.failure_reason is not None:
         row.failure_reason = clean(body.failure_reason) or None
+    if body.operator_note is not None:
+        row.operator_note = clean(body.operator_note) or None
     if body.evidence is not None:
         row.evidence_json = json_dump(body.evidence)
+    row.last_checked_at = utcnow()
     record_event(
         db,
         release,
@@ -240,6 +249,37 @@ def patch_mcp_surface(
     db.commit()
     db.refresh(row)
     return surface_to_out(row)
+
+
+def sync_mcp_release_surface_statuses(
+    db: Session, release_id: int
+) -> McpServerReleaseOut:
+    release = _require_release(db, release_id)
+    sync_release_surfaces(db, release)
+    db.refresh(release)
+    record_event(
+        db,
+        release,
+        action="surface_sync",
+        from_status=release.status,
+        to_status=release.status,
+        metadata={"surface_count": len(release.surfaces)},
+    )
+    sync_growth_discovery_listing(db, release)
+    db.commit()
+    return release_to_out(release)
+
+
+def submit_mcp_directory_surface(
+    db: Session, release_id: int, body: McpServerSurfaceSubmitRequest
+) -> McpServerSurfaceOut:
+    from server.services.releases.mcp_surface_config_service import (
+        submit_surface_with_readiness,
+    )
+
+    return submit_surface_with_readiness(
+        db, release_id, body.surface_key, actor=body.actor, note=body.note
+    )
 
 
 def sync_mcp_server_release_statuses(

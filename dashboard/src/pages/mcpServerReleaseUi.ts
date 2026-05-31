@@ -11,6 +11,21 @@ export const MCP_STATUS_LABEL: Record<string, string> = {
   completed: '完成',
   failed: '失败',
   cancelled: '已取消',
+  active: 'Active',
+  blocked_missing_artifact: '缺少 npm artifact',
+  blocked_requires_remote_mcp: '需要 Remote MCP',
+  package_ready: 'Package ready',
+  submitted: '已提交',
+  under_review: '审核中',
+  listed: '已收录',
+  verified: '已验证',
+  not_configured: '未配置',
+  configured: '已配置',
+  expired: '已过期',
+  blocked: '已阻塞',
+  submit_eligible: '可提交',
+  needs_fix: '需修复',
+  candidate: 'Candidate',
 }
 
 export const MCP_STATUS_OPTIONS = [
@@ -30,10 +45,10 @@ export const MCP_STATUS_OPTIONS = [
 ]
 
 export function mcpReleaseTone(status: string | null | undefined) {
-  if (status === 'completed' || status === 'registry_listed' || status === 'npm_published') return 'delivered'
-  if (status === 'ready_to_publish' || status === 'directories_pending' || status === 'planned') return 'ready'
+  if (status === 'completed' || status === 'registry_listed' || status === 'npm_published' || status === 'listed' || status === 'verified' || status === 'active' || status === 'submit_eligible') return 'delivered'
+  if (status === 'ready_to_publish' || status === 'directories_pending' || status === 'planned' || status === 'package_ready' || status === 'candidate' || status === 'configured') return 'ready'
   if (String(status || '').endsWith('_running') || status === 'npm_publishing' || status === 'registry_submitting') return 'running'
-  if (status === 'failed' || status === 'cancelled') return 'blocked'
+  if (status === 'failed' || status === 'cancelled' || String(status || '').startsWith('blocked_') || status === 'needs_fix' || status === 'not_configured' || status === 'blocked' || status === 'expired') return 'blocked'
   return 'muted'
 }
 

@@ -8,10 +8,8 @@ import McpServersPanel from './McpServersPanel'
 
 const navigateMock = vi.hoisted(() => vi.fn())
 const apiMock = vi.hoisted(() => ({
-  list: vi.fn(),
-  create: vi.fn(),
-  runReadiness: vi.fn(),
-  syncStatuses: vi.fn(),
+  listCatalog: vi.fn(),
+  createServer: vi.fn(),
 }))
 
 vi.mock('react-router-dom', async () => {
@@ -23,9 +21,29 @@ vi.mock('../mcpServerReleasesApi', () => ({
   mcpServerReleasesApi: apiMock,
 }))
 
+function surface(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    mcp_server_release_id: 7,
+    surface_key: 'official_mcp_registry',
+    surface_label: 'Official MCP Registry',
+    category: 'official_registry',
+    status: 'blocked_missing_artifact',
+    listing_url: null,
+    submission_url: 'https://github.com/modelcontextprotocol/registry',
+    failure_reason: 'npm artifact missing.',
+    operator_note: null,
+    evidence: {},
+    last_checked_at: null,
+    updated_at: null,
+    ...overrides,
+  }
+}
+
 function release(overrides: Record<string, unknown> = {}) {
   return {
     id: 7,
+    mcp_server_id: 3,
     server_key: 'synapse_mcp_server',
     server_name: 'SynapseNetwork MCP Server',
     package_name: '@synapse-network-ai/mcp-server',
@@ -43,8 +61,9 @@ function release(overrides: Record<string, unknown> = {}) {
     smoke_evidence: {},
     metadata: {},
     surfaces: [
-      { id: 1, mcp_server_release_id: 7, surface_key: 'official_mcp_registry', surface_label: 'Official MCP Registry', status: 'candidate', listing_url: null, failure_reason: null, evidence: {}, updated_at: null },
-      { id: 2, mcp_server_release_id: 7, surface_key: 'glama', surface_label: 'Glama', status: 'candidate', listing_url: null, failure_reason: null, evidence: {}, updated_at: null },
+      surface(),
+      surface({ id: 2, surface_key: 'glama', surface_label: 'Glama', category: 'directory' }),
+      surface({ id: 3, surface_key: 'openai_remote_mcp', surface_label: 'OpenAI Remote MCP', category: 'llm_platform', status: 'blocked_requires_remote_mcp' }),
     ],
     published_at: null,
     created_at: '2026-05-31T00:00:00Z',
@@ -53,60 +72,100 @@ function release(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function page(items = [release()]) {
+function server(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 3,
+    server_key: 'synapse_mcp_server',
+    server_name: 'SynapseNetwork MCP Server',
+    repo_full_name: 'SynapseNetworkAI/Synapse-Network-MCP-Server',
+    repo_url: 'https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server',
+    local_repo_path: null,
+    package_name: '@synapse-network-ai/mcp-server',
+    package_registry: 'npm',
+    registry_name: 'io.github.synapsenetworkai/synapse-network-mcp-server',
+    transport_kind: 'stdio',
+    remote_endpoint_url: null,
+    install_command: 'npx -y @synapse-network-ai/mcp-server',
+    tools: ['discover_services', 'invoke_and_pay'],
+    security_boundary: 'stdio MCP server; no browser automation.',
+    status: 'active',
+    metadata: {},
+    latest_release: release(),
+    surface_summary: {},
+    created_at: '2026-05-31T00:00:00Z',
+    updated_at: '2026-05-31T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function page(items = [server()]) {
   return { items, total: items.length, page: 1, page_size: 10, total_pages: 1 }
 }
 
 describe('McpServersPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    apiMock.list.mockResolvedValue(page())
-    apiMock.create.mockResolvedValue(release({ id: 8, package_version: '0.2.0' }))
-    apiMock.runReadiness.mockResolvedValue(release({ status: 'readiness_running' }))
-    apiMock.syncStatuses.mockResolvedValue({ processed_count: 0, ready_ids: [], package_published_ids: [], registry_listed_ids: [], smoke_passed_ids: [], error_ids: [] })
+    apiMock.listCatalog.mockResolvedValue(page())
+    apiMock.createServer.mockResolvedValue(server({ id: 9, server_key: 'new-mcp-server' }))
   })
 
-  it('lists MCP server releases without mixing them into SDK packages', async () => {
+  it('lists a multi-server MCP registry matrix without mixing it into SDK packages', async () => {
     render(<McpServersPanel search="" />, { wrapper: MemoryRouter })
 
-    expect(await screen.findByText('MCP Server Release Ledger')).toBeInTheDocument()
+    expect(await screen.findByText('MCP Server Registry Matrix')).toBeInTheDocument()
     expect(screen.getByText('SynapseNetwork MCP Server')).toBeInTheDocument()
+    expect(screen.getByText('SynapseNetworkAI/Synapse-Network-MCP-Server')).toBeInTheDocument()
     expect(screen.getByText('@synapse-network-ai/mcp-server')).toBeInTheDocument()
-    expect(screen.getByText(/独立管理 MCP npm artifact/)).toBeInTheDocument()
-    expect(apiMock.list).toHaveBeenCalledWith({ page: 1, page_size: 10, search: undefined, status: undefined })
-  })
-
-  it('can trigger readiness for planned releases', async () => {
-    const user = userEvent.setup()
-    render(<McpServersPanel search="" />, { wrapper: MemoryRouter })
-
-    await screen.findByText('SynapseNetwork MCP Server')
-    await user.click(screen.getByRole('button', { name: 'Run readiness' }))
-
-    await waitFor(() => {
-      expect(apiMock.runReadiness).toHaveBeenCalledWith(7, { actor: 'operator' })
-      expect(apiMock.list).toHaveBeenCalledTimes(2)
+    expect(screen.getByText(/OpenAI \/ Claude remote MCP readiness/)).toBeInTheDocument()
+    expect(apiMock.listCatalog).toHaveBeenCalledWith({
+      page: 1,
+      page_size: 10,
+      search: undefined,
+      transport_kind: undefined,
+      surface_category: undefined,
     })
   })
 
-  it('creates a new MCP release record and opens its detail page', async () => {
+  it('filters by transport and surface category', async () => {
+    const user = userEvent.setup()
+    render(<McpServersPanel search="remote" />, { wrapper: MemoryRouter })
+
+    await screen.findByText('SynapseNetwork MCP Server')
+    const filters = screen.getAllByRole('combobox')
+    await user.selectOptions(filters[0], 'remote_http')
+    await user.selectOptions(filters[1], 'llm_platform')
+
+    await waitFor(() => {
+      expect(apiMock.listCatalog).toHaveBeenLastCalledWith({
+        page: 1,
+        page_size: 10,
+        search: 'remote',
+        transport_kind: 'remote_http',
+        surface_category: 'llm_platform',
+      })
+    })
+  })
+
+  it('adds a new MCP server catalog row and opens its detail page', async () => {
     const user = userEvent.setup()
     render(<McpServersPanel search="" />, { wrapper: MemoryRouter })
 
-    await user.click(await screen.findByRole('button', { name: '新增 MCP 发布' }))
-    const dialog = screen.getByRole('dialog', { name: '新增 MCP Server 发布' })
+    await user.click(await screen.findByRole('button', { name: '新增 MCP Server' }))
+    const dialog = screen.getByRole('dialog', { name: '新增 MCP Server' })
     const fields = within(dialog).getAllByRole('textbox')
     await user.clear(fields[0])
-    await user.type(fields[0], '0.2.0')
-    await user.type(fields[1], 'Public MCP registry launch.')
-    await user.click(within(dialog).getByRole('button', { name: '创建发布记录' }))
+    await user.type(fields[0], 'new-mcp-server')
+    await user.clear(fields[1])
+    await user.type(fields[1], 'New MCP Server')
+    await user.click(within(dialog).getByRole('button', { name: '加入矩阵' }))
 
     await waitFor(() => {
-      expect(apiMock.create).toHaveBeenCalledWith({
-        package_version: '0.2.0',
-        release_notes: 'Public MCP registry launch.',
-      })
-      expect(navigateMock).toHaveBeenCalledWith('/releases/mcp-servers/8')
+      expect(apiMock.createServer).toHaveBeenCalledWith(expect.objectContaining({
+        server_key: 'new-mcp-server',
+        server_name: 'New MCP Server',
+        tools: ['discover_services', 'invoke_and_pay', 'get_receipt'],
+      }))
+      expect(navigateMock).toHaveBeenCalledWith('/releases/mcp-servers/9')
     })
   })
 })
