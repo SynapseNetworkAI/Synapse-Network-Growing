@@ -12,6 +12,8 @@ from server.services.secret_manager_cleanup import cleanup_secret_manager_versio
 from server.services.staging_environment_shutdown import shutdown_staging_environment
 from server.services.scheduling.growth_workflows import GROWTH_PROVIDER_SOURCE_WORKFLOW, run_growth_provider_source_workflow
 
+__all__ = ["GROWTH_PROVIDER_SOURCE_WORKFLOW", "run_cleanup_workflow"]
+
 
 def run_cleanup_workflow(
     row: RecurringWorkflowRow, *, workflow_key: str, dry_run: bool, db: Session | None = None
