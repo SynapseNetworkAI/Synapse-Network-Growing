@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.database_growth import (
@@ -28,6 +28,17 @@ class CandidateApplyOutcome(BaseModel):
     draft_error: str = ""
 
 
+class ApplyCandidatesResult(BaseModel):
+    candidate_count: int = 0
+    created_count: int = 0
+    reused_count: int = 0
+    drafted_count: int = 0
+    lead_ids: list[int] = Field(default_factory=list)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    error_summary: str = ""
+    send_policy: str = "manual_gmail_draft_only"
+
+
 def apply_candidates(
     db: Session,
     *,
@@ -39,7 +50,7 @@ def apply_candidates(
     draft_score: int,
     create_drafts: bool,
     actor: str,
-) -> dict[str, Any]:
+) -> ApplyCandidatesResult:
     created = reused = drafted = 0
     draft_errors: list[str] = []
     lead_ids: list[int] = []
@@ -62,16 +73,15 @@ def apply_candidates(
             lead_ids.append(outcome.lead_id)
         if outcome.draft_error:
             draft_errors.append(outcome.draft_error)
-    return {
-        "candidate_count": len(candidates),
-        "created_count": created,
-        "reused_count": reused,
-        "drafted_count": drafted,
-        "lead_ids": lead_ids,
-        "candidates": candidates,
-        "error_summary": "; ".join(draft_errors)[:1000],
-        "send_policy": "manual_gmail_draft_only",
-    }
+    return ApplyCandidatesResult(
+        candidate_count=len(candidates),
+        created_count=created,
+        reused_count=reused,
+        drafted_count=drafted,
+        lead_ids=lead_ids,
+        candidates=candidates,
+        error_summary="; ".join(draft_errors)[:1000],
+    )
 
 
 def _apply_candidate(

@@ -194,7 +194,7 @@ def run_source_config(
         draft_score=int(thresholds["auto_draft_score"]),
         create_drafts=create_drafts,
         actor=actor or "operator",
-    )
+    ).model_dump()
     completed_at = _utcnow()
     run.status = "succeeded"
     run.candidate_count = int(result["candidate_count"])
