@@ -144,8 +144,25 @@ describe('BugsPage', () => {
     expect(await screen.findByText('Bug List')).toBeInTheDocument()
     expect(screen.getByText('Provider status page stays stale')).toBeInTheDocument()
     expect(screen.getByText('Open bugs')).toBeInTheDocument()
-    expect(screen.getByText('当前显示 21-40 / 138')).toBeInTheDocument()
+    expect(screen.getByText('共 138 个 bug · 显示 21-40 · 第 2 / 7 页')).toBeInTheDocument()
     expect(apiMock.getBugs).toHaveBeenCalledWith(expect.objectContaining({ limit: 20, offset: 20 }))
+  })
+
+  it('uses standard pagination controls for page size and jump navigation', async () => {
+    const user = userEvent.setup()
+    renderPage(['/bugs?page=2&page_size=20'])
+
+    await screen.findByText('Provider status page stays stale')
+    await user.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => expect(apiMock.getBugs).toHaveBeenCalledWith(expect.objectContaining({ limit: 20, offset: 40 })))
+
+    await user.clear(screen.getByLabelText('跳至页码'))
+    await user.type(screen.getByLabelText('跳至页码'), '4')
+    await user.click(screen.getByRole('button', { name: '跳转' }))
+    await waitFor(() => expect(apiMock.getBugs).toHaveBeenCalledWith(expect.objectContaining({ limit: 20, offset: 60 })))
+
+    await user.selectOptions(screen.getByLabelText('每页条数'), '50')
+    await waitFor(() => expect(apiMock.getBugs).toHaveBeenCalledWith(expect.objectContaining({ limit: 50, offset: 0 })))
   })
 
   it('opens detail modal with workflow and close readiness state', async () => {
