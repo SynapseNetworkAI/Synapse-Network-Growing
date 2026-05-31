@@ -43,7 +43,7 @@ from server.services.releases.scheduled_job_sync import sync_scheduled_job_publi
 from server.services.releases.tasks import sync_release_task_deployment_statuses
 from server.services.scheduling.artifact_registry_workflows import ARTIFACT_REGISTRY_CLEANUP_WORKFLOW
 from server.services.scheduling.secret_manager_workflows import SECRET_MANAGER_CLEANUP_WORKFLOW
-from server.services.scheduling.cleanup_workflows import run_cleanup_workflow
+from server.services.scheduling.cleanup_workflows import GROWTH_PROVIDER_SOURCE_WORKFLOW, run_cleanup_workflow
 from server.services.scheduling.staging_environment_workflows import STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW
 from server.services.social.daily_planner import run_x_social_daily_content_planner
 from server.services.social.distribution_asset_planner import (
@@ -233,7 +233,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     },
     ARTIFACT_REGISTRY_CLEANUP_WORKFLOW,
     SECRET_MANAGER_CLEANUP_WORKFLOW,
-    STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW,
+    STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW, GROWTH_PROVIDER_SOURCE_WORKFLOW,
     {"workflow_key": "social_asset_planner_sweep", "display_name": "Social Asset Planner Sweep", "description": "Sample one high-quality signal type and create at most one human-reviewed content asset.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "hourly", "interval_hours": 1}, "input_query": {"sources": ["product_changes", "trend_radar", "published_metrics"], "max_signals": 5}, "output_action": {"kind": "create_social_content_asset", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "created_asset_id"}},
     {
         "workflow_key": "x_social_daily_content_planner",
@@ -1480,7 +1480,7 @@ def _execute_recurring_workflow(
     acceptance_limit: int,
     auto_dispatch_acceptance: bool,
 ) -> dict[str, Any]:
-    cleanup_result = run_cleanup_workflow(row, workflow_key=workflow_key, dry_run=dry_run)
+    cleanup_result = run_cleanup_workflow(row, workflow_key=workflow_key, dry_run=dry_run, db=db)
     if cleanup_result is not None:
         return cleanup_result
     if dry_run:

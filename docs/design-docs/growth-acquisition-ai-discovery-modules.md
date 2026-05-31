@@ -44,10 +44,11 @@ Route: `/growth`
 
 Tabs:
 
-1. `Investors`
-2. `Providers`
-3. `AI Visibility`
-4. `MCP Discovery`
+1. `Sources`
+2. `Investors`
+3. `Providers`
+4. `AI Visibility`
+5. `MCP Discovery`
 
 The first implementation adds the route to top navigation with V1 ledger APIs and real records. External sending and registry submission remain out of scope.
 
@@ -126,6 +127,7 @@ Useful fields:
 8. `approved_by`
 9. `sent_at`
 10. `failure_reason`
+11. Gmail draft evidence in `metadata_json`: `gmail_status`, `gmail_draft_id`, `draft_url`, `contact_email`, and `contact_provenance`. Gmail integration creates drafts only after operator approval; it never sends email automatically.
 
 ### OutreachEvent
 
@@ -146,6 +148,48 @@ follow_up_scheduled
 do_not_contact_set
 message_failed
 ```
+
+### GrowthSourceConfig
+
+`GrowthSourceConfig` controls provider and investor discovery inputs. V1 focuses on provider acquisition.
+
+Useful fields:
+
+1. `config_key`
+2. `name`
+3. `config_type = github_provider_search | github_mcp_repos | mcp_directory_watch | api_provider_sites | package_ecosystem | manual_seed_list`
+4. `status = enabled | paused | archived`
+5. `query_json`
+6. `cadence_json`
+7. `thresholds_json`
+8. `last_run_at`
+9. `last_result_json`
+
+Supported provider acquisition source pools:
+
+1. `github_mcp_repos`: GitHub repos and topics for MCP servers, agent tools, API SDKs, search/scrape/browser/database/security/finance-data tools.
+2. `mcp_directories`: MCP Registry, Smithery, MCP Find, MCP directories, PulseMCP, Glama, and similar discovery surfaces.
+3. `api_provider_sites`: public API/pricing/docs websites for data or automation providers.
+4. `package_ecosystem`: npm, PyPI, Go, Java, and .NET packages with MCP, agent, API, SDK, or tooling signals.
+5. `manual_seed_list`: operator-provided URLs used as a safe bootstrap and correction path.
+
+Contact discovery uses public evidence only. Priority order is official partner/contact pages, docs/package metadata support or partnerships addresses, then public GitHub profile email. Commit email is low confidence and must not be used when it is a `noreply.github.com` or privacy-protected address. Leads without trusted contact email can be created and scored, but they must not enter Gmail draft creation.
+
+### GrowthResearchRun
+
+`GrowthResearchRun` stores each source execution and makes automation observable.
+
+Useful fields:
+
+1. `source_config_id`
+2. `status`
+3. `dry_run`
+4. `candidate_count`
+5. `created_count`
+6. `reused_count`
+7. `drafted_count`
+8. `error_summary`
+9. `result_json`
 
 ### DiscoveryListing
 
@@ -545,6 +589,12 @@ Suggested endpoints:
 15. `GET /api/growth/discovery-listings`
 16. `POST /api/growth/discovery-listings`
 17. `PATCH /api/growth/discovery-listings/{id}`
+18. `GET /api/growth/source-configs`
+19. `POST /api/growth/source-configs`
+20. `PATCH /api/growth/source-configs/{id}`
+21. `POST /api/growth/source-configs/{id}/run`
+22. `GET /api/growth/source-configs/{id}/runs`
+23. `GET /api/growth/research-runs/{id}`
 
 ## UI Design
 

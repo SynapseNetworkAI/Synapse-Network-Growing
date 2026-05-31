@@ -24,9 +24,16 @@ from server.schemas_growth import (
     GrowthMessageActionRequest,
     GrowthOutreachMessageOut,
     GrowthOverviewOut,
+    GrowthResearchRunListOut,
+    GrowthResearchRunOut,
     GrowthReplyRequest,
+    GrowthSourceConfigCreate,
+    GrowthSourceConfigListOut,
+    GrowthSourceConfigOut,
+    GrowthSourceConfigPatch,
+    GrowthSourceRunRequest,
 )
-from server.services.growth import discovery, workbench
+from server.services.growth import discovery, gmail_drafts, provider_sources, workbench
 
 router = APIRouter(prefix="/api/growth", tags=["growth"])
 
@@ -61,6 +68,80 @@ def create_growth_lead(body: GrowthLeadCreate, db: Session = Depends(get_db)):
         return workbench.create_lead(db, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/source-configs", response_model=GrowthSourceConfigListOut)
+def list_growth_source_configs(db: Session = Depends(get_db)):
+    return provider_sources.list_source_configs(db)
+
+
+@router.post(
+    "/source-configs",
+    response_model=GrowthSourceConfigOut,
+    status_code=201,
+)
+def create_growth_source_config(
+    body: GrowthSourceConfigCreate, db: Session = Depends(get_db)
+):
+    try:
+        return provider_sources.create_source_config(db, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/source-configs/{config_id}", response_model=GrowthSourceConfigOut)
+def patch_growth_source_config(
+    config_id: int, body: GrowthSourceConfigPatch, db: Session = Depends(get_db)
+):
+    try:
+        return provider_sources.patch_source_config(db, config_id, body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/source-configs/default-provider", response_model=GrowthSourceConfigOut)
+def ensure_default_growth_provider_source(db: Session = Depends(get_db)):
+    return provider_sources.ensure_default_provider_source_config(db)
+
+
+@router.post("/source-configs/{config_id}/run", response_model=GrowthResearchRunOut)
+def run_growth_source_config(
+    config_id: int, body: GrowthSourceRunRequest, db: Session = Depends(get_db)
+):
+    try:
+        return provider_sources.run_source_config(
+            db,
+            config_id,
+            dry_run=body.dry_run,
+            max_results=body.max_results,
+            create_drafts=body.create_drafts,
+            actor=body.actor,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/source-configs/{config_id}/runs", response_model=GrowthResearchRunListOut)
+def list_growth_source_runs(
+    config_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    try:
+        return provider_sources.list_research_runs(
+            db, config_id, limit=limit, offset=offset
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/research-runs/{run_id}", response_model=GrowthResearchRunOut)
+def get_growth_research_run(run_id: int, db: Session = Depends(get_db)):
+    try:
+        return provider_sources.get_research_run(db, run_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/leads/import", response_model=GrowthLeadImportOut, status_code=201)
@@ -130,6 +211,26 @@ def queue_growth_message(
         actor=body.actor,
         metadata=body.metadata,
     )
+
+
+@router.post(
+    "/messages/{message_id}/create-gmail-draft",
+    response_model=GrowthOutreachMessageOut,
+)
+def create_growth_gmail_draft(
+    message_id: int,
+    body: GrowthMessageActionRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return gmail_drafts.create_gmail_draft(
+            db,
+            message_id,
+            actor=body.actor,
+            metadata=body.metadata,
+        )
+    except gmail_drafts.GmailDraftError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post(

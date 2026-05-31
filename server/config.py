@@ -214,6 +214,10 @@ X_OAUTH_REFRESH_TOKEN_STORAGE = os.environ.get("X_OAUTH_REFRESH_TOKEN_STORAGE", 
 X_OAUTH_REFRESH_TOKEN_LOCAL_KEY = os.environ.get("X_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "x-official-oauth2-refresh-token").strip() or "x-official-oauth2-refresh-token"
 OPS_LOCAL_SECRET_ENCRYPTION_KEY = os.environ.get("OPS_LOCAL_SECRET_ENCRYPTION_KEY", "").strip()
 X_OAUTH_REDIRECT_URI = os.environ.get("X_OAUTH_REDIRECT_URI", "http://127.0.0.1:9600/api/social/x/oauth/callback").strip() or "http://127.0.0.1:9600/api/social/x/oauth/callback"
+GMAIL_OAUTH_CLIENT_ID = os.environ.get("GMAIL_OAUTH_CLIENT_ID", "").strip()
+GMAIL_OAUTH_CLIENT_SECRET = os.environ.get("GMAIL_OAUTH_CLIENT_SECRET", "").strip()
+GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY = os.environ.get("GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "gmail-oauth-refresh-token").strip() or "gmail-oauth-refresh-token"
+GMAIL_SENDER_EMAIL = os.environ.get("GMAIL_SENDER_EMAIL", "").strip()
 SECRET_MANAGER_CLEANUP_PROJECTS = [
     item.strip()
     for item in os.environ.get("OPS_SECRET_MANAGER_CLEANUP_PROJECTS", "fabled-archive-494108-k5,synapse-network-prod").split(",")

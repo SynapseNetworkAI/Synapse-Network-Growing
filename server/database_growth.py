@@ -60,6 +60,55 @@ class GrowthLeadRow(Base):
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
+class GrowthSourceConfigRow(Base):
+    __tablename__ = "growth_source_configs"
+    __table_args__ = (
+        Index("growth_source_configs_key_idx", "config_key", unique=True),
+        Index("growth_source_configs_type_idx", "config_type"),
+        Index("growth_source_configs_status_idx", "status"),
+        Index("growth_source_configs_updated_idx", "updated_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    config_key = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    config_type = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="enabled")
+    description = Column(Text, nullable=False, default="")
+    query_json = Column(Text, nullable=False, default="{}")
+    cadence_json = Column(Text, nullable=False, default="{}")
+    thresholds_json = Column(Text, nullable=False, default="{}")
+    last_run_at = Column(DateTime)
+    last_result_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class GrowthResearchRunRow(Base):
+    __tablename__ = "growth_research_runs"
+    __table_args__ = (
+        Index("growth_research_runs_source_idx", "source_config_id"),
+        Index("growth_research_runs_status_idx", "status"),
+        Index("growth_research_runs_started_idx", "started_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    source_config_id = Column(Integer, nullable=False)
+    status = Column(Text, nullable=False, default="running")
+    dry_run = Column(Integer, nullable=False, default=0)
+    params_json = Column(Text, nullable=False, default="{}")
+    candidate_count = Column(Integer, nullable=False, default=0)
+    created_count = Column(Integer, nullable=False, default=0)
+    reused_count = Column(Integer, nullable=False, default=0)
+    drafted_count = Column(Integer, nullable=False, default=0)
+    error_summary = Column(Text, nullable=False, default="")
+    result_json = Column(Text, nullable=False, default="{}")
+    started_at = Column(DateTime, nullable=False, default=utcnow)
+    completed_at = Column(DateTime)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
 class GrowthOutreachMessageRow(Base):
     __tablename__ = "growth_outreach_messages"
     __table_args__ = (

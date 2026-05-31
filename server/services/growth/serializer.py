@@ -9,6 +9,8 @@ from server.database_growth import (
     GrowthLeadRow,
     GrowthOutreachEventRow,
     GrowthOutreachMessageRow,
+    GrowthResearchRunRow,
+    GrowthSourceConfigRow,
 )
 from server.schemas_growth import (
     GrowthAIVisibilityCheckOut,
@@ -16,6 +18,8 @@ from server.schemas_growth import (
     GrowthLeadOut,
     GrowthOutreachEventOut,
     GrowthOutreachMessageOut,
+    GrowthResearchRunOut,
+    GrowthSourceConfigOut,
 )
 
 
@@ -52,6 +56,44 @@ def lead_out(row: GrowthLeadRow) -> GrowthLeadOut:
         metadata=json_loads(row.metadata_json, {}),
         next_action=row.next_action or "",
         last_contacted_at=row.last_contacted_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def source_config_out(row: GrowthSourceConfigRow) -> GrowthSourceConfigOut:
+    return GrowthSourceConfigOut(
+        id=row.id,
+        config_key=row.config_key,
+        name=row.name,
+        config_type=row.config_type,
+        status=row.status or "enabled",
+        description=row.description or "",
+        query=json_loads(row.query_json, {}),
+        cadence=json_loads(row.cadence_json, {}),
+        thresholds=json_loads(row.thresholds_json, {}),
+        last_run_at=row.last_run_at,
+        last_result=json_loads(row.last_result_json, {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def research_run_out(row: GrowthResearchRunRow) -> GrowthResearchRunOut:
+    return GrowthResearchRunOut(
+        id=row.id,
+        source_config_id=row.source_config_id,
+        status=row.status or "running",
+        dry_run=bool(row.dry_run),
+        params=json_loads(row.params_json, {}),
+        candidate_count=int(row.candidate_count or 0),
+        created_count=int(row.created_count or 0),
+        reused_count=int(row.reused_count or 0),
+        drafted_count=int(row.drafted_count or 0),
+        error_summary=row.error_summary or "",
+        result=json_loads(row.result_json, {}),
+        started_at=row.started_at,
+        completed_at=row.completed_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )

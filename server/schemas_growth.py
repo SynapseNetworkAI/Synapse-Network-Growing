@@ -51,6 +51,71 @@ class GrowthLeadImportOut(BaseModel):
     items: list[GrowthLeadOut] = Field(default_factory=list)
 
 
+class GrowthSourceConfigCreate(BaseModel):
+    config_key: str = ""
+    name: str
+    config_type: str
+    status: str = "enabled"
+    description: str = ""
+    query: dict[str, object] = Field(default_factory=dict)
+    cadence: dict[str, object] = Field(default_factory=dict)
+    thresholds: dict[str, object] = Field(default_factory=dict)
+
+
+class GrowthSourceConfigPatch(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+    description: Optional[str] = None
+    query: Optional[dict[str, object]] = None
+    cadence: Optional[dict[str, object]] = None
+    thresholds: Optional[dict[str, object]] = None
+
+
+class GrowthSourceConfigOut(GrowthSourceConfigCreate):
+    id: int
+    last_run_at: Optional[datetime] = None
+    last_result: dict[str, object] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GrowthSourceConfigListOut(BaseModel):
+    items: list[GrowthSourceConfigOut] = Field(default_factory=list)
+    total: int = 0
+
+
+class GrowthSourceRunRequest(BaseModel):
+    dry_run: bool = True
+    max_results: Optional[int] = None
+    create_drafts: bool = True
+    actor: str = "operator"
+
+
+class GrowthResearchRunOut(BaseModel):
+    id: int
+    source_config_id: int
+    status: str
+    dry_run: bool = False
+    params: dict[str, object] = Field(default_factory=dict)
+    candidate_count: int = 0
+    created_count: int = 0
+    reused_count: int = 0
+    drafted_count: int = 0
+    error_summary: str = ""
+    result: dict[str, object] = Field(default_factory=dict)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GrowthResearchRunListOut(BaseModel):
+    items: list[GrowthResearchRunOut] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
 class GrowthOutreachMessageOut(BaseModel):
     id: int
     lead_id: int
