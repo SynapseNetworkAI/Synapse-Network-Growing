@@ -64,13 +64,19 @@ def list_source_configs(db: Session) -> GrowthSourceConfigListOut:
     rows = (
         db.query(GrowthSourceConfigRow)
         .filter(GrowthSourceConfigRow.status != "archived")
-        .order_by(GrowthSourceConfigRow.updated_at.desc(), GrowthSourceConfigRow.id.desc())
+        .order_by(
+            GrowthSourceConfigRow.updated_at.desc(), GrowthSourceConfigRow.id.desc()
+        )
         .all()
     )
-    return GrowthSourceConfigListOut(items=[source_config_out(row) for row in rows], total=len(rows))
+    return GrowthSourceConfigListOut(
+        items=[source_config_out(row) for row in rows], total=len(rows)
+    )
 
 
-def create_source_config(db: Session, body: GrowthSourceConfigCreate) -> GrowthSourceConfigOut:
+def create_source_config(
+    db: Session, body: GrowthSourceConfigCreate
+) -> GrowthSourceConfigOut:
     _validate_source_config(body.config_type, body.status)
     config_key = _config_key(body)
     existing = (
@@ -128,7 +134,9 @@ def list_research_runs(
     )
     total = int(query.count())
     rows = (
-        query.order_by(GrowthResearchRunRow.started_at.desc(), GrowthResearchRunRow.id.desc())
+        query.order_by(
+            GrowthResearchRunRow.started_at.desc(), GrowthResearchRunRow.id.desc()
+        )
         .offset(max(int(offset or 0), 0))
         .limit(_limit(limit))
         .all()
@@ -142,7 +150,11 @@ def list_research_runs(
 
 
 def get_research_run(db: Session, run_id: int) -> GrowthResearchRunOut:
-    row = db.query(GrowthResearchRunRow).filter(GrowthResearchRunRow.id == int(run_id)).first()
+    row = (
+        db.query(GrowthResearchRunRow)
+        .filter(GrowthResearchRunRow.id == int(run_id))
+        .first()
+    )
     if row is None:
         raise ValueError("growth research run not found")
     return research_run_out(row)
@@ -236,9 +248,11 @@ def run_enabled_provider_sources(
     )
     if not rows:
         ensure_default_provider_source_config(db)
-        rows = db.query(GrowthSourceConfigRow).filter(
-            GrowthSourceConfigRow.config_key == DEFAULT_SOURCE_KEY
-        ).all()
+        rows = (
+            db.query(GrowthSourceConfigRow)
+            .filter(GrowthSourceConfigRow.config_key == DEFAULT_SOURCE_KEY)
+            .all()
+        )
     runs = [
         run_source_config(
             db,
@@ -281,7 +295,9 @@ def _apply_candidates(
         score = int(candidate["fit_score"])
         if score < create_score or dry_run:
             continue
-        lead_body = _candidate_to_lead(candidate, source_config_id=source.id, run_id=run.id)
+        lead_body = _candidate_to_lead(
+            candidate, source_config_id=source.id, run_id=run.id
+        )
         existing = _existing_lead(db, lead_body)
         existed = existing is not None
         if existing is not None:
@@ -295,7 +311,9 @@ def _apply_candidates(
             _sync_existing_message(active_message, candidate)
         if create_drafts and score >= draft_score and active_message is None:
             if not trusted_contact_email(candidate):
-                draft_errors.append(f"{candidate['name']}: blocked_missing_trusted_contact_email")
+                draft_errors.append(
+                    f"{candidate['name']}: blocked_missing_trusted_contact_email"
+                )
                 continue
             try:
                 create_provider_onboarding_draft(
@@ -319,16 +337,22 @@ def _apply_candidates(
     }
 
 
-def _discover_candidates(source: GrowthSourceConfigRow, *, max_results: int | None) -> list[dict[str, Any]]:
+def _discover_candidates(
+    source: GrowthSourceConfigRow, *, max_results: int | None
+) -> list[dict[str, Any]]:
     query = json_loads(source.query_json, {})
     seed_urls = [str(url) for url in query.get("seed_urls") or []]
-    text = " ".join(seed_urls + [str(item) for item in query.get("queries") or []]).lower()
+    text = " ".join(
+        seed_urls + [str(item) for item in query.get("queries") or []]
+    ).lower()
     candidates: list[dict[str, Any]] = []
     if "firecrawl" in text or not seed_urls:
         candidates.append(firecrawl_candidate().model_dump())
     if "tavily" in text:
         candidates.append(tavily_candidate().model_dump())
-    return candidates[: max(1, min(int(max_results or query.get("max_results") or 25), 100))]
+    return candidates[
+        : max(1, min(int(max_results or query.get("max_results") or 25), 100))
+    ]
 
 
 def _candidate_to_lead(
@@ -343,7 +367,9 @@ def _candidate_to_lead(
         "send_policy": "manual_gmail_draft_only",
         "contact_email": trusted_contact_email(candidate),
         "contact_provenance": list(candidate.get("contact_provenance") or []),
-        "provider_email_confidence": "high" if trusted_contact_email(candidate) else "missing",
+        "provider_email_confidence": "high"
+        if trusted_contact_email(candidate)
+        else "missing",
     }
     return GrowthLeadCreate(
         lead_type="provider",
@@ -365,7 +391,10 @@ def _candidate_to_lead(
 def _existing_lead(db: Session, body: GrowthLeadCreate) -> GrowthLeadRow | None:
     return (
         db.query(GrowthLeadRow)
-        .filter(GrowthLeadRow.lead_type == body.lead_type, GrowthLeadRow.source_url == body.source_url)
+        .filter(
+            GrowthLeadRow.lead_type == body.lead_type,
+            GrowthLeadRow.source_url == body.source_url,
+        )
         .first()
     )
 
@@ -392,13 +421,17 @@ def _active_message(db: Session, lead_id: int) -> GrowthOutreachMessageRow | Non
         db.query(GrowthOutreachMessageRow)
         .filter(
             GrowthOutreachMessageRow.lead_id == int(lead_id),
-            GrowthOutreachMessageRow.status.in_(("draft", "needs_review", "approved", "queued")),
+            GrowthOutreachMessageRow.status.in_(
+                ("draft", "needs_review", "approved", "queued")
+            ),
         )
         .first()
     )
 
 
-def _sync_existing_message(row: GrowthOutreachMessageRow, candidate: dict[str, Any]) -> None:
+def _sync_existing_message(
+    row: GrowthOutreachMessageRow, candidate: dict[str, Any]
+) -> None:
     metadata = json_loads(row.metadata_json, {})
     metadata.update(
         {
@@ -433,7 +466,11 @@ def _thresholds(value: dict[str, object]) -> dict[str, int]:
 
 
 def _source_or_404(db: Session, config_id: int) -> GrowthSourceConfigRow:
-    row = db.query(GrowthSourceConfigRow).filter(GrowthSourceConfigRow.id == int(config_id)).first()
+    row = (
+        db.query(GrowthSourceConfigRow)
+        .filter(GrowthSourceConfigRow.id == int(config_id))
+        .first()
+    )
     if row is None:
         raise ValueError("growth source config not found")
     return row

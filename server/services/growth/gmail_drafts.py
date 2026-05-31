@@ -17,7 +17,10 @@ from server.database_growth import (
 )
 from server.schemas_growth import GrowthOutreachMessageOut
 from server.services.growth.serializer import json_dumps, json_loads, message_out
-from server.services.local_secrets import LocalSecretStoreError, read_latest_local_secret
+from server.services.local_secrets import (
+    LocalSecretStoreError,
+    read_latest_local_secret,
+)
 
 
 class GmailDraftError(RuntimeError):
@@ -51,7 +54,11 @@ def create_gmail_draft(
         body=message.body,
     )
     draft_id = str(gmail_payload.get("id") or "").strip()
-    gmail_message = gmail_payload.get("message") if isinstance(gmail_payload.get("message"), dict) else {}
+    gmail_message = (
+        gmail_payload.get("message")
+        if isinstance(gmail_payload.get("message"), dict)
+        else {}
+    )
     if not draft_id:
         raise GmailDraftError("gmail_draft_create_failed_missing_id")
 
@@ -98,9 +105,13 @@ def _gmail_access_token(db: Session) -> str:
     client_id = str(config.GMAIL_OAUTH_CLIENT_ID or "").strip()
     client_secret = str(config.GMAIL_OAUTH_CLIENT_SECRET or "").strip()
     if not client_id or not client_secret:
-        raise GmailDraftError("gmail_auth_required: configure GMAIL_OAUTH_CLIENT_ID and GMAIL_OAUTH_CLIENT_SECRET")
+        raise GmailDraftError(
+            "gmail_auth_required: configure GMAIL_OAUTH_CLIENT_ID and GMAIL_OAUTH_CLIENT_SECRET"
+        )
     try:
-        refresh_token = read_latest_local_secret(db, config.GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY)
+        refresh_token = read_latest_local_secret(
+            db, config.GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY
+        )
     except LocalSecretStoreError as exc:
         raise GmailDraftError(f"gmail_auth_required: {exc}") from exc
     response = httpx.post(
@@ -114,10 +125,14 @@ def _gmail_access_token(db: Session) -> str:
         timeout=30,
     )
     if response.status_code >= 400:
-        raise GmailDraftError(f"gmail_auth_required: token refresh failed ({response.status_code})")
+        raise GmailDraftError(
+            f"gmail_auth_required: token refresh failed ({response.status_code})"
+        )
     token = str(response.json().get("access_token") or "").strip()
     if not token:
-        raise GmailDraftError("gmail_auth_required: token refresh did not return access_token")
+        raise GmailDraftError(
+            "gmail_auth_required: token refresh did not return access_token"
+        )
     return token
 
 
@@ -143,7 +158,9 @@ def _post_gmail_draft(
         timeout=30,
     )
     if response.status_code >= 400:
-        raise GmailDraftError(f"gmail_draft_create_failed: Gmail API returned {response.status_code}")
+        raise GmailDraftError(
+            f"gmail_draft_create_failed: Gmail API returned {response.status_code}"
+        )
     payload = response.json()
     return payload if isinstance(payload, dict) else {}
 

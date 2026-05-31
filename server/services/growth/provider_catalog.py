@@ -83,9 +83,18 @@ def firecrawl_candidate() -> ProviderCandidate:
             },
         ],
         evidence=[
-            {"source": "github", "reason": "Official MCP server for search, scrape, crawl, and extraction."},
-            {"source": "readme", "reason": "Uses API keys and agent-ready web data workflows."},
-            {"source": "partner_docs", "reason": "Public partner contact is available for partnership review."},
+            {
+                "source": "github",
+                "reason": "Official MCP server for search, scrape, crawl, and extraction.",
+            },
+            {
+                "source": "readme",
+                "reason": "Uses API keys and agent-ready web data workflows.",
+            },
+            {
+                "source": "partner_docs",
+                "reason": "Public partner contact is available for partnership review.",
+            },
         ],
         provider_scorecard={
             "public_api": True,
