@@ -66,7 +66,7 @@ describe('PublishingTrendResultsPage', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: 'X 趋势雷达结果' })).toBeInTheDocument()
-    expect(screen.getByText('AI agents need payment rails')).toBeInTheDocument()
+    expect(await screen.findByText('AI agents need payment rails')).toBeInTheDocument()
     expect(screen.getAllByText('本地趋势种子').length).toBeGreaterThan(0)
     expect(screen.getByText('第 1 / 1 页 · 共 2 条趋势')).toBeInTheDocument()
 
