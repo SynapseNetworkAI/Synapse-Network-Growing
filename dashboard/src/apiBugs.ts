@@ -119,6 +119,8 @@ export function createBugsApi(request: RequestFn) {
     getBugDetail: (id: number) => request<BugDetail>(`/bugs/${id}`),
     claimBug: (id: number, data?: { agent_id?: string; lease_minutes?: number }) =>
       request<BugDetail | BugClaimResult>(`/bugs/${id}/claim`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    claimAndRunBug: (id: number, data?: { agent_id?: string; lease_minutes?: number }) =>
+      request<BugDetail>(`/bugs/${id}/claim-and-run`, { method: 'POST', body: JSON.stringify(data || {}) }),
     materializeBugRequirement: (id: number) =>
       request<BugDetail>(`/bugs/${id}/materialize-requirement`, { method: 'POST', body: JSON.stringify({}) }),
     linkBugFix: (

@@ -3,12 +3,14 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { MemoryRouter } from 'react-router-dom'
 import BugsPage from './BugsPage'
 
 const apiMock = vi.hoisted(() => ({
   getBugs: vi.fn(),
   getBugDetail: vi.fn(),
   claimBug: vi.fn(),
+  claimAndRunBug: vi.fn(),
   materializeBugRequirement: vi.fn(),
   linkBugFix: vi.fn(),
   addBugVerification: vi.fn(),
@@ -63,7 +65,7 @@ function detail(overrides: Record<string, unknown> = {}) {
       branch_name: 'codex/fix-status',
       commit_sha: 'deadbeef1234',
       pr_url: 'https://github.com/SynapseNetworkAI/Synapse-Network-Provider/pull/12',
-      workflow_run_id: null,
+      workflow_run_id: 77,
       requirement_id: null,
       lease_expires_at: null,
       verification_summary: 'Waiting for verification.',
@@ -107,56 +109,64 @@ function detail(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function renderPage(initialEntries = ['/bugs']) {
+  return render(
+    <MemoryRouter initialEntries={initialEntries}>
+      <BugsPage />
+    </MemoryRouter>,
+  )
+}
+
 describe('BugsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     apiMock.getBugs.mockResolvedValue({
       items: [bug()],
-      total: 1,
-      limit: 100,
+      total: 138,
+      limit: 20,
       offset: 0,
-      status_counts: { open: 1 },
-      severity_counts: { high: 1 },
+      status_counts: { open: 2, fixing: 1, verified: 1, closed: 1 },
+      severity_counts: { high: 2, critical: 1 },
     })
     apiMock.getBugDetail.mockResolvedValue(detail())
     apiMock.claimBug.mockResolvedValue({ bug: bug({ status: 'fixing' }), fix_attempt: detail().latest_fix_attempt, agent_context: detail().agent_context })
+    apiMock.claimAndRunBug.mockResolvedValue(detail({ bug: bug({ status: 'fixing' }) }))
     apiMock.materializeBugRequirement.mockResolvedValue(detail())
     apiMock.linkBugFix.mockResolvedValue(detail())
     apiMock.addBugVerification.mockResolvedValue(detail({ bug: bug({ status: 'verified' }) }))
-    apiMock.closeBug.mockResolvedValue(detail({ bug: bug({ status: 'closed' }) }))
+    apiMock.closeBug.mockResolvedValue(detail({ bug: bug({ status: 'closed' }), latest_fix_attempt: { ...detail().latest_fix_attempt, status: 'verified', verification_commands: [{ command: 'pytest -q tests/test_provider_status.py', status: 'passed' }], verification_screenshots: [{ path: '/tmp/proof.png', label: 'proof' }] } }))
     apiMock.reopenBug.mockResolvedValue(detail({ bug: bug({ status: 'reopened' }) }))
   })
 
-  it('shows agent-native bug list metrics and rows', async () => {
-    render(<BugsPage />)
+  it('shows paginated metrics and rows', async () => {
+    renderPage(['/bugs?page=2&page_size=20'])
 
     expect(await screen.findByText('Bug List')).toBeInTheDocument()
     expect(screen.getByText('Provider status page stays stale')).toBeInTheDocument()
-    expect(screen.getAllByText('synapse-network-provider').length).toBeGreaterThan(0)
     expect(screen.getByText('Open bugs')).toBeInTheDocument()
-    expect(screen.getByText('Critical / High')).toBeInTheDocument()
+    expect(screen.getByText('当前显示 21-40 / 138')).toBeInTheDocument()
+    expect(apiMock.getBugs).toHaveBeenCalledWith(expect.objectContaining({ limit: 20, offset: 20 }))
   })
 
-  it('opens detail modal with agent context, fix attempt and events', async () => {
+  it('opens detail modal with workflow and close readiness state', async () => {
     const user = userEvent.setup()
-    render(<BugsPage />)
+    renderPage()
 
     await user.click(await screen.findByRole('button', { name: '详情' }))
     const dialog = await screen.findByRole('dialog', { name: 'Provider status page stays stale' })
     expect(within(dialog).getByText('Agent Context')).toBeInTheDocument()
     expect(within(dialog).getByText('/Users/cliff/workspace/agent/Synapse-Network-Provider')).toBeInTheDocument()
-    expect(within(dialog).getByText('Fix Attempts')).toBeInTheDocument()
-    expect(within(dialog).getByText('Events')).toBeInTheDocument()
-    expect(within(dialog).getByText('claimed')).toBeInTheDocument()
+    expect(within(dialog).getByText('打开 Workflow')).toBeInTheDocument()
+    expect(within(dialog).getByText('Evidence incomplete')).toBeInTheDocument()
   })
 
-  it('can claim and link fix evidence from the modal', async () => {
+  it('can claim-and-run and link fix evidence from the modal', async () => {
     const user = userEvent.setup()
-    render(<BugsPage />)
+    renderPage()
 
     await user.click(await screen.findByRole('button', { name: '详情' }))
-    await user.click(await screen.findByRole('button', { name: 'Agent 领取' }))
-    await waitFor(() => expect(apiMock.claimBug).toHaveBeenCalledWith(44, { agent_id: 'codex' }))
+    await user.click(await screen.findByRole('button', { name: 'Agent 领取并启动修复' }))
+    await waitFor(() => expect(apiMock.claimAndRunBug).toHaveBeenCalledWith(44, { agent_id: 'codex' }))
 
     await user.clear(screen.getByPlaceholderText('branch name'))
     await user.type(screen.getByPlaceholderText('branch name'), 'codex/fix-bug-list')

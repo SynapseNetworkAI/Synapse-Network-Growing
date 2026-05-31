@@ -8,6 +8,7 @@ READ_TOOLS = {"bugs_list", "bugs_get", "bugs_agent_queue"}
 WRITE_TOOLS = {
     "bugs_intake",
     "bugs_claim",
+    "bugs_claim_and_run",
     "bugs_materialize_requirement",
     "bugs_link_fix",
     "bugs_add_verification",
@@ -87,6 +88,18 @@ BUG_LIST_TOOL_DEFINITIONS = [
     {
         "name": "bugs_claim",
         "description": "Claim a bug with a lease so only one agent fixes it at a time.",
+        "inputSchema": _input_schema(
+            ["bug_id", "agent_id"],
+            {
+                "bug_id": {"type": "integer"},
+                "agent_id": {"type": "string"},
+                "lease_minutes": {"type": "integer"},
+            },
+        ),
+    },
+    {
+        "name": "bugs_claim_and_run",
+        "description": "Claim a bug, materialize or reuse its requirement, and start the repair workflow.",
         "inputSchema": _input_schema(
             ["bug_id", "agent_id"],
             {
