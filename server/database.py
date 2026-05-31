@@ -805,6 +805,7 @@ class SocialPostMetricRow(Base):
 
 import server.database_growth, server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
 import server.database_scheduled_jobs  # noqa: E402,F401
+import server.services.releases.mcp_server_models  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (

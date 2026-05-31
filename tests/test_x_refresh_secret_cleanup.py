@@ -33,6 +33,14 @@ def _completed(cmd, *, returncode=0, stdout="{}", stderr=""):
     return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
 
 
+@pytest.fixture(autouse=True)
+def fixed_x_refresh_secret_key(monkeypatch):
+    monkeypatch.setattr(
+        "server.services.x_refresh_secret_cleanup.config.X_OAUTH_REFRESH_TOKEN_LOCAL_KEY",
+        "x-official-oauth2-refresh-token",
+    )
+
+
 def test_delete_x_refresh_secret_refuses_when_local_oauth_unverified(
     monkeypatch, db_session
 ):

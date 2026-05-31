@@ -9,9 +9,10 @@ import { STATUS_LABEL, releaseTone } from './releaseListUi'
 import SdkPackagesPanel from './SdkPackagesPanel'
 import ScheduledJobsPanel from './ScheduledJobsPanel'
 import ProductionDeployModal from './ProductionDeployModal'
+import McpServersPanel from './McpServersPanel'
 
-type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'online'
-const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'online']
+type ReleaseTab = 'candidates' | 'tasks' | 'scheduled-jobs' | 'sdk-packages' | 'mcp-servers' | 'online'
+const RELEASE_TABS: ReleaseTab[] = ['candidates', 'tasks', 'scheduled-jobs', 'sdk-packages', 'mcp-servers', 'online']
 const RELEASE_TASK_PAGE_SIZE = 10
 
 const TASK_STATUS_OPTIONS = ['', 'requested', 'deploying', 'completed', 'failed', 'cancelled']
@@ -537,7 +538,7 @@ export default function ReleasesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <input
               className="w-72 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm"
-              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'sdk-packages' ? '搜索 SDK package / version / registry' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
+              placeholder={activeTab === 'tasks' ? '搜索 project / branch / operator' : activeTab === 'sdk-packages' ? '搜索 SDK package / version / registry' : activeTab === 'mcp-servers' ? '搜索 MCP server / version / registry' : activeTab === 'online' ? '搜索 project / branch / commit' : '搜索 requirement / project'}
               value={search}
               onChange={(event) => {
                 setSearch(event.target.value)
@@ -622,6 +623,13 @@ export default function ReleasesPage() {
           </button>
           <button
             type="button"
+            className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'mcp-servers' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
+            onClick={() => selectReleaseTab('mcp-servers')}
+          >
+            MCP Servers
+          </button>
+          <button
+            type="button"
             className={`rounded-full border px-4 py-2 text-sm ${activeTab === 'online' ? 'border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] text-[color:var(--ops-state-running-text)]' : 'border-[color:var(--ops-stroke-soft)] text-[color:var(--ops-text-muted)]'}`}
             onClick={() => selectReleaseTab('online')}
           >
@@ -695,6 +703,8 @@ export default function ReleasesPage() {
         <ScheduledJobsPanel />
       ) : activeTab === 'sdk-packages' ? (
         <SdkPackagesPanel search={search} />
+      ) : activeTab === 'mcp-servers' ? (
+        <McpServersPanel search={search} />
       ) : (
         <OnlineRecordsTable
           records={filteredOnlineRecords}
