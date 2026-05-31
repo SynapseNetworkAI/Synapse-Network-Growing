@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from server.database_growth import (
@@ -47,6 +48,18 @@ SOURCE_TYPES = {
     "manual_seed_list",
 }
 SOURCE_STATUSES = {"enabled", "paused", "archived"}
+
+
+class GrowthProviderSourceSweepResult(BaseModel):
+    dry_run: bool
+    source_count: int
+    run_ids: list[int] = Field(default_factory=list)
+    candidate_count: int = 0
+    created_count: int = 0
+    reused_count: int = 0
+    drafted_count: int = 0
+
+
 def list_source_configs(db: Session) -> GrowthSourceConfigListOut:
     rows = (
         db.query(GrowthSourceConfigRow)
@@ -209,7 +222,9 @@ def ensure_default_provider_source_config(db: Session) -> GrowthSourceConfigOut:
     return source_config_out(existing)
 
 
-def run_enabled_provider_sources(db: Session, *, dry_run: bool = False) -> dict[str, Any]:
+def run_enabled_provider_sources(
+    db: Session, *, dry_run: bool = False
+) -> GrowthProviderSourceSweepResult:
     rows = (
         db.query(GrowthSourceConfigRow)
         .filter(
@@ -235,15 +250,15 @@ def run_enabled_provider_sources(db: Session, *, dry_run: bool = False) -> dict[
         )
         for row in rows
     ]
-    return {
-        "dry_run": bool(dry_run),
-        "source_count": len(rows),
-        "run_ids": [run.id for run in runs],
-        "candidate_count": sum(run.candidate_count for run in runs),
-        "created_count": sum(run.created_count for run in runs),
-        "reused_count": sum(run.reused_count for run in runs),
-        "drafted_count": sum(run.drafted_count for run in runs),
-    }
+    return GrowthProviderSourceSweepResult(
+        dry_run=bool(dry_run),
+        source_count=len(rows),
+        run_ids=[run.id for run in runs],
+        candidate_count=sum(run.candidate_count for run in runs),
+        created_count=sum(run.created_count for run in runs),
+        reused_count=sum(run.reused_count for run in runs),
+        drafted_count=sum(run.drafted_count for run in runs),
+    )
 
 
 def _apply_candidates(
@@ -310,9 +325,9 @@ def _discover_candidates(source: GrowthSourceConfigRow, *, max_results: int | No
     text = " ".join(seed_urls + [str(item) for item in query.get("queries") or []]).lower()
     candidates: list[dict[str, Any]] = []
     if "firecrawl" in text or not seed_urls:
-        candidates.append(firecrawl_candidate())
+        candidates.append(firecrawl_candidate().model_dump())
     if "tavily" in text:
-        candidates.append(tavily_candidate())
+        candidates.append(tavily_candidate().model_dump())
     return candidates[: max(1, min(int(max_results or query.get("max_results") or 25), 100))]
 
 

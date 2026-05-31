@@ -38,4 +38,4 @@ GROWTH_PROVIDER_SOURCE_WORKFLOW: dict[str, Any] = {
 def run_growth_provider_source_workflow(
     db: Session, *, dry_run: bool
 ) -> dict[str, Any]:
-    return run_enabled_provider_sources(db, dry_run=dry_run)
+    return run_enabled_provider_sources(db, dry_run=dry_run).model_dump()
