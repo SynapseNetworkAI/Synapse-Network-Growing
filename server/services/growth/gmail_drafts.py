@@ -35,11 +35,10 @@ def create_gmail_draft(
     metadata: dict[str, object] | None = None,
 ) -> GrowthOutreachMessageOut:
     message = _message_or_404(db, message_id)
-    if message.status != "approved":
-        raise GmailDraftError("gmail_draft_requires_approved_message")
     lead = _lead_or_404(db, message.lead_id)
     message_metadata = json_loads(message.metadata_json, {})
-    if message_metadata.get("gmail_draft_id"):
+    _validate_draftable_message(message, message_metadata)
+    if _existing_gmail_draft(message_metadata):
         return message_out(message)
     contact_email = _contact_email(lead, message_metadata)
     if not contact_email:
@@ -53,52 +52,29 @@ def create_gmail_draft(
         subject=message.subject,
         body=message.body,
     )
-    draft_id = str(gmail_payload.get("id") or "").strip()
-    gmail_message = (
-        gmail_payload.get("message")
-        if isinstance(gmail_payload.get("message"), dict)
-        else {}
-    )
-    if not draft_id:
-        raise GmailDraftError("gmail_draft_create_failed_missing_id")
-
-    created_at = datetime.now(timezone.utc).isoformat()
-    message_metadata.update(
-        {
-            "gmail_status": "draft_created",
-            "gmail_draft_id": draft_id,
-            "gmail_message_id": str(gmail_message.get("id") or ""),
-            "gmail_thread_id": str(gmail_message.get("threadId") or ""),
-            "draft_url": f"https://mail.google.com/mail/u/0/#drafts?compose={draft_id}",
-            "contact_email": contact_email,
-            "gmail_created_at": created_at,
-        }
-    )
+    draft_metadata = _gmail_draft_metadata(gmail_payload, contact_email)
+    message_metadata.update(draft_metadata)
     if metadata:
         message_metadata["gmail_operator_metadata"] = dict(metadata)
     message.metadata_json = json_dumps(message_metadata)
     message.status = "queued"
     lead.status = "queued"
-    db.add(
-        GrowthOutreachEventRow(
-            lead_id=lead.id,
-            message_id=message.id,
-            event_type="gmail_draft_created",
-            actor=actor or "operator",
-            from_status="approved",
-            to_status="queued",
-            summary="Gmail draft created; no email was sent automatically.",
-            metadata_json=json_dumps(
-                {
-                    "gmail_draft_id": draft_id,
-                    "contact_email": contact_email,
-                    "auto_send": False,
-                }
-            ),
-        )
-    )
+    _record_gmail_draft_created(db, lead, message, actor=actor, metadata=draft_metadata)
     db.commit()
     return message_out(message)
+
+
+def _validate_draftable_message(
+    message: GrowthOutreachMessageRow, message_metadata: dict[str, Any]
+) -> None:
+    if message.status != "approved":
+        raise GmailDraftError("gmail_draft_requires_approved_message")
+    if message_metadata.get("gmail_status") == "sent":
+        raise GmailDraftError("gmail_draft_refuses_already_sent_message")
+
+
+def _existing_gmail_draft(message_metadata: dict[str, Any]) -> bool:
+    return bool(str(message_metadata.get("gmail_draft_id") or "").strip())
 
 
 def _gmail_access_token(db: Session) -> str:
@@ -165,10 +141,65 @@ def _post_gmail_draft(
     return payload if isinstance(payload, dict) else {}
 
 
+def _gmail_draft_metadata(
+    gmail_payload: dict[str, Any], contact_email: str
+) -> dict[str, str]:
+    draft_id = str(gmail_payload.get("id") or "").strip()
+    gmail_message = _gmail_message_payload(gmail_payload)
+    if not draft_id:
+        raise GmailDraftError("gmail_draft_create_failed_missing_id")
+    return {
+        "gmail_status": "draft_created",
+        "gmail_draft_id": draft_id,
+        "gmail_message_id": str(gmail_message.get("id") or ""),
+        "gmail_thread_id": str(gmail_message.get("threadId") or ""),
+        "draft_url": f"https://mail.google.com/mail/u/0/#drafts?compose={draft_id}",
+        "contact_email": contact_email,
+        "gmail_created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _gmail_message_payload(gmail_payload: dict[str, Any]) -> dict[str, Any]:
+    message = gmail_payload.get("message")
+    return message if isinstance(message, dict) else {}
+
+
+def _record_gmail_draft_created(
+    db: Session,
+    lead: GrowthLeadRow,
+    message: GrowthOutreachMessageRow,
+    *,
+    actor: str,
+    metadata: dict[str, str],
+) -> None:
+    db.add(
+        GrowthOutreachEventRow(
+            lead_id=lead.id,
+            message_id=message.id,
+            event_type="gmail_draft_created",
+            actor=actor or "operator",
+            from_status="approved",
+            to_status="queued",
+            summary="Gmail draft created; no email was sent automatically.",
+            metadata_json=json_dumps(
+                {
+                    "gmail_draft_id": metadata["gmail_draft_id"],
+                    "contact_email": metadata["contact_email"],
+                    "auto_send": False,
+                }
+            ),
+        )
+    )
+
+
 def _contact_email(lead: GrowthLeadRow, message_metadata: dict[str, Any]) -> str:
     candidate = str(message_metadata.get("contact_email") or "").strip()
-    if candidate and "noreply.github.com" not in candidate.lower():
+    if _usable_contact_email(candidate):
         return candidate
+    return _lead_contact_email(lead)
+
+
+def _lead_contact_email(lead: GrowthLeadRow) -> str:
     try:
         parsed = json.loads(lead.contact_channels_json or "[]")
     except Exception:
@@ -177,9 +208,13 @@ def _contact_email(lead: GrowthLeadRow, message_metadata: dict[str, Any]) -> str
         if not isinstance(channel, dict):
             continue
         value = str(channel.get("value") or "").strip()
-        if value and "@" in value and "noreply.github.com" not in value.lower():
+        if _usable_contact_email(value):
             return value
     return ""
+
+
+def _usable_contact_email(value: str) -> bool:
+    return bool(value and "@" in value and "noreply.github.com" not in value.lower())
 
 
 def _lead_or_404(db: Session, lead_id: int) -> GrowthLeadRow:

@@ -14,6 +14,7 @@ from server.database_growth import (
 )
 from server.schemas_growth import (
     GrowthLeadCreate,
+    GrowthLeadOut,
     GrowthResearchRunListOut,
     GrowthResearchRunOut,
     GrowthSourceConfigCreate,
@@ -58,6 +59,14 @@ class GrowthProviderSourceSweepResult(BaseModel):
     created_count: int = 0
     reused_count: int = 0
     drafted_count: int = 0
+
+
+class CandidateApplyOutcome(BaseModel):
+    created: int = 0
+    reused: int = 0
+    drafted: int = 0
+    lead_id: int | None = None
+    draft_error: str = ""
 
 
 def list_source_configs(db: Session) -> GrowthSourceConfigListOut:
@@ -292,39 +301,24 @@ def _apply_candidates(
     draft_errors: list[str] = []
     lead_ids: list[int] = []
     for candidate in candidates:
-        score = int(candidate["fit_score"])
-        if score < create_score or dry_run:
-            continue
-        lead_body = _candidate_to_lead(
-            candidate, source_config_id=source.id, run_id=run.id
+        outcome = _apply_candidate(
+            db,
+            source=source,
+            run=run,
+            candidate=candidate,
+            dry_run=dry_run,
+            create_score=create_score,
+            draft_score=draft_score,
+            create_drafts=create_drafts,
+            actor=actor,
         )
-        existing = _existing_lead(db, lead_body)
-        existed = existing is not None
-        if existing is not None:
-            _sync_existing_lead(existing, lead_body)
-        lead = workbench.create_lead(db, lead_body)
-        lead_ids.append(lead.id)
-        created += 0 if existed else 1
-        reused += 1 if existed else 0
-        active_message = _active_message(db, lead.id)
-        if active_message is not None:
-            _sync_existing_message(active_message, candidate)
-        if create_drafts and score >= draft_score and active_message is None:
-            if not trusted_contact_email(candidate):
-                draft_errors.append(
-                    f"{candidate['name']}: blocked_missing_trusted_contact_email"
-                )
-                continue
-            try:
-                create_provider_onboarding_draft(
-                    db,
-                    lead_id=lead.id,
-                    candidate=candidate,
-                    actor=actor,
-                )
-                drafted += 1
-            except Exception as exc:  # fail closed for draft only
-                draft_errors.append(f"{candidate['name']}: {str(exc)[:160]}")
+        created += outcome.created
+        reused += outcome.reused
+        drafted += outcome.drafted
+        if outcome.lead_id is not None:
+            lead_ids.append(outcome.lead_id)
+        if outcome.draft_error:
+            draft_errors.append(outcome.draft_error)
     return {
         "candidate_count": len(candidates),
         "created_count": created,
@@ -335,6 +329,79 @@ def _apply_candidates(
         "error_summary": "; ".join(draft_errors)[:1000],
         "send_policy": "manual_gmail_draft_only",
     }
+
+
+def _apply_candidate(
+    db: Session,
+    *,
+    source: GrowthSourceConfigRow,
+    run: GrowthResearchRunRow,
+    candidate: dict[str, Any],
+    dry_run: bool,
+    create_score: int,
+    draft_score: int,
+    create_drafts: bool,
+    actor: str,
+) -> CandidateApplyOutcome:
+    score = int(candidate["fit_score"])
+    if score < create_score or dry_run:
+        return CandidateApplyOutcome()
+    lead_body = _candidate_to_lead(candidate, source_config_id=source.id, run_id=run.id)
+    existing = _existing_lead(db, lead_body)
+    lead = _create_or_sync_lead(db, lead_body, existing)
+    message = _active_message(db, lead.id)
+    if message is not None:
+        _sync_existing_message(message, candidate)
+    draft_result = _maybe_draft_candidate(
+        db,
+        lead_id=lead.id,
+        candidate=candidate,
+        can_draft=create_drafts and score >= draft_score and message is None,
+        actor=actor,
+    )
+    return CandidateApplyOutcome(
+        created=0 if existing is not None else 1,
+        reused=1 if existing is not None else 0,
+        drafted=draft_result.drafted,
+        lead_id=lead.id,
+        draft_error=draft_result.draft_error,
+    )
+
+
+def _create_or_sync_lead(
+    db: Session, lead_body: GrowthLeadCreate, existing: GrowthLeadRow | None
+) -> GrowthLeadOut:
+    if existing is not None:
+        _sync_existing_lead(existing, lead_body)
+    return workbench.create_lead(db, lead_body)
+
+
+def _maybe_draft_candidate(
+    db: Session,
+    *,
+    lead_id: int,
+    candidate: dict[str, Any],
+    can_draft: bool,
+    actor: str,
+) -> CandidateApplyOutcome:
+    if not can_draft:
+        return CandidateApplyOutcome()
+    if not trusted_contact_email(candidate):
+        return CandidateApplyOutcome(
+            draft_error=f"{candidate['name']}: blocked_missing_trusted_contact_email"
+        )
+    try:
+        create_provider_onboarding_draft(
+            db,
+            lead_id=lead_id,
+            candidate=candidate,
+            actor=actor,
+        )
+    except Exception as exc:  # fail closed for draft only
+        return CandidateApplyOutcome(
+            draft_error=f"{candidate['name']}: {str(exc)[:160]}"
+        )
+    return CandidateApplyOutcome(drafted=1)
 
 
 def _discover_candidates(
