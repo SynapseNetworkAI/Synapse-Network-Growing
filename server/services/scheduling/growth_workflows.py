@@ -4,7 +4,10 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from server.services.growth.provider_sources import run_enabled_provider_sources
+from server.services.growth.provider_sources import (
+    GrowthProviderSourceSweepResult,
+    run_enabled_provider_sources,
+)
 
 
 GROWTH_PROVIDER_SOURCE_WORKFLOW: dict[str, Any] = {
@@ -37,5 +40,5 @@ GROWTH_PROVIDER_SOURCE_WORKFLOW: dict[str, Any] = {
 
 def run_growth_provider_source_workflow(
     db: Session, *, dry_run: bool
-) -> dict[str, Any]:
-    return run_enabled_provider_sources(db, dry_run=dry_run).model_dump()
+) -> GrowthProviderSourceSweepResult:
+    return run_enabled_provider_sources(db, dry_run=dry_run)

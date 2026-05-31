@@ -46,7 +46,7 @@ def _run_growth_provider_source(
 ) -> Any:
     if db is None:
         raise ValueError("growth provider source workflow requires a database session")
-    return run_growth_provider_source_workflow(db, dry_run=dry_run)
+    return run_growth_provider_source_workflow(db, dry_run=dry_run).model_dump()
 
 
 def _run_artifact_cleanup(
