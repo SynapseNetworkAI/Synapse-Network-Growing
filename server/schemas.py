@@ -2206,7 +2206,6 @@ class RecurringWorkflowRunResultOut(BaseModel):
     run_id: Optional[int] = None
     result: dict[str, object] = {}
 
-
 class RecurringWorkflowHealthOut(BaseModel):
     bug_log_scheduler: dict[str, object] = {}
     goal_planner_scheduler: dict[str, object] = {}
@@ -2214,6 +2213,7 @@ class RecurringWorkflowHealthOut(BaseModel):
     release_pr_status_scheduler: dict[str, object] = {}
     release_deployment_status_scheduler: dict[str, object] = {}
     x_social_scheduler: dict[str, object] = {}
+    cost_control_scheduler: dict[str, object] = {}
     notification_dispatcher: dict[str, object] = {}
     recurring_registry: dict[str, object] = {}
 

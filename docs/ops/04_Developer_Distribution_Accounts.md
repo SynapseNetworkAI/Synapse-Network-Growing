@@ -123,7 +123,11 @@ PYTHONPATH=. python scripts/ops/migrate_x_refresh_token_to_local_db.py
 
 The script reads `X_OAUTH_BOOTSTRAP_REFRESH_TOKEN` from the local environment, writes the encrypted local version, verifies a token refresh without printing the token, and then instructs the operator to remove the bootstrap variable.
 
-The previous GCP Secret Manager cleanup schedule is disabled for Growing runtime. Old GCP Secret Manager resources must not be deleted as part of normal app startup or Schedule Center runs; any live GCP cleanup requires a separate explicit operator action after local verification.
+GCP Secret Manager cleanup is handled by Schedule Center cost-control workflows,
+not by X publishing runtime. `secret_manager_version_cleanup_sweep` reads only
+Secret Manager metadata, keeps the newest two active versions per secret, and
+destroys older active versions to reduce version sprawl. X refresh token runtime
+still uses the local encrypted Postgres secret store, not Secret Manager.
 
 ## 6. Channel Account Tracking
 

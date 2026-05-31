@@ -105,16 +105,24 @@ def verify_api_and_crud(args: Args) -> None:
     keys = {item["workflow_key"] for item in schedules}
     template_keys = {item["template_key"] for item in templates}
     _assert(
-        "secret_manager_version_cleanup_sweep" not in keys,
-        "secret cleanup schedule must be disabled",
+        "secret_manager_version_cleanup_sweep" in keys,
+        "secret cleanup schedule missing",
+    )
+    _assert(
+        "staging_environment_shutdown_sweep" in keys,
+        "staging shutdown schedule missing",
     )
     _assert(
         "artifact_registry_cleanup_sweep" in keys, "artifact cleanup schedule missing"
     )
     _assert("artifact_registry_cleanup" in template_keys, "artifact template missing")
     _assert(
-        "secret_manager_version_cleanup" not in template_keys,
-        "secret template must be disabled",
+        "secret_manager_version_cleanup" in template_keys,
+        "secret template missing",
+    )
+    _assert(
+        "staging_environment_shutdown" in template_keys,
+        "staging shutdown template missing",
     )
 
     print("[schedule-e2e] verifying custom artifact schedule CRUD")
@@ -190,10 +198,14 @@ def verify_database(args: Args) -> None:
         """
         select workflow_key, status, is_builtin, output_action_json
         from recurring_workflows
-        where workflow_key in ('artifact_registry_cleanup_sweep')
+        where workflow_key in (
+          'artifact_registry_cleanup_sweep',
+          'secret_manager_version_cleanup_sweep',
+          'staging_environment_shutdown_sweep'
+        )
         """,
     )
-    _assert(len(workflows) == 1, "expected artifact cleanup workflow in DB")
+    _assert(len(workflows) == 3, "expected cost-control workflows in DB")
     actions = {
         row["workflow_key"]: json.loads(row["output_action_json"])["kind"]
         for row in workflows
@@ -202,6 +214,16 @@ def verify_database(args: Args) -> None:
         actions["artifact_registry_cleanup_sweep"]
         == "cleanup_artifact_registry_versions",
         "artifact output action mismatch",
+    )
+    _assert(
+        actions["secret_manager_version_cleanup_sweep"]
+        == "destroy_old_secret_manager_versions",
+        "secret output action mismatch",
+    )
+    _assert(
+        actions["staging_environment_shutdown_sweep"]
+        == "shutdown_staging_environment",
+        "staging shutdown output action mismatch",
     )
     runs = _db_rows(
         args.database_url,
@@ -279,9 +301,42 @@ def verify_real_gcp_dry_run(args: Args) -> None:
 def apply_secret_test(args: Args) -> None:
     if not args.apply_secret_test:
         return
-    print(
-        "[schedule-e2e] Secret Manager cleanup apply test is disabled; "
-        "Growing runtime no longer manages GCP Secret Manager."
+    if not args.confirm:
+        return
+    _assert(args.confirm == CONFIRM_PHRASE, f"--confirm {CONFIRM_PHRASE} required")
+    print("[schedule-e2e] applying Secret Manager cleanup to explicit test secret")
+    workflow_key = f"custom_secret_cleanup_e2e_{int(time.time())}"
+    _request(
+        "POST",
+        args.base_url,
+        "/api/schedules",
+        json={
+            "template_key": "secret_manager_version_cleanup",
+            "workflow_key": workflow_key,
+            "display_name": "Custom Secret Cleanup E2E",
+            "input_query": {
+                "projects": [STAGING_PROJECT],
+                "secret_ids": ["schedule-e2e-cleanup-test"],
+                "keep": 2,
+            },
+        },
+    )
+    dry_run = _request(
+        "POST",
+        args.base_url,
+        f"/api/schedules/{workflow_key}/run",
+        json={"dry_run": True},
+    )
+    _assert(dry_run["result"]["project_count"] == 1, "secret dry-run project mismatch")
+    apply = _request(
+        "POST",
+        args.base_url,
+        f"/api/schedules/{workflow_key}/run",
+        json={"dry_run": False},
+    )
+    _assert(
+        apply["result"]["error_count"] == 0,
+        f"secret apply failed: {apply['result']}",
     )
 
 

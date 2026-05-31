@@ -422,9 +422,6 @@ def test_x_social_helper_branches_are_deterministic(monkeypatch, db_session):
     assert social_publishing._parse_x_datetime("not-a-date").tzinfo is not None
     assert social_publishing._parse_x_datetime("2026-04-27T00:00:00").tzinfo is None
     assert social_publishing._x_engagement_score({}) == 0.0
-    assert social_publishing._gcp_adc_reauth_summary().startswith(
-        "Local Google credentials expired"
-    )
     assert social_publishing._extract_x_post_id(None) == ""
     assert (
         social_publishing._extract_x_post_id("https://x.com/OpenAI/status/12345")

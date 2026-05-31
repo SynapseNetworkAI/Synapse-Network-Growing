@@ -1,3 +1,5 @@
+import json
+
 from server.services.scheduling.recurring_workflows import (
     get_recurring_workflow,
     run_recurring_workflow,
@@ -12,6 +14,9 @@ def test_artifact_registry_cleanup_recurring_workflow_is_registered_and_runnable
 
     row = get_recurring_workflow(db_session, "artifact_registry_cleanup_sweep")
     assert row.display_name == "Artifact Registry Cleanup Sweep"
+    assert json.loads(row.schedule_json)["interval_minutes"] == 30
+    assert json.loads(row.input_query_json)["keep"] == 3
+    assert json.loads(row.input_query_json)["older_than_days"] == 0
     assert "cleanup_artifact_registry_versions" in row.output_action_json
 
     calls: list[bool] = []

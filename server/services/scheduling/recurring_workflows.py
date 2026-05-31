@@ -42,7 +42,9 @@ from server.services.releases.service import sync_release_pr_statuses
 from server.services.releases.scheduled_job_sync import sync_scheduled_job_publish_statuses
 from server.services.releases.tasks import sync_release_task_deployment_statuses
 from server.services.scheduling.artifact_registry_workflows import ARTIFACT_REGISTRY_CLEANUP_WORKFLOW
+from server.services.scheduling.secret_manager_workflows import SECRET_MANAGER_CLEANUP_WORKFLOW
 from server.services.scheduling.cleanup_workflows import run_cleanup_workflow
+from server.services.scheduling.staging_environment_workflows import STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW
 from server.services.social.daily_planner import run_x_social_daily_content_planner
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
@@ -230,6 +232,8 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "validation_signal": {"success_metric": "processed_count"},
     },
     ARTIFACT_REGISTRY_CLEANUP_WORKFLOW,
+    SECRET_MANAGER_CLEANUP_WORKFLOW,
+    STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW,
     {"workflow_key": "social_asset_planner_sweep", "display_name": "Social Asset Planner Sweep", "description": "Sample one high-quality signal type and create at most one human-reviewed content asset.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "hourly", "interval_hours": 1}, "input_query": {"sources": ["product_changes", "trend_radar", "published_metrics"], "max_signals": 5}, "output_action": {"kind": "create_social_content_asset", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "created_asset_id"}},
     {
         "workflow_key": "x_social_daily_content_planner",
@@ -1680,6 +1684,7 @@ def recurring_workflow_health(
     release_pr_status_scheduler_status: dict[str, Any] | None = None,
     release_deployment_status_scheduler_status: dict[str, Any] | None = None,
     x_social_scheduler_status: dict[str, Any] | None = None,
+    cost_control_scheduler_status: dict[str, Any] | None = None,
     notification_dispatcher_status: dict[str, Any] | None = None,
 ) -> ServiceObjectResult:
     rows = list_recurring_workflows(db)
@@ -1713,6 +1718,10 @@ def recurring_workflow_health(
         },
         "x_social_scheduler": x_social_scheduler_status or {
             "enabled": bool(getattr(config, "X_SOCIAL_SWEEP_SCHEDULER_ENABLED", False)),
+            "running": False,
+        },
+        "cost_control_scheduler": cost_control_scheduler_status or {
+            "enabled": bool(getattr(config, "COST_CONTROL_SCHEDULER_ENABLED", False)),
             "running": False,
         },
         "notification_dispatcher": {

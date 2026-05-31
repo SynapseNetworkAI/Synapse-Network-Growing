@@ -73,6 +73,13 @@ def _image_name_from_digest(
     return f"{image}@{prefix}{digest}"
 
 
+def _package_key(
+    row: dict[str, Any], *, location: str, project: str, repository: str
+) -> str:
+    image = _image_name(row, location=location, project=project, repository=repository)
+    return image.split("@", 1)[0].split(":", 1)[0]
+
+
 def _digest_key(row: dict[str, Any]) -> str:
     raw = str(row.get("version") or row.get("digest") or row.get("name") or "")
     match = re.search(r"sha256[:/][a-fA-F0-9]{16,}", raw)
@@ -125,7 +132,9 @@ def _cleanup_row(
 ):
     tags = _tags(row)
     digest = _digest_key(row)
-    image = _image_name(row, location=region, project=project, repository=repository)
+    image = _delete_target_image(
+        row, location=region, project=project, repository=repository
+    )
     updated = _parse_time(row.get("updateTime") or row.get("createTime"))
     item = {
         "image": image,
@@ -138,6 +147,16 @@ def _cleanup_row(
     if updated.timestamp() > cutoff:
         return "skipped", {**item, "reason": "newer_than_cutoff"}
     return "candidate", item
+
+
+def _delete_target_image(
+    row: dict[str, Any], *, location: str, project: str, repository: str
+) -> str:
+    image = _image_name(row, location=location, project=project, repository=repository)
+    digest = _digest_key(row)
+    if "@sha256:" in image or not digest.startswith("sha256:"):
+        return image
+    return f"{image}@{digest}"
 
 
 def _cleanup_project(
@@ -170,7 +189,15 @@ def _cleanup_project(
         ).timestamp(),
         reverse=True,
     )
-    protected_or_recent = {_digest_key(row) for row in rows[:keep_count]}
+    protected_or_recent: set[str] = set()
+    rows_by_package: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        package = _package_key(
+            row, location=region, project=project, repository=repository
+        )
+        rows_by_package.setdefault(package, []).append(row)
+    for package_rows in rows_by_package.values():
+        protected_or_recent.update(_digest_key(row) for row in package_rows[:keep_count])
     for row in rows:
         action, item = _cleanup_row(
             row,
@@ -251,6 +278,7 @@ def _list_images(
 @service_object_result
 def cleanup_artifact_registry_versions(
     *,
+    targets: list[dict[str, Any]] | None = None,
     projects: list[str] | None = None,
     region: str | None = None,
     repository: str | None = None,
@@ -262,9 +290,14 @@ def cleanup_artifact_registry_versions(
     """Delete old Artifact Registry Docker images while preserving recent/promoted versions."""
 
     command_runner = runner or _run_command
-    selected_projects = list(projects or config.ARTIFACT_REGISTRY_CLEANUP_PROJECTS)
     selected_region = str(region or config.ARTIFACT_REGISTRY_CLEANUP_REGION)
     selected_repository = str(repository or config.ARTIFACT_REGISTRY_CLEANUP_REPOSITORY)
+    selected_targets = _selected_targets(
+        targets=targets,
+        projects=projects,
+        region=selected_region,
+        repository=selected_repository,
+    )
     keep_count = max(1, int(keep or config.ARTIFACT_REGISTRY_CLEANUP_KEEP_VERSIONS))
     age_days = max(
         0,
@@ -276,7 +309,7 @@ def cleanup_artifact_registry_versions(
     )
     cutoff = datetime.now(timezone.utc).timestamp() - (age_days * 86400)
     totals = {
-        "project_count": len(selected_projects),
+        "project_count": len(selected_targets),
         "image_count": 0,
         "kept_count": 0,
         "candidate_count": 0,
@@ -285,11 +318,11 @@ def cleanup_artifact_registry_versions(
         "error_count": 0,
     }
     project_results: list[dict[str, Any]] = []
-    for project in selected_projects:
+    for target in selected_targets:
         project_result, project_totals = _cleanup_project(
-            project=project,
-            region=selected_region,
-            repository=selected_repository,
+            project=str(target["project"]),
+            region=str(target["region"]),
+            repository=str(target["repository"]),
             keep_count=keep_count,
             cutoff=cutoff,
             dry_run=dry_run,
@@ -306,3 +339,34 @@ def cleanup_artifact_registry_versions(
         **totals,
         "projects": project_results,
     }
+
+
+def _selected_targets(
+    *,
+    targets: list[dict[str, Any]] | None,
+    projects: list[str] | None,
+    region: str,
+    repository: str,
+) -> list[dict[str, str]]:
+    if targets:
+        selected: list[dict[str, str]] = []
+        for item in targets:
+            if not isinstance(item, dict):
+                continue
+            project = str(item.get("project") or "").strip()
+            if not project:
+                continue
+            selected.append(
+                {
+                    "project": project,
+                    "region": str(item.get("region") or region).strip() or region,
+                    "repository": str(item.get("repository") or repository).strip()
+                    or repository,
+                }
+            )
+        if selected:
+            return selected
+    return [
+        {"project": project, "region": region, "repository": repository}
+        for project in list(projects or config.ARTIFACT_REGISTRY_CLEANUP_PROJECTS)
+    ]

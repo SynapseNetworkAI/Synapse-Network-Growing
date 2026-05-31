@@ -1,0 +1,574 @@
+{
+  "image_count": 37,
+  "projects": [
+    {
+      "image_count": 16,
+      "images": [
+        {
+          "createTime": "2026-05-24T17:22:01.655663Z",
+          "metadata": {
+            "buildTime": "2026-05-24T17:20:53.141077555Z",
+            "imageSizeBytes": "422076900",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/admin-front@sha256:25c59f29eef4c7003e7133f72e2603866eac74f6a284b78e7e58a3791b236340"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front",
+          "tags": [
+            "staging-local-admin-front-de7a9aab84e9-20260524171502"
+          ],
+          "updateTime": "2026-05-24T17:22:01.655663Z",
+          "version": "sha256:25c59f29eef4c7003e7133f72e2603866eac74f6a284b78e7e58a3791b236340"
+        },
+        {
+          "createTime": "2026-05-24T17:42:38.946255Z",
+          "metadata": {
+            "buildTime": "2026-05-24T17:41:40.155600387Z",
+            "imageSizeBytes": "422073528",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/admin-front@sha256:2e6d185ec2e22c8b9af7116c07f086d2d72743370277372a9568cf3f8e188377"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front",
+          "tags": [
+            "staging-local-admin-front-f80eface1c98-20260524173542"
+          ],
+          "updateTime": "2026-05-24T17:42:38.946255Z",
+          "version": "sha256:2e6d185ec2e22c8b9af7116c07f086d2d72743370277372a9568cf3f8e188377"
+        },
+        {
+          "createTime": "2026-05-24T17:32:35.942879Z",
+          "metadata": {
+            "buildTime": "2026-05-24T17:31:41.784721561Z",
+            "imageSizeBytes": "422070569",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/admin-front@sha256:38ca5cb167b7b6fd5812c05b7fd580ec2b14c78967cb552d4424d236035c7338"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/admin-front",
+          "tags": [
+            "staging-local-admin-front-a6ad54a46aba-20260524172609"
+          ],
+          "updateTime": "2026-05-24T17:32:35.942879Z",
+          "version": "sha256:38ca5cb167b7b6fd5812c05b7fd580ec2b14c78967cb552d4424d236035c7338"
+        },
+        {
+          "createTime": "2026-05-28T13:22:41.944335Z",
+          "metadata": {
+            "buildTime": "2026-05-28T13:22:25.176262820Z",
+            "imageSizeBytes": "124622273",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway@sha256:02f6fb9024b176409a2b89322e2a7c4669f34e309d0405c7bc2ed5d614d46124"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway",
+          "tags": [
+            "staging-local-gateway-b2d93da3873c-20260528132053"
+          ],
+          "updateTime": "2026-05-28T13:22:41.944335Z",
+          "version": "sha256:02f6fb9024b176409a2b89322e2a7c4669f34e309d0405c7bc2ed5d614d46124"
+        },
+        {
+          "createTime": "2026-05-28T14:07:02.815023Z",
+          "metadata": {
+            "buildTime": "2026-05-28T14:06:45.137832637Z",
+            "imageSizeBytes": "124622574",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway",
+          "tags": [
+            "staging-local-gateway-34d3c3944d4b-20260528140639"
+          ],
+          "updateTime": "2026-05-28T14:07:02.815023Z",
+          "version": "sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d"
+        },
+        {
+          "createTime": "2026-05-30T13:40:02.742719Z",
+          "metadata": {
+            "buildTime": "2026-05-30T13:39:37.502752067Z",
+            "imageSizeBytes": "124627228",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway@sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway",
+          "tags": [
+            "staging-local-gateway-6cc5c5d85b2d-20260530133731"
+          ],
+          "updateTime": "2026-05-30T13:40:02.742719Z",
+          "version": "sha256:4f931c2fd63c9f2231a353cd888553be1a29c7779d3d42f5aaef09e0ff0b50a7"
+        },
+        {
+          "createTime": "2026-05-28T02:16:30.508319Z",
+          "metadata": {
+            "buildTime": "2026-05-28T02:16:22.865469849Z",
+            "imageSizeBytes": "124343040",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway@sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway",
+          "tags": [
+            "staging-local-gateway-512bbada8b7c-20260528021617"
+          ],
+          "updateTime": "2026-05-28T02:16:30.508319Z",
+          "version": "sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9"
+        },
+        {
+          "createTime": "2026-05-25T02:50:02.780735Z",
+          "metadata": {
+            "buildTime": "2026-05-25T02:49:55.149529834Z",
+            "imageSizeBytes": "82443894",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin",
+          "tags": [
+            "staging-local-gateway-admin-11f75b7e68ff-20260525024950"
+          ],
+          "updateTime": "2026-05-25T02:50:02.780735Z",
+          "version": "sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19"
+        },
+        {
+          "createTime": "2026-05-24T10:57:58.285951Z",
+          "metadata": {
+            "buildTime": "2026-05-24T10:57:45.327471093Z",
+            "imageSizeBytes": "82442853",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway-admin@sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin",
+          "tags": [
+            "staging-local-gateway-admin-736f44bb3fda-20260524105656"
+          ],
+          "updateTime": "2026-05-24T10:57:58.285951Z",
+          "version": "sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10"
+        },
+        {
+          "createTime": "2026-05-25T02:32:26.439823Z",
+          "metadata": {
+            "buildTime": "2026-05-25T02:32:17.781213327Z",
+            "imageSizeBytes": "82443545",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/gateway-admin@sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/gateway-admin",
+          "tags": [
+            "staging-local-gateway-admin-cebb8fbc9a3c-20260525023211"
+          ],
+          "updateTime": "2026-05-25T02:32:26.439823Z",
+          "version": "sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a"
+        },
+        {
+          "createTime": "2026-05-30T08:04:49.042495Z",
+          "metadata": {
+            "buildTime": "2026-05-30T08:04:16.696525629Z",
+            "imageSizeBytes": "294037365",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/provider@sha256:056a1001bfc7f672a16da80f03de549843a21d20c9253369f68a4f6e759a3203"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider",
+          "tags": [
+            "staging-local-provider-service-737f9a3de2e3-20260530080112"
+          ],
+          "updateTime": "2026-05-30T08:04:49.042495Z",
+          "version": "sha256:056a1001bfc7f672a16da80f03de549843a21d20c9253369f68a4f6e759a3203"
+        },
+        {
+          "createTime": "2026-05-30T08:39:00.546495Z",
+          "metadata": {
+            "buildTime": "2026-05-30T08:38:51.229672120Z",
+            "imageSizeBytes": "294041247",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider",
+          "tags": [
+            "staging-local-provider-service-c9896d007329-20260530083846"
+          ],
+          "updateTime": "2026-05-30T08:39:00.546495Z",
+          "version": "sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56"
+        },
+        {
+          "createTime": "2026-05-30T08:17:14.448367Z",
+          "metadata": {
+            "buildTime": "2026-05-30T08:17:05.021466494Z",
+            "imageSizeBytes": "294038732",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/provider@sha256:ba4c2a268097d385757f2a70eb17d17fdd0ba94a3c70b293e5886dfecc179e10"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/provider",
+          "tags": [
+            "staging-local-provider-service-3c9651d486de-20260530081700"
+          ],
+          "updateTime": "2026-05-30T08:17:14.448367Z",
+          "version": "sha256:ba4c2a268097d385757f2a70eb17d17fdd0ba94a3c70b293e5886dfecc179e10"
+        },
+        {
+          "createTime": "2026-05-28T14:25:12.317823Z",
+          "metadata": {
+            "buildTime": "2026-05-28T14:23:11.358736901Z",
+            "imageSizeBytes": "615170135",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/user-front@sha256:47ccf386d5d0c52c723acc3a31b946c4dc1edf97b9b49a6c29ecd4912161a3c2"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front",
+          "tags": [
+            "staging-local-user-front-34d3c3944d4b-20260528141030"
+          ],
+          "updateTime": "2026-05-28T14:25:12.317823Z",
+          "version": "sha256:47ccf386d5d0c52c723acc3a31b946c4dc1edf97b9b49a6c29ecd4912161a3c2"
+        },
+        {
+          "createTime": "2026-05-28T02:21:32.393663Z",
+          "metadata": {
+            "buildTime": "2026-05-28T02:19:50.262334560Z",
+            "imageSizeBytes": "615212155",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/user-front@sha256:82c897cf1a17448dc2a945bec1bcbcec733cef1cd8de4937d57933adf5c5ff9c"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front",
+          "tags": [
+            "staging-local-user-front-4f7a5ce31834-20260528020913"
+          ],
+          "updateTime": "2026-05-28T02:21:32.393663Z",
+          "version": "sha256:82c897cf1a17448dc2a945bec1bcbcec733cef1cd8de4937d57933adf5c5ff9c"
+        },
+        {
+          "createTime": "2026-05-28T13:39:38.489183Z",
+          "metadata": {
+            "buildTime": "2026-05-28T13:38:14.732396512Z",
+            "imageSizeBytes": "615147206",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/fabled-archive-494108-k5/locations/us-central1/repositories/synapse-staging/dockerImages/user-front@sha256:bb976a6567906ef3d2c1727eec58063816b71014740def5364ac483ed22a624e"
+          },
+          "package": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front",
+          "tags": [
+            "staging-local-user-front-b2d93da3873c-20260528132819"
+          ],
+          "updateTime": "2026-05-28T13:39:38.489183Z",
+          "version": "sha256:bb976a6567906ef3d2c1727eec58063816b71014740def5364ac483ed22a624e"
+        }
+      ],
+      "project": "fabled-archive-494108-k5",
+      "region": "us-central1",
+      "repository": "synapse-staging"
+    },
+    {
+      "image_count": 21,
+      "images": [
+        {
+          "createTime": "2026-05-25T01:41:16.584975Z",
+          "metadata": {
+            "buildTime": "2026-05-25T01:40:21.774634930Z",
+            "imageSizeBytes": "422065844",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/admin-front@sha256:4ae252d335fc0e80b434f313e2a0cf59a488e8e6070242ee5c125ebfdfd51aa9"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front",
+          "tags": [
+            "production-local-admin-front-f80eface1c98-20260525013436"
+          ],
+          "updateTime": "2026-05-25T01:41:16.584975Z",
+          "version": "sha256:4ae252d335fc0e80b434f313e2a0cf59a488e8e6070242ee5c125ebfdfd51aa9"
+        },
+        {
+          "createTime": "2026-05-25T01:50:50.301295Z",
+          "metadata": {
+            "buildTime": "2026-05-25T01:49:51.605135538Z",
+            "imageSizeBytes": "422075397",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/admin-front@sha256:58d4621c29be4878df0e6baf7a3149d64d45aebb29da1a2498c0cbd9cd23863c"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front",
+          "tags": [
+            "production-local-admin-front-f80eface1c98-20260525014423"
+          ],
+          "updateTime": "2026-05-25T01:50:50.301295Z",
+          "version": "sha256:58d4621c29be4878df0e6baf7a3149d64d45aebb29da1a2498c0cbd9cd23863c"
+        },
+        {
+          "createTime": "2026-05-24T17:51:16.813823Z",
+          "metadata": {
+            "buildTime": "2026-05-24T17:50:18.665866744Z",
+            "imageSizeBytes": "422073284",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/admin-front@sha256:b86e191cc7e0e25486bc6735a7a6d989da50eb04392a33daf0fc3f05e30bce16"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/admin-front",
+          "tags": [
+            "production-local-admin-front-f80eface1c98-20260524174414"
+          ],
+          "updateTime": "2026-05-24T17:51:16.813823Z",
+          "version": "sha256:b86e191cc7e0e25486bc6735a7a6d989da50eb04392a33daf0fc3f05e30bce16"
+        },
+        {
+          "createTime": "2026-05-24T11:44:28.269503Z",
+          "metadata": {
+            "buildTime": "2026-05-24T11:39:49.161482282Z",
+            "imageSizeBytes": "86724262",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/docs-front@sha256:4f42e4e5a5e965da407c24d29dd8d51f0b400a25a2c2a9d10a8c8f70e52d3bd6"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front",
+          "tags": [
+            "prod-promote-docs-front-20260524114358"
+          ],
+          "updateTime": "2026-05-24T11:44:28.269503Z",
+          "version": "sha256:4f42e4e5a5e965da407c24d29dd8d51f0b400a25a2c2a9d10a8c8f70e52d3bd6"
+        },
+        {
+          "createTime": "2026-05-28T15:08:51.716815Z",
+          "metadata": {
+            "buildTime": "2026-05-28T15:08:45.261864782Z",
+            "imageSizeBytes": "86726507",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/docs-front@sha256:5805051749bfd1f18bfa44e5d466333fe89878e33563c77442daf04746a924cf"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front",
+          "tags": [
+            "production-local-docs-front-34d3c3944d4b-20260528150505"
+          ],
+          "updateTime": "2026-05-28T15:08:51.716815Z",
+          "version": "sha256:5805051749bfd1f18bfa44e5d466333fe89878e33563c77442daf04746a924cf"
+        },
+        {
+          "createTime": "2026-05-23T08:20:25.941775Z",
+          "metadata": {
+            "buildTime": "2026-05-23T08:15:09.346187425Z",
+            "imageSizeBytes": "86724568",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/docs-front@sha256:6b76b682128ea65206b2ade1d1b88986a48aa2670e3c6bcc229f62277debb65c"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front",
+          "tags": [
+            "prod-promote-docs-front-20260523081957"
+          ],
+          "updateTime": "2026-05-23T08:20:25.941775Z",
+          "version": "sha256:6b76b682128ea65206b2ade1d1b88986a48aa2670e3c6bcc229f62277debb65c"
+        },
+        {
+          "createTime": "2026-05-28T14:37:17.593519Z",
+          "metadata": {
+            "buildTime": "2026-05-28T14:06:45.137832637Z",
+            "imageSizeBytes": "124622574",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway@sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway",
+          "tags": [
+            "prod-promote-gateway-20260528143651"
+          ],
+          "updateTime": "2026-05-28T14:37:17.593519Z",
+          "version": "sha256:09fc1d17c8132543d0fe23c0e4b5c647103ad7e7aef769cda27f0a9a28c31f4d"
+        },
+        {
+          "createTime": "2026-05-28T01:17:54.183151Z",
+          "metadata": {
+            "buildTime": "2026-05-28T01:08:33.021993183Z",
+            "imageSizeBytes": "124342845",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway@sha256:20bf37e2b15da9e393bdb85109ac98e3c371d460f3e4172482b242b189e4e683"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway",
+          "tags": [
+            "prod-address-activity-20260528"
+          ],
+          "updateTime": "2026-05-28T01:17:54.183151Z",
+          "version": "sha256:20bf37e2b15da9e393bdb85109ac98e3c371d460f3e4172482b242b189e4e683"
+        },
+        {
+          "createTime": "2026-05-28T02:28:58.354783Z",
+          "metadata": {
+            "buildTime": "2026-05-28T02:16:22.865469849Z",
+            "imageSizeBytes": "124343040",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway@sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway",
+          "tags": [
+            "prod-promote-gateway-20260528022843",
+            "prod-promote-gateway-20260528023431"
+          ],
+          "updateTime": "2026-05-28T02:34:45.448271Z",
+          "version": "sha256:b7df899d768064cbd35291682d9175ceb9a54ec7c99ed011f2cc9a87153f36e9"
+        },
+        {
+          "createTime": "2026-05-25T02:58:30.388271Z",
+          "metadata": {
+            "buildTime": "2026-05-25T02:49:55.149529834Z",
+            "imageSizeBytes": "82443894",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway-admin@sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin",
+          "tags": [
+            "prod-promote-gateway-admin-20260525025813"
+          ],
+          "updateTime": "2026-05-25T02:58:30.388271Z",
+          "version": "sha256:afc61fcfe14eb3365ac6318de6fb2573ab2ff77e8fbb08d14934e8f9608bfd19"
+        },
+        {
+          "createTime": "2026-05-24T11:51:19.874463Z",
+          "metadata": {
+            "buildTime": "2026-05-24T10:57:45.327471093Z",
+            "imageSizeBytes": "82442853",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway-admin@sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin",
+          "tags": [
+            "prod-promote-gateway-admin-20260524115058"
+          ],
+          "updateTime": "2026-05-24T11:51:19.874463Z",
+          "version": "sha256:dfc11afb87e599245782e3df3fdf1096d6d93f7d8afb250374f3e238f3aefd10"
+        },
+        {
+          "createTime": "2026-05-25T02:37:11.198303Z",
+          "metadata": {
+            "buildTime": "2026-05-25T02:32:17.781213327Z",
+            "imageSizeBytes": "82443545",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/gateway-admin@sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/gateway-admin",
+          "tags": [
+            "prod-promote-gateway-admin-20260525023652"
+          ],
+          "updateTime": "2026-05-25T02:37:11.198303Z",
+          "version": "sha256:f6322247dae5be23ddc933d057768053ab95389598baa538b23e2cf48238106a"
+        },
+        {
+          "createTime": "2026-05-30T08:43:57.858063Z",
+          "metadata": {
+            "buildTime": "2026-05-30T08:38:51.229672120Z",
+            "imageSizeBytes": "294041247",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider@sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider",
+          "tags": [
+            "prod-promote-provider-20260530084346",
+            "prod-promote-provider-20260530085325"
+          ],
+          "updateTime": "2026-05-30T08:53:34.659983Z",
+          "version": "sha256:490f78f098fbcdc0be5f680f188eb25cf72aac8db1846c6734ca76efbc76bc56"
+        },
+        {
+          "createTime": "2026-05-20T10:39:08.015471Z",
+          "metadata": {
+            "buildTime": "2026-05-20T10:32:33.193020014Z",
+            "imageSizeBytes": "326910896",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider@sha256:9d87e58c90aa92fa951dd3efad9db73ba379f12c916805e26274ed47086a997b"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider",
+          "tags": [
+            "prod-promote-provider-20260520103820"
+          ],
+          "updateTime": "2026-05-20T10:39:08.015471Z",
+          "version": "sha256:9d87e58c90aa92fa951dd3efad9db73ba379f12c916805e26274ed47086a997b"
+        },
+        {
+          "createTime": "2026-05-24T11:58:06.400863Z",
+          "metadata": {
+            "buildTime": "2026-05-24T11:07:42.326372938Z",
+            "imageSizeBytes": "294135966",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider@sha256:b648220bba9e90d1f93d69b5074ae2a74180a9aebc6e6f318523c0b744c7cefc"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider",
+          "tags": [
+            "prod-promote-provider-20260524115725"
+          ],
+          "updateTime": "2026-05-24T11:58:06.400863Z",
+          "version": "sha256:b648220bba9e90d1f93d69b5074ae2a74180a9aebc6e6f318523c0b744c7cefc"
+        },
+        {
+          "createTime": "2026-05-16T14:36:15.456287Z",
+          "metadata": {
+            "buildTime": null,
+            "imageSizeBytes": "5839",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider-service@sha256:7ba6a0d29a3dd4f086cc0170ab5f4bae1e6639056b5d29035855032b5c2415d0"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service",
+          "tags": [],
+          "updateTime": "2026-05-16T14:36:15.456287Z",
+          "version": "sha256:7ba6a0d29a3dd4f086cc0170ab5f4bae1e6639056b5d29035855032b5c2415d0"
+        },
+        {
+          "createTime": "2026-05-16T14:36:08.361359Z",
+          "metadata": {
+            "buildTime": "2026-05-16T14:35:38.533943989Z",
+            "imageSizeBytes": "326921415",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider-service@sha256:b9f58a8346804528c781ce869aededdfed678becc3f95f1c630d87ee64dabdac"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service",
+          "tags": [
+            "prod-main-9a85efae3703-2026-05-16-143349"
+          ],
+          "updateTime": "2026-05-16T14:36:08.361359Z",
+          "version": "sha256:b9f58a8346804528c781ce869aededdfed678becc3f95f1c630d87ee64dabdac"
+        },
+        {
+          "createTime": "2026-05-16T14:36:17.033887Z",
+          "metadata": {
+            "buildTime": null,
+            "imageSizeBytes": "4513",
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/provider-service@sha256:c001e20cfce880b7453a8bc819f7cdb1c4d9cd53fffeb7e6a5e82df23ad62a1e"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/provider-service",
+          "tags": [],
+          "updateTime": "2026-05-16T14:36:17.033887Z",
+          "version": "sha256:c001e20cfce880b7453a8bc819f7cdb1c4d9cd53fffeb7e6a5e82df23ad62a1e"
+        },
+        {
+          "createTime": "2026-05-24T15:14:42.222959Z",
+          "metadata": {
+            "buildTime": "2026-05-24T15:12:54.863229399Z",
+            "imageSizeBytes": "615147220",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/user-front@sha256:48fd993022351836da9a593c353d79e8efa415a155ce39147aec04d7d640e5f0"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front",
+          "tags": [
+            "production-local-user-front-7b81d43aab30-20260524150232"
+          ],
+          "updateTime": "2026-05-24T15:14:42.222959Z",
+          "version": "sha256:48fd993022351836da9a593c353d79e8efa415a155ce39147aec04d7d640e5f0"
+        },
+        {
+          "createTime": "2026-05-28T14:58:12.669887Z",
+          "metadata": {
+            "buildTime": "2026-05-28T14:56:45.665953579Z",
+            "imageSizeBytes": "615188912",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/user-front@sha256:ba905628c73afda9494aa2c270a6094b13600c8dfc789b071a6dfeb1660b77d6"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front",
+          "tags": [
+            "production-local-user-front-34d3c3944d4b-20260528144303"
+          ],
+          "updateTime": "2026-05-28T14:58:12.669887Z",
+          "version": "sha256:ba905628c73afda9494aa2c270a6094b13600c8dfc789b071a6dfeb1660b77d6"
+        },
+        {
+          "createTime": "2026-05-24T16:37:53.692239Z",
+          "metadata": {
+            "buildTime": "2026-05-24T16:35:29.039764869Z",
+            "imageSizeBytes": "615163120",
+            "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+            "name": "projects/synapse-network-prod/locations/us-central1/repositories/synapse-prod/dockerImages/user-front@sha256:d2e21ca169833463856b09c1f6d32b24cf68f5b9b23c73de5d9e64aab37729e7"
+          },
+          "package": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front",
+          "tags": [
+            "production-local-user-front-4799baf8818b-20260524162337"
+          ],
+          "updateTime": "2026-05-24T16:37:53.692239Z",
+          "version": "sha256:d2e21ca169833463856b09c1f6d32b24cf68f5b9b23c73de5d9e64aab37729e7"
+        }
+      ],
+      "project": "synapse-network-prod",
+      "region": "us-central1",
+      "repository": "synapse-prod"
+    }
+  ]
+}

@@ -59,6 +59,19 @@ def test_social_x_read_budget_schema_is_postgres_compatible(db_session) -> None:
     ensure_social_x_read_budget_table(db_session)
     db_session.execute(
         text(
+            "DELETE FROM social_x_read_budget_events "
+            "WHERE local_date = :local_date "
+            "AND workflow_key = :workflow_key "
+            "AND detail = :detail"
+        ),
+        {
+            "local_date": "2026-05-16",
+            "workflow_key": "trend_radar",
+            "detail": "postgres-compatible ddl smoke",
+        },
+    )
+    db_session.execute(
+        text(
             "INSERT INTO social_x_read_budget_events "
             "(local_date, workflow_key, request_count, source_post_count, detail) "
             "VALUES (:local_date, :workflow_key, :request_count, :source_post_count, :detail)"
@@ -74,6 +87,16 @@ def test_social_x_read_budget_schema_is_postgres_compatible(db_session) -> None:
     db_session.commit()
 
     count = db_session.execute(
-        text("SELECT COUNT(*) FROM social_x_read_budget_events")
+        text(
+            "SELECT COUNT(*) FROM social_x_read_budget_events "
+            "WHERE local_date = :local_date "
+            "AND workflow_key = :workflow_key "
+            "AND detail = :detail"
+        ),
+        {
+            "local_date": "2026-05-16",
+            "workflow_key": "trend_radar",
+            "detail": "postgres-compatible ddl smoke",
+        },
     ).scalar_one()
     assert count == 1

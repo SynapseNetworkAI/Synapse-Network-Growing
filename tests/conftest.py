@@ -276,6 +276,7 @@ def setup_db():
         patch("server.main.config.CODEX_CLI_MONITOR_ENABLED", False),
         patch("server.main.config.BUG_LOG_SWEEP_SCHEDULER_ENABLED", False),
         patch("server.main.config.CI_STATUS_SWEEP_SCHEDULER_ENABLED", False),
+        patch("server.main.config.COST_CONTROL_SCHEDULER_ENABLED", False),
         patch(
             "server.services.workflows.declarative._launch_final_regression_runner",
             lambda runner_command, env: _FakePopen(runner_command, env=env),

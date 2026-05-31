@@ -4,8 +4,9 @@ def test_schedule_center_lists_builtins_and_templates(synced_client):
 
     assert schedules.status_code == 200
     keys = {item["workflow_key"] for item in schedules.json()}
-    assert "secret_manager_version_cleanup_sweep" not in keys
     assert "artifact_registry_cleanup_sweep" in keys
+    assert "secret_manager_version_cleanup_sweep" in keys
+    assert "staging_environment_shutdown_sweep" in keys
     artifact = next(
         item
         for item in schedules.json()
@@ -16,7 +17,8 @@ def test_schedule_center_lists_builtins_and_templates(synced_client):
     assert templates.status_code == 200
     template_keys = {item["template_key"] for item in templates.json()}
     assert "artifact_registry_cleanup" in template_keys
-    assert "secret_manager_version_cleanup" not in template_keys
+    assert "secret_manager_version_cleanup" in template_keys
+    assert "staging_environment_shutdown" in template_keys
 
 
 def test_schedule_center_rejects_builtin_delete_and_allows_disable(synced_client):

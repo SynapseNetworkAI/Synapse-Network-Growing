@@ -49,6 +49,7 @@ def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(g
         request.app.state, "release_deployment_status_scheduler", None
     )
     x_social_scheduler = getattr(request.app.state, "x_social_scheduler", None)
+    cost_control_scheduler = getattr(request.app.state, "cost_control_scheduler", None)
     notification_dispatcher = getattr(
         request.app.state, "notification_dispatcher", None
     )
@@ -74,6 +75,9 @@ def recurring_workflow_health_endpoint(request: Request, db: Session = Depends(g
             ),
             x_social_scheduler_status=x_social_scheduler.status_snapshot()
             if x_social_scheduler is not None
+            else None,
+            cost_control_scheduler_status=cost_control_scheduler.status_snapshot()
+            if cost_control_scheduler is not None
             else None,
             notification_dispatcher_status=notification_dispatcher.status_snapshot(db)
             if notification_dispatcher is not None
@@ -127,6 +131,7 @@ def run_recurring_workflow_endpoint(
         with timed_operation(
             logger, "recurring_workflows_run", workflow_key=workflow_key, slow_ms=1200
         ):
+            sync_recurring_workflows(db)
             return RecurringWorkflowRunResultOut(
                 **run_recurring_workflow(
                     db,
