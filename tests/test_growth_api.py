@@ -7,6 +7,7 @@ from server.database_growth import (
 )
 from server.services.local_secrets import write_local_secret_version
 from server.services.growth.draft_agent import GrowthDraftResult
+from server.services.growth.provider_sources import run_enabled_provider_sources
 
 
 def _investor_payload(**overrides):
@@ -469,3 +470,103 @@ def test_growth_source_config_rejects_unknown_type(synced_client):
         json={"name": "Bad source", "config_type": "scrape_everything"},
     )
     assert response.status_code == 400
+
+
+def test_growth_source_config_reuse_patch_runs_and_error_paths(synced_client):
+    request = {
+        "name": "Reusable Provider Source",
+        "config_type": "github_mcp_repos",
+        "query": {"queries": ["firecrawl mcp"], "seed_urls": []},
+    }
+    first = synced_client.post("/api/growth/source-configs", json=request)
+    duplicate = synced_client.post("/api/growth/source-configs", json=request)
+    assert duplicate.status_code == 201
+    assert duplicate.json()["id"] == first.json()["id"]
+
+    source_id = first.json()["id"]
+    patched = synced_client.patch(
+        f"/api/growth/source-configs/{source_id}",
+        json={
+            "name": "Reusable Provider Source Updated",
+            "description": "GitHub and MCP provider discovery",
+            "query": {"queries": ["tavily mcp"], "seed_urls": []},
+            "cadence": {"kind": "manual"},
+            "thresholds": {"create_lead_score": 75, "auto_draft_score": 85},
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["name"].endswith("Updated")
+
+    disabled = synced_client.patch(
+        f"/api/growth/source-configs/{source_id}", json={"status": "paused"}
+    )
+    assert disabled.status_code == 200
+    blocked_run = synced_client.post(
+        f"/api/growth/source-configs/{source_id}/run",
+        json={"dry_run": True},
+    )
+    assert blocked_run.status_code == 400
+    assert "not enabled" in blocked_run.json()["detail"]
+
+    synced_client.patch(f"/api/growth/source-configs/{source_id}", json={"status": "enabled"})
+    run = synced_client.post(
+        f"/api/growth/source-configs/{source_id}/run",
+        json={"dry_run": True, "max_results": 1, "create_drafts": False},
+    )
+    assert run.status_code == 200
+    run_id = run.json()["id"]
+    runs = synced_client.get(f"/api/growth/source-configs/{source_id}/runs?limit=1&offset=0")
+    assert runs.status_code == 200
+    assert runs.json()["total"] == 1
+    assert runs.json()["items"][0]["id"] == run_id
+    assert synced_client.get(f"/api/growth/research-runs/{run_id}").status_code == 200
+    assert synced_client.get("/api/growth/source-configs/999999/runs").status_code == 404
+    assert synced_client.get("/api/growth/research-runs/999999").status_code == 404
+
+
+def test_growth_provider_source_sweep_bootstraps_default_source(db_session):
+    result = run_enabled_provider_sources(db_session, dry_run=True)
+    assert result.dry_run is True
+    assert result.source_count == 1
+    assert result.candidate_count >= 1
+    assert db_session.query(GrowthResearchRunRow).count() == 1
+
+
+def test_growth_gmail_draft_edge_cases(synced_client, db_session, monkeypatch):
+    lead = synced_client.post(
+        "/api/growth/leads",
+        json=_provider_payload(contact_channels=[]),
+    ).json()
+    monkeypatch.setattr(
+        "server.services.growth.workbench.generate_outreach_draft",
+        lambda **kwargs: GrowthDraftResult(
+            subject="Provider onboarding",
+            body="Would you review Synapse provider onboarding?",
+            personalization_evidence=[{"source": "repo", "reason": "provider fit"}],
+            metadata={"model": "fake"},
+        ),
+    )
+    message = synced_client.post(
+        f"/api/growth/leads/{lead['id']}/draft-message",
+        json={"channel": "email", "actor": "codex"},
+    ).json()
+    synced_client.post(
+        f"/api/growth/messages/{message['id']}/approve",
+        json={"actor": "operator"},
+    )
+    missing_contact = synced_client.post(
+        f"/api/growth/messages/{message['id']}/create-gmail-draft",
+        json={"actor": "operator"},
+    )
+    assert missing_contact.status_code == 400
+    assert "trusted_contact_email" in missing_contact.json()["detail"]
+
+    row = db_session.query(GrowthOutreachMessageRow).filter_by(id=message["id"]).one()
+    row.metadata_json = '{"gmail_draft_id":"existing-draft"}'
+    db_session.commit()
+    existing = synced_client.post(
+        f"/api/growth/messages/{message['id']}/create-gmail-draft",
+        json={"actor": "operator"},
+    )
+    assert existing.status_code == 200
+    assert existing.json()["metadata"]["gmail_draft_id"] == "existing-draft"
