@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, BugDetail, BugRecord } from '../api'
+import { WorkbenchPagination } from '../components/WorkbenchPagination'
 import { EmptyPane, StateBadge, useToast } from '../components/workbench'
 import { BugDetailModal } from './bugs/BugDetailModal'
 
@@ -55,19 +56,6 @@ function updateSearchParams(
 
 function countFromMap(map: Record<string, number>, keys: string[]) {
   return keys.reduce((sum, key) => sum + Number(map[key] || 0), 0)
-}
-
-function compactPages(page: number, pageCount: number) {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1)
-  const numbers = new Set<number>([1, pageCount, page - 1, page, page + 1].filter((value) => value >= 1 && value <= pageCount))
-  const ordered = Array.from(numbers).sort((a, b) => a - b)
-  const result: Array<number | string> = []
-  ordered.forEach((value, index) => {
-    const previous = ordered[index - 1]
-    if (previous != null && value - previous > 1) result.push(`ellipsis-${previous}-${value}`)
-    result.push(value)
-  })
-  return result
 }
 
 export default function BugsPage() {
@@ -129,8 +117,6 @@ export default function BugsPage() {
   const statusOptions = useMemo(() => uniqueValues(items, 'status'), [items])
   const severityOptions = useMemo(() => uniqueValues(items, 'severity'), [items])
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
-  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const rangeEnd = total === 0 ? 0 : Math.min(total, page * pageSize)
 
   const openDetail = async (id: number) => {
     setBusy(true)
@@ -197,6 +183,10 @@ export default function BugsPage() {
     setSearchParams(updateSearchParams(searchParams, { page: 1, page_size: nextPageSize }))
   }
 
+  useEffect(() => {
+    if (!loading && page > pageCount) goToPage(pageCount)
+  }, [loading, page, pageCount])
+
   return (
     <div className="space-y-5" data-testid="bugs-page">
       <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
@@ -249,15 +239,8 @@ export default function BugsPage() {
             <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm text-white" onClick={applyFilters}>查询</button>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-[color:var(--ops-text-muted)]">
-          <div>当前显示 {rangeStart}-{rangeEnd} / {total}</div>
-          <div className="flex items-center gap-2">
-            <span>每页</span>
-            <select className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))}>
-              {PAGE_SIZE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={resetFilters}>重置筛选</button>
-          </div>
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-3 text-sm text-[color:var(--ops-text-muted)]">
+          <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={resetFilters}>重置筛选</button>
         </div>
       </section>
 
@@ -305,23 +288,16 @@ export default function BugsPage() {
           </table>
         </div>
         {!loading && items.length === 0 ? <div className="p-6"><EmptyPane>暂无 bug 记录。</EmptyPane></div> : null}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] px-5 py-4">
-          <div className="text-sm text-[color:var(--ops-text-muted)]">第 {page} / {pageCount} 页</div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" disabled={page <= 1} className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" onClick={() => goToPage(page - 1)}>上一页</button>
-            {compactPages(page, pageCount).map((item) => typeof item === 'number' ? (
-              <button
-                key={item}
-                type="button"
-                className={`rounded-lg px-3 py-2 text-sm ${item === page ? 'bg-blue-600 text-white' : 'border border-[color:var(--ops-stroke-strong)]'}`}
-                onClick={() => goToPage(item)}
-              >
-                {item}
-              </button>
-            ) : <span key={item} className="px-2 text-sm text-[color:var(--ops-text-caption)]">…</span>)}
-            <button type="button" disabled={page >= pageCount} className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" onClick={() => goToPage(page + 1)}>下一页</button>
-          </div>
-        </div>
+        <WorkbenchPagination
+          page={page}
+          pageSize={pageSize}
+          totalItems={total}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          itemLabel="个 bug"
+          loading={loading}
+          onPageChange={goToPage}
+          onPageSizeChange={changePageSize}
+        />
       </section>
 
       <BugDetailModal
