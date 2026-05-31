@@ -68,6 +68,40 @@ export interface GrowthLeadDetail {
   events: GrowthOutreachEvent[]
 }
 
+export interface GrowthSourceConfig {
+  id: number
+  config_key: string
+  name: string
+  config_type: string
+  status: string
+  description: string
+  query: Record<string, unknown>
+  cadence: Record<string, unknown>
+  thresholds: Record<string, unknown>
+  last_run_at: string | null
+  last_result: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthResearchRun {
+  id: number
+  source_config_id: number
+  status: string
+  dry_run: boolean
+  params: Record<string, unknown>
+  candidate_count: number
+  created_count: number
+  reused_count: number
+  drafted_count: number
+  error_summary: string
+  result: Record<string, unknown>
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
 export interface GrowthAIVisibilityCheck {
   id: number
   query: string
@@ -118,6 +152,23 @@ export function createGrowthApi(request: RequestFn) {
     }) => request<GrowthLeadList>(`/growth/leads${query(params)}`),
     createGrowthLead: (data: Partial<GrowthLead>) =>
       request<GrowthLead>('/growth/leads', { method: 'POST', body: JSON.stringify(data) }),
+    getGrowthSourceConfigs: () => request<{ items: GrowthSourceConfig[]; total: number }>('/growth/source-configs'),
+    createGrowthSourceConfig: (data: Partial<GrowthSourceConfig>) =>
+      request<GrowthSourceConfig>('/growth/source-configs', { method: 'POST', body: JSON.stringify(data) }),
+    patchGrowthSourceConfig: (id: number, data: Partial<GrowthSourceConfig>) =>
+      request<GrowthSourceConfig>(`/growth/source-configs/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    ensureDefaultGrowthProviderSource: () =>
+      request<GrowthSourceConfig>('/growth/source-configs/default-provider', { method: 'POST', body: JSON.stringify({}) }),
+    runGrowthSourceConfig: (id: number, data: { dry_run: boolean; max_results?: number; create_drafts?: boolean; actor?: string }) =>
+      request<GrowthResearchRun>(
+        `/growth/source-configs/${id}/run`,
+        { method: 'POST', body: JSON.stringify(data) },
+        120_000,
+      ),
+    getGrowthSourceRuns: (id: number, params?: { limit?: number; offset?: number }) =>
+      request<{ items: GrowthResearchRun[]; total: number; limit: number; offset: number }>(
+        `/growth/source-configs/${id}/runs${query(params)}`,
+      ),
     getGrowthLead: (id: number) => request<GrowthLeadDetail>(`/growth/leads/${id}`),
     draftGrowthMessage: (id: number, data?: { channel?: string; actor?: string; notes?: string }) =>
       request<GrowthOutreachMessage>(
@@ -129,6 +180,8 @@ export function createGrowthApi(request: RequestFn) {
       request<GrowthOutreachMessage>(`/growth/messages/${id}/approve`, { method: 'POST', body: JSON.stringify(data || {}) }),
     queueGrowthMessage: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
       request<GrowthOutreachMessage>(`/growth/messages/${id}/queue`, { method: 'POST', body: JSON.stringify(data || {}) }),
+    createGrowthGmailDraft: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
+      request<GrowthOutreachMessage>(`/growth/messages/${id}/create-gmail-draft`, { method: 'POST', body: JSON.stringify(data || {}) }),
     markGrowthMessageSent: (id: number, data?: { actor?: string; metadata?: Record<string, unknown> }) =>
       request<GrowthOutreachMessage>(`/growth/messages/${id}/mark-sent`, { method: 'POST', body: JSON.stringify(data || {}) }),
     recordGrowthReply: (id: number, data: { actor?: string; reply_summary: string; interested?: boolean }) =>

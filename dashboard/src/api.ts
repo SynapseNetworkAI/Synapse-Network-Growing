@@ -34,6 +34,8 @@ export type {
   GrowthOutreachEvent,
   GrowthOutreachMessage,
   GrowthOverview,
+  GrowthResearchRun,
+  GrowthSourceConfig,
 } from './apiGrowth'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import { createSchedulesApi } from './apiSchedules'

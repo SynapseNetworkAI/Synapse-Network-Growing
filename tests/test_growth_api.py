@@ -3,7 +3,9 @@ from server.database_growth import (
     GrowthLeadRow,
     GrowthOutreachEventRow,
     GrowthOutreachMessageRow,
+    GrowthResearchRunRow,
 )
+from server.services.local_secrets import write_local_secret_version
 from server.services.growth.draft_agent import GrowthDraftResult
 
 
@@ -223,3 +225,247 @@ def test_growth_overview_counts(synced_client):
     assert payload["lead_counts"]["investor"] == 1
     assert payload["lead_counts"]["provider"] == 1
     assert payload["discovery_counts"]["candidate"] == 1
+
+
+def test_growth_source_config_crud_and_firecrawl_dry_run(synced_client, db_session):
+    created = synced_client.post(
+        "/api/growth/source-configs",
+        json={
+            "name": "Provider Discovery: MCP + API Services",
+            "config_type": "github_mcp_repos",
+            "query": {
+                "queries": ["mcp server search api"],
+                "seed_urls": ["https://github.com/firecrawl/firecrawl-mcp-server"],
+            },
+            "thresholds": {"create_lead_score": 70, "auto_draft_score": 80},
+        },
+    )
+    assert created.status_code == 201
+    source = created.json()
+    assert source["config_type"] == "github_mcp_repos"
+
+    listed = synced_client.get("/api/growth/source-configs").json()
+    assert listed["total"] == 1
+
+    patched = synced_client.patch(
+        f"/api/growth/source-configs/{source['id']}",
+        json={"status": "paused"},
+    )
+    assert patched.status_code == 200
+    assert patched.json()["status"] == "paused"
+    synced_client.patch(f"/api/growth/source-configs/{source['id']}", json={"status": "enabled"})
+
+    dry_run = synced_client.post(
+        f"/api/growth/source-configs/{source['id']}/run",
+        json={"dry_run": True, "create_drafts": True},
+    )
+    assert dry_run.status_code == 200
+    payload = dry_run.json()
+    assert payload["dry_run"] is True
+    assert payload["candidate_count"] == 1
+    assert payload["created_count"] == 0
+    assert payload["result"]["candidates"][0]["name"] == "Firecrawl"
+    assert db_session.query(GrowthLeadRow).count() == 0
+    assert db_session.query(GrowthResearchRunRow).count() == 1
+
+
+def test_growth_provider_source_apply_creates_firecrawl_and_draft(
+    synced_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "server.services.growth.workbench.generate_outreach_draft",
+        lambda **kwargs: GrowthDraftResult(
+            subject="Synapse provider onboarding",
+            body="Firecrawl could expose metered agent web-data calls through Synapse.",
+            personalization_evidence=[{"source": "github", "reason": "MCP server"}],
+            metadata={"model": "fake"},
+        ),
+    )
+    source = synced_client.post("/api/growth/source-configs/default-provider").json()
+
+    apply_run = synced_client.post(
+        f"/api/growth/source-configs/{source['id']}/run",
+        json={"dry_run": False, "create_drafts": True},
+    )
+    assert apply_run.status_code == 200
+    payload = apply_run.json()
+    assert payload["created_count"] == 1
+    assert payload["drafted_count"] == 1
+
+    lead = db_session.query(GrowthLeadRow).one()
+    assert lead.name == "Firecrawl"
+    assert lead.status == "drafted"
+    assert "firecrawl" in lead.source_url
+    assert "partnerships@firecrawl.dev" in lead.contact_channels_json
+    assert "partner-integration" in lead.metadata_json
+    assert db_session.query(GrowthOutreachMessageRow).count() == 1
+    message = db_session.query(GrowthOutreachMessageRow).one()
+    assert "manual_gmail_draft_only" in message.metadata_json
+    assert "partnerships@firecrawl.dev" in message.metadata_json
+    assert (
+        db_session.query(GrowthOutreachEventRow)
+        .filter(GrowthOutreachEventRow.event_type == "message_drafted")
+        .count()
+        == 1
+    )
+
+    second_run = synced_client.post(
+        f"/api/growth/source-configs/{source['id']}/run",
+        json={"dry_run": False, "create_drafts": True},
+    ).json()
+    assert second_run["created_count"] == 0
+    assert second_run["reused_count"] == 1
+    assert db_session.query(GrowthLeadRow).count() == 1
+
+
+def test_growth_provider_source_does_not_draft_without_trusted_email(
+    synced_client, db_session
+):
+    source = synced_client.post(
+        "/api/growth/source-configs",
+        json={
+            "name": "Tavily provider discovery",
+            "config_type": "github_mcp_repos",
+            "query": {
+                "queries": ["tavily mcp"],
+                "seed_urls": ["https://github.com/tavily-ai/tavily-mcp"],
+            },
+            "thresholds": {"create_lead_score": 70, "auto_draft_score": 80},
+        },
+    ).json()
+
+    apply_run = synced_client.post(
+        f"/api/growth/source-configs/{source['id']}/run",
+        json={"dry_run": False, "create_drafts": True},
+    )
+    assert apply_run.status_code == 200
+    payload = apply_run.json()
+    assert payload["created_count"] == 1
+    assert payload["drafted_count"] == 0
+    assert "blocked_missing_trusted_contact_email" in payload["error_summary"]
+    assert db_session.query(GrowthLeadRow).count() == 1
+    assert db_session.query(GrowthOutreachMessageRow).count() == 0
+
+
+def test_growth_gmail_draft_requires_approval_and_auth(synced_client, monkeypatch):
+    monkeypatch.setattr(
+        "server.services.growth.workbench.generate_outreach_draft",
+        lambda **kwargs: GrowthDraftResult(
+            subject="Provider onboarding",
+            body="Would you review Synapse provider onboarding?",
+            personalization_evidence=[{"source": "repo", "reason": "provider fit"}],
+            metadata={"model": "fake"},
+        ),
+    )
+    lead = synced_client.post("/api/growth/leads", json=_provider_payload()).json()
+    message = synced_client.post(
+        f"/api/growth/leads/{lead['id']}/draft-message",
+        json={"channel": "email", "actor": "codex"},
+    ).json()
+
+    not_approved = synced_client.post(
+        f"/api/growth/messages/{message['id']}/create-gmail-draft",
+        json={"actor": "operator"},
+    )
+    assert not_approved.status_code == 400
+    assert "approved" in not_approved.json()["detail"]
+
+    synced_client.post(
+        f"/api/growth/messages/{message['id']}/approve",
+        json={"actor": "operator"},
+    )
+    no_auth = synced_client.post(
+        f"/api/growth/messages/{message['id']}/create-gmail-draft",
+        json={"actor": "operator"},
+    )
+    assert no_auth.status_code == 400
+    assert "gmail_auth_required" in no_auth.json()["detail"]
+
+
+def test_growth_gmail_draft_records_evidence_without_sending(
+    synced_client, db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "server.services.growth.workbench.generate_outreach_draft",
+        lambda **kwargs: GrowthDraftResult(
+            subject="Provider onboarding",
+            body="Would you review Synapse provider onboarding?",
+            personalization_evidence=[{"source": "repo", "reason": "provider fit"}],
+            metadata={"model": "fake", "contact_email": "partnerships@firecrawl.dev"},
+        ),
+    )
+    lead = synced_client.post(
+        "/api/growth/leads",
+        json=_provider_payload(
+            contact_channels=[
+                {
+                    "kind": "email",
+                    "value": "partnerships@firecrawl.dev",
+                    "confidence": "high",
+                    "source_url": "https://docs.firecrawl.dev/partner-integration",
+                }
+            ],
+        ),
+    ).json()
+    message = synced_client.post(
+        f"/api/growth/leads/{lead['id']}/draft-message",
+        json={"channel": "email", "actor": "codex"},
+    ).json()
+    synced_client.post(
+        f"/api/growth/messages/{message['id']}/approve",
+        json={"actor": "operator"},
+    )
+    monkeypatch.setattr("server.config.GMAIL_OAUTH_CLIENT_ID", "client-id")
+    monkeypatch.setattr("server.config.GMAIL_OAUTH_CLIENT_SECRET", "client-secret")
+    monkeypatch.setattr("server.config.GMAIL_SENDER_EMAIL", "cliff@synapse-network.ai")
+    monkeypatch.setattr("server.config.GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "gmail-test")
+    monkeypatch.setattr("server.config.OPS_LOCAL_SECRET_ENCRYPTION_KEY", "test-local-secret-key")
+    write_local_secret_version(db_session, "gmail-test", "refresh-token")
+    db_session.commit()
+
+    calls: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self._payload = payload
+            self.status_code = status_code
+
+        def json(self):
+            return self._payload
+
+    def fake_post(url, **kwargs):
+        calls.append(url)
+        if "oauth2.googleapis.com/token" in url:
+            return FakeResponse({"access_token": "access-token"})
+        if "gmail.googleapis.com/gmail/v1/users/me/drafts" in url:
+            assert "Authorization" in kwargs["headers"]
+            return FakeResponse({"id": "draft-123", "message": {"id": "msg-123", "threadId": "thread-123"}})
+        raise AssertionError(f"unexpected URL {url}")
+
+    monkeypatch.setattr("server.services.growth.gmail_drafts.httpx.post", fake_post)
+
+    created = synced_client.post(
+        f"/api/growth/messages/{message['id']}/create-gmail-draft",
+        json={"actor": "operator", "metadata": {"human_gate": True}},
+    )
+    assert created.status_code == 200
+    payload = created.json()
+    assert payload["status"] == "queued"
+    assert payload["metadata"]["gmail_draft_id"] == "draft-123"
+    assert payload["metadata"]["contact_email"] == "partnerships@firecrawl.dev"
+    assert any("drafts" in call for call in calls)
+    assert all("send" not in call for call in calls)
+    assert (
+        db_session.query(GrowthOutreachEventRow)
+        .filter(GrowthOutreachEventRow.event_type == "gmail_draft_created")
+        .count()
+        == 1
+    )
+
+
+def test_growth_source_config_rejects_unknown_type(synced_client):
+    response = synced_client.post(
+        "/api/growth/source-configs",
+        json={"name": "Bad source", "config_type": "scrape_everything"},
+    )
+    assert response.status_code == 400

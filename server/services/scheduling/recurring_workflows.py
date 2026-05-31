@@ -45,6 +45,7 @@ from server.services.scheduling.artifact_registry_workflows import ARTIFACT_REGI
 from server.services.scheduling.secret_manager_workflows import SECRET_MANAGER_CLEANUP_WORKFLOW
 from server.services.scheduling.cleanup_workflows import run_cleanup_workflow
 from server.services.scheduling.staging_environment_workflows import STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW
+from server.services.growth.provider_sources import run_enabled_provider_sources
 from server.services.social.daily_planner import run_x_social_daily_content_planner
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
@@ -235,6 +236,18 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
     SECRET_MANAGER_CLEANUP_WORKFLOW,
     STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW,
     {"workflow_key": "social_asset_planner_sweep", "display_name": "Social Asset Planner Sweep", "description": "Sample one high-quality signal type and create at most one human-reviewed content asset.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "hourly", "interval_hours": 1}, "input_query": {"sources": ["product_changes", "trend_radar", "published_metrics"], "max_signals": 5}, "output_action": {"kind": "create_social_content_asset", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_empty": "no_op", "on_failure": "notify_portfolio_operator"}, "validation_signal": {"success_metric": "created_asset_id"}},
+    {
+        "workflow_key": "growth_provider_source_sweep",
+        "display_name": "Growth Provider Source Sweep",
+        "description": "Read enabled growth source configs and create/reuse provider leads plus human-reviewed outreach drafts.",
+        "trigger_type": "scheduled",
+        "owner_role": "growth_lead",
+        "schedule": {"cadence": "interval", "interval_hours": 6},
+        "input_query": {"lead_type": "provider", "source_configs": "enabled", "send_policy": "manual_only"},
+        "output_action": {"kind": "run_growth_provider_sources", "auto_send": False, "human_gate_required": True},
+        "escalation_rule": {"on_empty": "diagnostic_only", "on_failure": "notify_portfolio_operator"},
+        "validation_signal": {"success_metric": "created_or_reused_lead_count"},
+    },
     {
         "workflow_key": "x_social_daily_content_planner",
         "display_name": "X Social Daily Content Planner",
@@ -1543,6 +1556,8 @@ def _execute_recurring_workflow(
             }
         if workflow_key in _X_SOCIAL_DRY_RUNS:
             return {"dry_run": True, "workflow_key": workflow_key, **_X_SOCIAL_DRY_RUNS[workflow_key]}
+        if workflow_key == "growth_provider_source_sweep":
+            return run_enabled_provider_sources(db, dry_run=True)
         if workflow_key == "weekly_repo_hygiene_review":
             from server.services.scheduling.repo_hygiene import run_weekly_repo_hygiene_review_payload; return run_weekly_repo_hygiene_review_payload(db, dry_run=True)
         return {
@@ -1618,6 +1633,8 @@ def _execute_recurring_workflow(
         return {**release_payload, "release_tasks": release_payload, "scheduled_jobs": dump_service_result(sync_scheduled_job_publish_statuses(db, max_records=50))}
     if workflow_key in _X_SOCIAL_DRY_RUNS:
         return _run_x_social_workflow(db, workflow_key)
+    if workflow_key == "growth_provider_source_sweep":
+        return run_enabled_provider_sources(db, dry_run=False)
     if workflow_key == "weekly_operating_review":
         review = refresh_company_operating_review(db)
         payload = company_review_to_dict(review)

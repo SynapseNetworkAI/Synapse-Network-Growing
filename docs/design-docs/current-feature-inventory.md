@@ -152,13 +152,15 @@
 当前已具备：
 
 1. `/growth` 是 Growth Acquisition + AI Discovery 工作台，用于生产站点 `https://synapse-network.ai/` 的冷启动增长、AI 搜索可见性和 MCP discovery distribution。
-2. `/growth` 包含四个 Tabs：`Investors`、`Providers`、`AI Visibility`、`MCP Discovery`。它是 Human-Agent Control Plane，不是自动 spam 或无审核外联系统。
+2. `/growth` 包含五个 Tabs：`Sources`、`Investors`、`Providers`、`AI Visibility`、`MCP Discovery`。它是 Human-Agent Control Plane，不是自动 spam 或无审核外联系统。
 3. `Investor Radar` 面向 pre-seed / seed 投资人，优先 AI infra、agent infra、devtools、fintech、crypto rails、marketplace 和 API economy 投资人。系统可创建、导入、搜索、评分、生成个性化消息草稿和记录事件；发送前必须经过 operator 批准。
 4. `Provider Acquisition` 面向第一批 AI/API Provider 用户，尤其是已有 API、MCP server、data API、automation tool、LLM/RAG/search/browser tool 的开发者。核心目标是让 provider 注册接口、被 agent 调用，并在真实调用后获得收益；不得承诺保证收入。
 5. `AI Visibility` 记录 ChatGPT、Perplexity、Google AI features、Bing/Copilot 等 answer engine 查询结果、Synapse 是否被提及/引用、引用 URL、竞争对手和下一步内容任务。V1 只记录人工或后续 runner 提供的检查结果，不自动调用外部 AI search API。
 6. `MCP Discovery` 追踪 Synapse MCP server 在 Official MCP Registry、Glama、Smithery、MCP.so、PulseMCP、Awesome MCP lists 和 GitHub topics 等 discovery surfaces 的准备、提交、listed、verified 和 needs_fix 状态。V1 不自动提交 registry。
-7. 共享对象包括 `GrowthLead`、`GrowthCampaign`、`OutreachMessage`、`OutreachEvent`、`DiscoveryListing` 和 `AIVisibilityCheck`。外联发送只采用半自动模式：系统找线索、评分、起草、排队；operator 批准批次后才逐条发送并写入 append-only event。
-8. Draft Agent 会读取 `.agents/product-marketing-context.md`、`roles/growth_lead/prompts/persona.md` 和 bounded skill excerpts 来生成 investor/provider outreach 草稿。解析失败、空正文或缺少 personalization evidence 会 fail closed，不写入假 message。
+7. 共享对象包括 `GrowthSourceConfig`、`GrowthResearchRun`、`GrowthLead`、`GrowthCampaign`、`OutreachMessage`、`OutreachEvent`、`DiscoveryListing` 和 `AIVisibilityCheck`。外联发送只采用半自动模式：系统找线索、评分、起草、排队；operator 批准后只能创建 Gmail Draft 或记录人工发送，系统没有自动发送邮件路径。
+8. `Sources` 管理 provider acquisition 采集配置和运行历史。V1 支持 `github_mcp_repos`、`mcp_directories`、`api_provider_sites`、`package_ecosystem`、`manual_seed_list`，同时保留 legacy `github_provider_search` 兼容；内置 Firecrawl provider seed 用于跑通首个 provider lead 和人工审核 outreach draft。
+9. Provider source runner 只使用公开联系证据：官方 partner/contact 页面、README/docs/package metadata、公开 GitHub profile email；`noreply.github.com` 或隐私保护邮箱不使用。`fit_score >= 70` 创建 Lead，`fit_score >= 80` 且有可信邮箱才生成 `needs_review` 邮件草稿；无可信邮箱只创建 Lead 并记录 blocker。
+10. Gmail Draft 集成使用本地 OAuth 配置和 encrypted local secret refresh token，只调用 Gmail Draft API，记录 `gmail_draft_id`、`draft_url`、`contact_email`、`contact_provenance` 和 `gmail_draft_created` event；不调用 Gmail send API。Draft Agent 会读取 `.agents/product-marketing-context.md`、`roles/growth_lead/prompts/persona.md` 和 bounded skill excerpts 来生成 investor/provider outreach 草稿。解析失败、空正文或缺少 personalization evidence 会 fail closed，不写入假 message。
 
 ## 5. Error Discovery And Intake Gate
 

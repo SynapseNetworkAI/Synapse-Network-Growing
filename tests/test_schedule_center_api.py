@@ -7,6 +7,7 @@ def test_schedule_center_lists_builtins_and_templates(synced_client):
     assert "artifact_registry_cleanup_sweep" in keys
     assert "secret_manager_version_cleanup_sweep" in keys
     assert "staging_environment_shutdown_sweep" in keys
+    assert "growth_provider_source_sweep" in keys
     artifact = next(
         item
         for item in schedules.json()
