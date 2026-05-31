@@ -26,6 +26,7 @@ from server.routers import (
     errors,
     growth,
     local_ci,
+    mcp_server_releases,
     optimization_signals,
     planning,
     project_onboarding,
@@ -151,6 +152,7 @@ app.include_router(agents.router)
 app.include_router(skills.router)
 app.include_router(copilot_auth.router)
 app.include_router(requirements.router)
+app.include_router(mcp_server_releases.router)
 app.include_router(releases.router)
 app.include_router(release_deployment_events.router)
 app.include_router(release_task_prebuilt_images.router)

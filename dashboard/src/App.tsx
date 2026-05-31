@@ -17,6 +17,7 @@ import ReleasesPage from './pages/ReleasesPage'
 import ReleaseDetailPage from './pages/ReleaseDetailPage'
 import SdkPackageReleaseDetailPage from './pages/SdkPackageReleaseDetailPage'
 import SdkReleaseTrainDetailPage from './pages/SdkReleaseTrainDetailPage'
+import McpServerReleaseDetailPage from './pages/McpServerReleaseDetailPage'
 import PublishingPage from './pages/PublishingPage'
 import PublishingTrendResultsPage from './pages/PublishingTrendResultsPage'
 import BugsPage from './pages/BugsPage'
@@ -83,6 +84,7 @@ const routeTitles: Array<{ match: (pathname: string) => boolean; title: string; 
   { match: (pathname) => pathname.startsWith('/workflows/'), title: '工作流详情', meta: 'State machine detail' },
   { match: (pathname) => pathname === '/schedules', title: '定时任务', meta: 'Scheduled jobs' },
   { match: (pathname) => pathname === '/releases', title: '发布', meta: 'Release list' },
+  { match: (pathname) => pathname.startsWith('/releases/mcp-servers/'), title: 'MCP Server 发布', meta: 'MCP registry release' },
   { match: (pathname) => pathname.startsWith('/releases/sdk-packages/'), title: 'SDK Package 发布', meta: 'SDK registry release' },
   { match: (pathname) => pathname.startsWith('/releases/sdk-trains/'), title: 'SDK Release Train', meta: 'SDK package matrix' },
   { match: (pathname) => pathname.startsWith('/releases/'), title: '发布详情', meta: 'Release detail' },
@@ -262,6 +264,7 @@ export default function App() {
               <Route path="/workflows/:id" element={<WorkflowRunDetailPage />} />
               <Route path="/schedules" element={<SchedulesPage />} />
               <Route path="/releases" element={<ReleasesPage />} />
+              <Route path="/releases/mcp-servers/:id" element={<McpServerReleaseDetailPage />} />
               <Route path="/releases/sdk-packages/:id" element={<SdkPackageReleaseDetailPage />} />
               <Route path="/releases/sdk-trains/:version" element={<SdkReleaseTrainDetailPage />} />
               <Route path="/releases/:requirementId" element={<ReleaseDetailPage />} />

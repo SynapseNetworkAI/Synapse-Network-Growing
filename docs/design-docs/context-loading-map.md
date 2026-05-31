@@ -11,7 +11,7 @@ Do not load every principles file by default. Load only the rows that match the 
 | Ops Console, planning page, human gate UI, raw JSON, decision view, dashboard navigation | `principles/ops-console.md` | yes |
 | bug, errors, fix attempt, verification screenshot, agent queue, bug list | `agent-native-bug-list.md`, `principles/planning-lifecycle.md`, `principles/frontend-workbench.md` | yes |
 | `/schedules`, recurring workflow, background loop, runtime, subagent, workspace recovery, telemetry, structured logs | `principles/runtime-observability.md` | yes |
-| release, deploy, staging, production, rollback, online record, Cloud Run, local deploy runner | `principles/release-governance.md` | yes |
+| release, deploy, staging, production, rollback, online record, Cloud Run, local deploy runner, MCP server release, npm publish, MCP Registry publish | `principles/release-governance.md` | yes |
 | `/publishing`, X, social content, trend radar, replies, reposts, content generation, official account | `principles/social-publishing.md` | yes |
 | `/growth`, growth, investor, provider acquisition, outreach, cold email, AI SEO, AEO, GEO, LLMO, MCP registry, discovery listing | `growth-acquisition-ai-discovery-modules.md`, `principles/frontend-workbench.md` | yes |
 | dashboard UI, frontend, modal, workbench, design tokens, page layout, browser validation | `principles/frontend-workbench.md` | yes |
