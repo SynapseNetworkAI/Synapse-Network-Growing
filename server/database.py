@@ -803,9 +803,8 @@ class SocialPostMetricRow(Base):
     observed_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
 
-import server.database_growth, server.database_social_distribution, server.database_social_analytics  # noqa: E402,F401
-import server.database_scheduled_jobs  # noqa: E402,F401
-import server.services.releases.mcp_server_models  # noqa: E402,F401
+import server.database_growth, server.database_social_distribution, server.database_social_analytics, server.database_scheduled_jobs  # noqa: E402,F401
+import server.services.releases.mcp_server_models, server.services.releases.mcp_server_migrations  # noqa: E402,F401
 class RequirementDependencyRow(Base):
     __tablename__ = "requirement_dependencies"
     __table_args__ = (
@@ -1684,18 +1683,7 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE release_tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
-    if "mcp_server_surfaces" in tables:
-        existing = {c["name"] for c in insp.get_columns("mcp_server_surfaces")}
-        if "category" not in existing:
-            logger.info("Migrating: adding 'category' column to mcp_server_surfaces table")
-            with engine_.connect() as conn:
-                conn.execute(
-                    text(
-                        "ALTER TABLE mcp_server_surfaces "
-                        "ADD COLUMN category TEXT DEFAULT 'directory' NOT NULL"
-                    )
-                )
-                conn.commit()
+    server.services.releases.mcp_server_migrations.migrate_mcp_server_release_schema(engine_, insp, tables)
     social_tables = {"social_campaign_goals": SocialCampaignGoalRow, "social_oauth_sessions": SocialOAuthSessionRow, "social_trend_items": SocialTrendItemRow, "social_watchlist_accounts": SocialWatchlistAccountRow, "social_reply_items": SocialReplyItemRow, "social_repost_candidates": SocialRepostCandidateRow, "social_post_metrics": SocialPostMetricRow}
     for table_name, row_class in social_tables.items():
         if table_name not in tables:
