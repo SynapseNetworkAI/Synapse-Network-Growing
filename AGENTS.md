@@ -132,6 +132,43 @@ Conventions:
 4. Evidence worth keeping should be placed under `docs/archive/evidence/` or a current validation path, not random docs roots.
 5. First-time setup: `agent-browser install`.
 
+## Bug List Workflow
+
+Bug List is the agent-native backlog and fix evidence ledger for real product
+bugs. Use `/bugs` for bug intake, claim, fix evidence, verification, and closure.
+Use `/errors` only as the runtime error fingerprint surface; it does not replace
+the Bug List repair loop.
+
+The tool/API contract lives in `.agents/skills/bug-list-agent/SKILL.md`. Load
+that skill whenever an agent needs to read, create, claim, fix, verify, close, or
+reopen a product bug. Do not duplicate token handling, curl examples, or MCP
+tool details in other agent instruction files.
+
+Codex local setup uses the repo registration script:
+
+```bash
+python scripts/mcp/register_bug_list_codex.py --force
+codex mcp get synapse-bug-list
+```
+
+Required bug loop:
+
+1. Intake or dedupe the issue and keep `bug_id`, `project_key`, target repo,
+   branch, commit or PR, validation commands, validation result, and screenshot
+   or artifact paths in working notes.
+2. Claim the bug before making changes. If another active fix attempt owns it,
+   stop and pick another bug or ask for operator direction.
+3. Link branch, commit, PR, requirement, or workflow evidence after the fix
+   exists.
+4. Add verification evidence after tests, E2E, browser checks, release smoke, or
+   screenshots pass.
+5. Close only when commit or PR evidence, verification commands, results, and
+   required screenshots or artifacts are complete. Otherwise leave the bug
+   linked or verified.
+
+Never put tokens, cookies, private keys, credentials, or secret values into Bug
+List evidence.
+
 ## Product Map
 
 All work must attach to real Synapse system surfaces:
