@@ -11,6 +11,7 @@ class McpServerSurfaceOut(BaseModel):
     mcp_server_release_id: int
     surface_key: str
     surface_label: str
+    category: str = "directory"
     status: str = "candidate"
     listing_url: Optional[str] = None
     failure_reason: Optional[str] = None

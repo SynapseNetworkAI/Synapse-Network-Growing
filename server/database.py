@@ -1684,6 +1684,18 @@ def _migrate(engine_):
                 with engine_.connect() as conn:
                     conn.execute(text(f"ALTER TABLE release_tasks ADD COLUMN {col} {col_type}"))
                     conn.commit()
+    if "mcp_server_surfaces" in tables:
+        existing = {c["name"] for c in insp.get_columns("mcp_server_surfaces")}
+        if "category" not in existing:
+            logger.info("Migrating: adding 'category' column to mcp_server_surfaces table")
+            with engine_.connect() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mcp_server_surfaces "
+                        "ADD COLUMN category TEXT DEFAULT 'directory' NOT NULL"
+                    )
+                )
+                conn.commit()
     social_tables = {"social_campaign_goals": SocialCampaignGoalRow, "social_oauth_sessions": SocialOAuthSessionRow, "social_trend_items": SocialTrendItemRow, "social_watchlist_accounts": SocialWatchlistAccountRow, "social_reply_items": SocialReplyItemRow, "social_repost_candidates": SocialRepostCandidateRow, "social_post_metrics": SocialPostMetricRow}
     for table_name, row_class in social_tables.items():
         if table_name not in tables:

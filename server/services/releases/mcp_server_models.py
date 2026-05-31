@@ -96,6 +96,7 @@ class McpServerSurfaceRow(Base):
     )
     surface_key = Column(Text, nullable=False)
     surface_label = Column(Text, nullable=False)
+    category = Column(Text, nullable=False, default="directory")
     status = Column(Text, nullable=False, default="candidate")
     listing_url = Column(Text)
     failure_reason = Column(Text)

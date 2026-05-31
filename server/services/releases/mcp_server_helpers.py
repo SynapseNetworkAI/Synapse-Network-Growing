@@ -59,6 +59,7 @@ def surface_to_out(row: McpServerSurfaceRow) -> McpServerSurfaceOut:
         mcp_server_release_id=int(row.mcp_server_release_id),
         surface_key=clean(row.surface_key),
         surface_label=clean(row.surface_label),
+        category=clean(row.category) or "directory",
         status=clean(row.status) or "candidate",
         listing_url=clean(row.listing_url) or None,
         failure_reason=clean(row.failure_reason) or None,

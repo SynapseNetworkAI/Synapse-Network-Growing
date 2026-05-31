@@ -59,7 +59,7 @@ def _ensure_postgres_database(database_url: str) -> None:
 
 _ensure_postgres_database(TEST_DATABASE_URL)
 
-from server.database import Base, get_db, engine as APP_ENGINE
+from server.database import Base, _migrate, get_db, engine as APP_ENGINE
 from server.main import app
 from server.config import PROJECT_ROOT
 from server.services.agents.loader import ensure_agents_loaded
@@ -259,6 +259,7 @@ def _drop_postgres_schema() -> None:
 
 def _ensure_test_tables() -> None:
     Base.metadata.create_all(bind=TEST_ENGINE)
+    _migrate(TEST_ENGINE)
 
 
 @pytest.fixture(autouse=True)

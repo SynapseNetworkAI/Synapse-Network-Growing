@@ -127,6 +127,7 @@ def create_mcp_server_release(
                 mcp_server_release_id=int(row.id),
                 surface_key=key,
                 surface_label=label,
+                category="directory",
                 status="candidate",
             )
         )
