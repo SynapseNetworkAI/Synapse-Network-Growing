@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from server.database_social_distribution import SocialContentAssetRow
 from server.services.social.distribution_document_content import parse_json_object
+from server.services.social.distribution_task_type_backfill import infer_task_type_for_asset
 
 
 CONTENT_TASK_TERMINAL_STATUSES = {"removed", "archived", "rejected"}
@@ -83,8 +84,7 @@ def candidate_content_task_key(
 ) -> str:
     task_type = str(metadata.get("task_type") or "").strip().lower()
     if not task_type:
-        has_article_pack = legacy_content_task_candidate(candidate, metadata)
-        task_type = "x_article_pack" if has_article_pack else "multi_platform_campaign"
+        task_type, _ = infer_task_type_for_asset(candidate)
     return content_task_key(
         task_type=task_type,
         title=candidate.title,

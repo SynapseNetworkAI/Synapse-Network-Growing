@@ -3,6 +3,11 @@ import json
 from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionDocumentRow,
+    SocialDistributionEventRow,
+)
+from server.services.social.distribution_task_type_backfill import (
+    TaskTypeBackfillOptions,
+    backfill_content_asset_task_types,
 )
 from server.services.social.agent_content_pack import CanonicalArticleExpansion
 from server.services.social.distribution_projection import _json_object
@@ -183,3 +188,71 @@ def test_x_media_post_approve_generates_only_x_task(
     payload = response.json()
     assert [result["platform"] for result in payload["results"]] == ["x"]
     assert payload["asset"]["agent_metadata"]["task_type"] == "x_media_post"
+
+
+def test_backfill_content_asset_task_types_makes_legacy_classification_explicit(
+    db_session,
+):
+    content = SocialContentAssetRow(
+        asset_type="article",
+        source_type="manual_task",
+        title="X Week 1 Day 7 - Weekly build log",
+        summary="Legacy content task.",
+        status="draft",
+        created_by="operator",
+        agent_metadata_json=json.dumps({"post_intent": "weekly_log"}),
+    )
+    reply = SocialContentAssetRow(
+        asset_type="article",
+        source_type="manual_task",
+        title="X Week 1 Reply Block Day 3",
+        summary="Legacy reply task.",
+        status="ready",
+        created_by="operator",
+        agent_metadata_json=json.dumps({"post_intent": "engagement_reply"}),
+    )
+    article = SocialContentAssetRow(
+        asset_type="article",
+        source_type="manual",
+        title="Synapse Network: Payment Rails for AI Agents",
+        summary="Legacy article pack.",
+        status="ready",
+        created_by="operator",
+        agent_metadata_json="{}",
+    )
+    db_session.add_all([content, reply, article])
+    db_session.flush()
+    article.documents.append(
+        SocialDistributionDocumentRow(
+            document_kind="x_article_pack",
+            title="Article Pack",
+            body_markdown="# Article",
+            status="generated",
+        )
+    )
+    db_session.commit()
+
+    dry_run = backfill_content_asset_task_types(
+        db_session,
+        TaskTypeBackfillOptions(dry_run=True),
+    )
+    assert dry_run.changed_count == 3
+
+    result = backfill_content_asset_task_types(
+        db_session,
+        TaskTypeBackfillOptions(dry_run=False, actor="operator"),
+    )
+    db_session.refresh(content)
+    db_session.refresh(reply)
+    db_session.refresh(article)
+
+    assert result.changed_count == 3
+    assert _json_object(content.agent_metadata_json)["task_type"] == "content_distribution"
+    assert _json_object(reply.agent_metadata_json)["task_type"] == "x_reply_block"
+    assert _json_object(article.agent_metadata_json)["task_type"] == "x_article_pack"
+    assert (
+        db_session.query(SocialDistributionEventRow)
+        .filter_by(event_type="content_task_type_backfilled")
+        .count()
+        == 3
+    )

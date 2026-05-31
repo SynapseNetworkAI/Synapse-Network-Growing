@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
+CONTENT_DISTRIBUTION = "content_distribution"
+LEGACY_UNCLASSIFIED = "legacy_unclassified"
 X_ARTICLE_PACK = "x_article_pack"
 X_MEDIA_POST = "x_media_post"
 X_REPLY_BLOCK = "x_reply_block"
@@ -14,6 +16,7 @@ DEFAULT_TASK_TYPE = MULTI_PLATFORM_CAMPAIGN
 
 X_ONLY_TASK_TYPES = {X_ARTICLE_PACK, X_MEDIA_POST, X_REPLY_BLOCK}
 VALID_TASK_TYPES = {
+    CONTENT_DISTRIBUTION,
     X_ARTICLE_PACK,
     X_MEDIA_POST,
     X_REPLY_BLOCK,
@@ -22,6 +25,7 @@ VALID_TASK_TYPES = {
 }
 
 GENERATOR_KEYS = {
+    CONTENT_DISTRIBUTION: "multi_platform_distribution_generator",
     X_ARTICLE_PACK: "x_article_pack_generator",
     X_MEDIA_POST: "x_media_post_generator",
     X_REPLY_BLOCK: "x_reply_block_generator",
@@ -74,6 +78,10 @@ def task_type_label(task_type: str) -> str:
         return "Multi-platform Campaign"
     if task_type == MANUAL_PLATFORM_POST:
         return "Manual Platform Post"
+    if task_type == CONTENT_DISTRIBUTION:
+        return "General Content Distribution"
+    if task_type == LEGACY_UNCLASSIFIED:
+        return "Legacy / Unclassified"
     return task_type
 
 
@@ -85,5 +93,7 @@ def channel_selection_mode(task_type: str) -> str:
     if task_type in X_ONLY_TASK_TYPES:
         return "locked_x"
     if task_type == MULTI_PLATFORM_CAMPAIGN:
+        return "multi_platform"
+    if task_type == CONTENT_DISTRIBUTION:
         return "multi_platform"
     return "single_manual_platform"

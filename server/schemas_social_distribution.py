@@ -213,7 +213,7 @@ class SocialDistributionBoardCardOut(BaseModel):
     asset: SocialContentAssetOut
     column_key: str
     task_kind_code: str = "content_distribution"
-    task_kind_label: str = "内容分发"
+    task_kind_label: str = "通用内容发布"
     task_kind_action: str = "approve_and_generate_platform_docs"
     task_count: int = 0
     document_count: int = 0
