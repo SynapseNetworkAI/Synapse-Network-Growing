@@ -97,6 +97,28 @@ def test_write_tool_sends_agent_token(monkeypatch):
     assert captured["body"] == {"agent_id": "codex", "lease_minutes": 120}
 
 
+def test_claim_and_run_tool_uses_allowlisted_route(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["body"] = json.loads(req.data.decode("utf-8"))
+        return _FakeResponse({"bug": {"id": 7}})
+
+    monkeypatch.setenv("OPS_BASE_URL", "http://ops.test")
+    monkeypatch.setenv("OPS_AGENT_BUG_API_TOKEN", "local-secret")
+    monkeypatch.setattr(bug_list_server.request, "urlopen", fake_urlopen)
+
+    bug_list_server._call_tool(
+        "bugs_claim_and_run", {"bug_id": 7, "agent_id": "codex"}
+    )
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://ops.test/api/bugs/agent-actions/7/claim-and-run"
+    assert captured["body"] == {"agent_id": "codex", "lease_minutes": 120}
+
+
 def test_http_errors_are_mapped_to_structured_mcp_errors(monkeypatch):
     def fake_urlopen(req, timeout):
         raise _http_error(409, {"detail": "bug already has an active fix attempt"})

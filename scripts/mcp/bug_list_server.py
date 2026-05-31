@@ -224,6 +224,20 @@ def _bugs_claim(arguments: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _bugs_claim_and_run(arguments: dict[str, Any]) -> dict[str, Any]:
+    _require_fields(arguments, ("bug_id", "agent_id"))
+    payload = {
+        "agent_id": arguments["agent_id"],
+        "lease_minutes": arguments.get("lease_minutes", 120),
+    }
+    return _request_api(
+        "POST",
+        f"/api/bugs/agent-actions/{arguments['bug_id']}/claim-and-run",
+        payload,
+        token_required=True,
+    )
+
+
 def _bugs_materialize_requirement(arguments: dict[str, Any]) -> dict[str, Any]:
     _require_fields(arguments, ("bug_id",))
     return _request_api(
@@ -297,6 +311,7 @@ TOOL_HANDLERS = {
     "bugs_agent_queue": _bugs_agent_queue,
     "bugs_intake": _bugs_intake,
     "bugs_claim": _bugs_claim,
+    "bugs_claim_and_run": _bugs_claim_and_run,
     "bugs_materialize_requirement": _bugs_materialize_requirement,
     "bugs_link_fix": _bugs_link_fix,
     "bugs_add_verification": _bugs_add_verification,

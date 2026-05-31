@@ -44,12 +44,12 @@ The registration script links this skill into `~/.codex/skills/bug-list-agent` a
 
 1. Read the queue with `bugs_agent_queue`.
 2. Read full context with `bugs_get`.
-3. Claim the bug with `bugs_claim`.
-4. Fix the code on a branch and create a commit or PR.
-5. Link branch, commit, PR, requirement, or workflow evidence with `bugs_link_fix`.
+3. Prefer `bugs_claim_and_run` for the default automation path; use `bugs_claim` only when you need a manual-only flow.
+4. Poll bug detail and workflow evidence until the fix attempt reaches `verified` or `failed`.
+5. Link branch, commit, PR, requirement, or workflow evidence with `bugs_link_fix` when the workflow or local fix produces them.
 6. Run validation and capture screenshots when relevant.
-7. Add verification with `bugs_add_verification`.
-8. Close with `bugs_close` only when evidence is complete; otherwise use `bugs_reopen`.
+7. Add verification with `bugs_add_verification` when the workflow did not already project verification evidence back into the bug.
+8. Close with `bugs_close` only when evidence is complete; otherwise leave the bug at `verified` or use `bugs_reopen`.
 
 Always keep these identifiers in your working notes: `bug_id`, `project_key`, branch, commit or PR, validation commands, validation result, and screenshot paths.
 
@@ -101,10 +101,20 @@ curl -X POST "$OPS_BASE_URL/api/bugs/agent-actions/123/claim" \
   -d '{"agent_id":"codex","lease_minutes":120}'
 ```
 
+Claim a bug and immediately start the repair workflow:
+
+```bash
+curl -X POST "$OPS_BASE_URL/api/bugs/agent-actions/123/claim-and-run" \
+  -H "Content-Type: application/json" \
+  -H "X-Growing-Agent-Bug-Token: $OPS_AGENT_BUG_API_TOKEN" \
+  -d '{"agent_id":"codex","lease_minutes":120}'
+```
+
 MCP tools use the same token-gated agent-action routes for writes:
 
 - `bugs_intake`
 - `bugs_claim`
+- `bugs_claim_and_run`
 - `bugs_materialize_requirement`
 - `bugs_link_fix`
 - `bugs_add_verification`
@@ -168,3 +178,4 @@ curl -X POST "$OPS_BASE_URL/api/bugs/agent-actions/123/reopen" \
 - `missing_evidence`: add real commit, command, and screenshot evidence before closing.
 - `auth_required`: configure only local env or keychain credentials; never commit tokens.
 - `ops_api_unavailable`: do not create local shadow state. Retry after the Ops API is healthy.
+- `verified` is the normal automation stopping point. Do not auto-close unless commit or PR evidence, verification commands, and required UI screenshots are already present.

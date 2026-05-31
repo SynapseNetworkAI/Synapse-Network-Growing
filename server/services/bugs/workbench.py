@@ -22,7 +22,13 @@ from server.schemas_bugs import (
     BugDetailOut,
     BugListOut,
 )
+from server.services.bugs import automation as bug_automation
 from server.services.bugs.intake import serialize_bug_record
+from server.services.bugs.policy import (
+    allowed_next_actions,
+    ensure_close_evidence,
+    verification_status,
+)
 from server.services.bugs.serializer import (
     build_agent_context,
     json_loads,
@@ -30,6 +36,12 @@ from server.services.bugs.serializer import (
     serialize_fix_attempt,
 )
 from server.services.requirements.sources import materialize_bug_backlog
+from server.services.requirements import service as requirement_service
+
+project_attempt_from_workflow = bug_automation.project_attempt_from_workflow
+requirement_workflow_binding = bug_automation.requirement_workflow_binding
+run_claim_and_run_bug = bug_automation.run_claim_and_run_bug
+start_requirement_workflow = requirement_service.start_requirement_workflow
 
 ACTIVE_ATTEMPT_STATUSES = {"claimed", "fixing", "fixed_pending_verification"}
 AGENT_QUEUE_STATUSES = {"open", "triaged", "ready_for_agent", "reopened"}
@@ -42,6 +54,7 @@ BUG_STATUSES = {
     "verified",
     "closed",
     "reopened",
+    "failed",
     "duplicate",
     "wontfix",
     "converted",
@@ -157,36 +170,23 @@ def _payload_list(payload: dict[str, object], key: str) -> list[object]:
     return value
 
 
-def _verification_status(payload: dict[str, object]) -> str:
-    status = _payload_text(payload, "status", "fixed_pending_verification")
-    if status in {"fixed_pending_verification", "verified", "failed"}:
-        return status
-    raise ValueError(
-        "verification status must be fixed_pending_verification|verified|failed"
-    )
-
-
-def _has_commit_or_pr(attempt: BugFixAttemptRow) -> bool:
-    if _clean_text(attempt.commit_sha) is not None:
-        return True
-    return _clean_text(attempt.pr_url) is not None
-
-
-def _ensure_close_evidence(row: BugRecordRow, attempt: BugFixAttemptRow | None) -> None:
-    if attempt is None:
-        raise ValueError("bug requires a verified fix attempt before close")
-    if str(attempt.status) != "verified":
-        raise ValueError("bug requires a verified fix attempt before close")
-    if not json_loads(attempt.verification_commands_json, []):
-        raise ValueError("bug requires verification command evidence before close")
-    if not _has_commit_or_pr(attempt):
-        raise ValueError("bug requires a commit or PR before close")
-    screenshots = json_loads(attempt.verification_screenshots_json, [])
-    if _requires_screenshot(row) and not screenshots:
-        raise ValueError("bug requires screenshot verification before close")
+def _sync_attempts(db: Session, rows: list[BugRecordRow]) -> None:
+    changed = False
+    for row in rows:
+        attempt = latest_fix_attempt(db, int(row.id))
+        if attempt is None:
+            continue
+        if project_attempt_from_workflow(db, row, attempt):
+            db.add(attempt)
+            db.add(row)
+            changed = True
+    if changed:
+        db.commit()
 
 
 def bug_detail(db: Session, bug_id: int) -> BugDetailOut:
+    row = _bug_or_404(db, bug_id)
+    _sync_attempts(db, [row])
     row = _bug_or_404(db, bug_id)
     attempts = (
         db.query(BugFixAttemptRow)
@@ -205,7 +205,13 @@ def bug_detail(db: Session, bug_id: int) -> BugDetailOut:
         latest_fix_attempt=serialize_fix_attempt(attempts[0]) if attempts else None,
         fix_attempts=[serialize_fix_attempt(item) for item in attempts],
         events=[serialize_bug_event(item) for item in events],
-        agent_context=build_agent_context(db, row),
+        agent_context=build_agent_context(
+            db,
+            row,
+            allowed_next_actions=allowed_next_actions(
+                row, attempts[0] if attempts else None
+            ),
+        ),
     )
 
 
@@ -258,20 +264,21 @@ def list_bugs(
         .limit(limit)
         .all()
     )
+    _sync_attempts(db, rows)
     return BugListOut(
         items=[BugRecordOut(**serialize_bug_record(row)) for row in rows],
         total=total,
         limit=limit,
         offset=offset,
-        status_counts=_count_by(db, BugRecordRow.status),
-        severity_counts=_count_by(db, BugRecordRow.severity),
+        status_counts=_count_by(query, BugRecordRow.status),
+        severity_counts=_count_by(query, BugRecordRow.severity),
     )
 
 
-def _count_by(db: Session, column: Any) -> dict[str, int]:
+def _count_by(query: Any, column: Any) -> dict[str, int]:
     return {
         str(key): int(count)
-        for key, count in db.query(column, func.count(BugRecordRow.id))
+        for key, count in query.with_entities(column, func.count(BugRecordRow.id))
         .group_by(column)
         .all()
     }
@@ -331,7 +338,9 @@ def claim_bug(
     return BugClaimResultOut(
         bug=BugRecordOut(**serialize_bug_record(row)),
         fix_attempt=serialize_fix_attempt(attempt),
-        agent_context=build_agent_context(db, row),
+        agent_context=build_agent_context(
+            db, row, allowed_next_actions=allowed_next_actions(row, attempt)
+        ),
     )
 
 
@@ -360,6 +369,14 @@ def materialize_bug_requirement(db: Session, bug_id: int) -> BugDetailOut:
         )
         db.commit()
     return bug_detail(db, int(row.id))
+
+
+def claim_and_run_bug(
+    db: Session, bug_id: int, *, agent_id: str, lease_minutes: int = 120
+) -> BugDetailOut:
+    return run_claim_and_run_bug(
+        db, bug_id, agent_id=agent_id, lease_minutes=lease_minutes
+    )
 
 
 def link_bug_fix(db: Session, bug_id: int, payload: dict[str, object]) -> BugDetailOut:
@@ -410,7 +427,9 @@ def add_bug_verification(
     attempt = _editable_fix_attempt(db, int(row.id))
     if attempt is None:
         raise ValueError("claim the bug before adding verification")
-    target_status = _verification_status(payload)
+    target_status = verification_status(
+        {"status": _payload_text(payload, "status", "fixed_pending_verification")}
+    )
     summary = _payload_text(payload, "summary")
     if summary is None:
         raise ValueError("verification summary is required")
@@ -441,7 +460,7 @@ def add_bug_verification(
 def close_bug(db: Session, bug_id: int, *, actor: str, resolution: str) -> BugDetailOut:
     row = _bug_or_404(db, bug_id)
     attempt = latest_fix_attempt(db, int(row.id))
-    _ensure_close_evidence(row, attempt)
+    ensure_close_evidence(row, attempt)
     previous = str(row.status or "verified")
     row.status = "closed"
     _event(
@@ -456,22 +475,6 @@ def close_bug(db: Session, bug_id: int, *, actor: str, resolution: str) -> BugDe
     db.add(row)
     db.commit()
     return bug_detail(db, int(row.id))
-
-
-def _requires_screenshot(row: BugRecordRow) -> bool:
-    metadata = json_loads(row.metadata_json, {})
-    if bool(metadata.get("requires_screenshot_verification")):
-        return True
-    text = " ".join(
-        [
-            str(row.title or ""),
-            str(row.summary or ""),
-            json.dumps(metadata, ensure_ascii=False),
-        ]
-    ).lower()
-    return any(
-        token in text for token in ("frontend", "ui", "page", "screenshot", "browser")
-    )
 
 
 def reopen_bug(db: Session, bug_id: int, *, actor: str, reason: str) -> BugDetailOut:

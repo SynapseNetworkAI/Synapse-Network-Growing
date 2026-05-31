@@ -34,6 +34,7 @@ from server.services.bugs.workbench import (
     add_bug_verification,
     agent_queue,
     bug_detail,
+    claim_and_run_bug,
     claim_bug,
     close_bug,
     link_bug_fix,
@@ -127,6 +128,17 @@ def agent_claim_bug_endpoint(
     return claim_bug_endpoint(bug_id, body, db)
 
 
+@router.post("/agent-actions/{bug_id}/claim-and-run", response_model=BugDetailOut)
+def agent_claim_and_run_bug_endpoint(
+    bug_id: int,
+    body: BugClaimRequest,
+    db: Session = Depends(get_db),
+    x_growing_agent_bug_token: str | None = Header(default=None),
+):
+    require_agent_bug_token(x_growing_agent_bug_token)
+    return claim_and_run_bug_endpoint(bug_id, body, db)
+
+
 @router.post("/agent-actions/{bug_id}/materialize-requirement", response_model=BugDetailOut)
 def agent_materialize_bug_requirement_endpoint(
     bug_id: int,
@@ -195,6 +207,22 @@ def claim_bug_endpoint(bug_id: int, body: BugClaimRequest, db: Session = Depends
     try:
         with timed_operation(logger, "bug_claim_post", bug_id=bug_id, slow_ms=1000):
             return claim_bug(db, bug_id, agent_id=body.agent_id, lease_minutes=body.lease_minutes)
+    except ValueError as exc:
+        raise HTTPException(status_code=409 if "active fix" in str(exc) else 400, detail=str(exc)) from exc
+
+
+@router.post("/{bug_id}/claim-and-run", response_model=BugDetailOut)
+def claim_and_run_bug_endpoint(
+    bug_id: int, body: BugClaimRequest, db: Session = Depends(get_db)
+):
+    try:
+        with timed_operation(logger, "bug_claim_and_run_post", bug_id=bug_id, slow_ms=1000):
+            return claim_and_run_bug(
+                db,
+                bug_id,
+                agent_id=body.agent_id,
+                lease_minutes=body.lease_minutes,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=409 if "active fix" in str(exc) else 400, detail=str(exc)) from exc
 

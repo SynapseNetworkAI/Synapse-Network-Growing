@@ -3,6 +3,8 @@ from server.database import (
     BugFixAttemptRow,
     BugRecordRow,
     ProjectPolicyRow,
+    RequirementRow,
+    WorkflowRunRow,
 )
 from server.services.bugs.serializer import (
     json_loads,
@@ -70,6 +72,11 @@ def test_bug_list_detail_and_agent_queue(synced_client):
     assert queue_response.status_code == 200
     assert queue_response.json()["items"][0]["bug"]["id"] == bug["id"]
 
+    paged = synced_client.get("/api/bugs?limit=1&offset=0")
+    assert paged.status_code == 200
+    assert paged.json()["limit"] == 1
+    assert paged.json()["offset"] == 0
+
 
 def test_bug_claim_is_exclusive_and_records_event(synced_client, db_session):
     bug = _create_bug(synced_client, title="SDK docs typo", fingerprint="sdk-docs-typo")
@@ -93,6 +100,69 @@ def test_bug_claim_is_exclusive_and_records_event(synced_client, db_session):
         .count()
         == 1
     )
+
+
+def test_claim_and_run_starts_workflow_and_binds_fix_attempt(
+    synced_client, db_session, monkeypatch
+):
+    from types import SimpleNamespace
+
+    bug = _create_bug(
+        synced_client, title="Auto workflow bug", fingerprint="auto-workflow-bug"
+    )
+    requirement = RequirementRow(
+        title="Auto workflow bug requirement",
+        description_markdown="Repair the auto workflow bug.",
+        status="ready",
+        target_project_path="/Users/cliff/workspace/agent/Synapse-Network-Provider",
+        acceptance_contract_json='{"checks":[{"type":"command","command":"pytest -q tests/test_provider_status.py"}]}',
+    )
+    db_session.add(requirement)
+    db_session.commit()
+    db_session.refresh(requirement)
+    workflow_run = WorkflowRunRow(
+        requirement_id=int(requirement.id),
+        workflow_key="agent_self_repair",
+        current_state="queued",
+        status="pending",
+        triggered_by="test",
+    )
+    db_session.add(workflow_run)
+    db_session.commit()
+    db_session.refresh(workflow_run)
+
+    def fake_materialize(_db, bug_id):
+        row = db_session.query(BugRecordRow).filter(BugRecordRow.id == bug_id).one()
+        row.converted_requirement_id = int(requirement.id)
+        db_session.commit()
+        return {}
+
+    monkeypatch.setattr(
+        "server.services.bugs.workbench.materialize_bug_requirement", fake_materialize
+    )
+    monkeypatch.setattr(
+        "server.services.bugs.workbench.requirement_workflow_binding",
+        lambda _db, _requirement_id: (None, SimpleNamespace(id=int(requirement.id))),
+    )
+    monkeypatch.setattr(
+        "server.services.bugs.workbench.start_requirement_workflow",
+        lambda _db, _requirement_id, **_kwargs: {"id": int(workflow_run.id)},
+    )
+    monkeypatch.setattr(
+        "server.services.bugs.workbench.project_attempt_from_workflow",
+        lambda _db, _row, _attempt: False,
+    )
+
+    response = synced_client.post(
+        f"/api/bugs/{bug['id']}/claim-and-run", json={"agent_id": "codex"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["bug"]["status"] == "fixing"
+    assert payload["latest_fix_attempt"]["workflow_run_id"] == int(workflow_run.id)
+    assert payload["latest_fix_attempt"]["requirement_id"] == int(requirement.id)
+    assert any(event["event_type"] == "workflow_started" for event in payload["events"])
 
 
 def test_bug_fix_verification_close_and_reopen_flow(synced_client, db_session):
@@ -163,6 +233,32 @@ def test_bug_fix_verification_close_and_reopen_flow(synced_client, db_session):
 
     row = db_session.query(BugRecordRow).filter(BugRecordRow.id == bug["id"]).one()
     assert row.status == "reopened"
+
+
+def test_claim_and_run_fails_closed_when_bug_context_is_incomplete(synced_client):
+    response = synced_client.post(
+        "/api/bugs/intake",
+        json={
+            "source_key": "manual_bug_report",
+            "project_key": "growing",
+            "title": "Context missing bug",
+            "summary": "Missing project path and acceptance checks.",
+            "severity": "normal",
+            "fingerprint": "context-missing-bug",
+        },
+    )
+    assert response.status_code == 201
+    bug = response.json()["bug"]
+
+    claim_and_run = synced_client.post(
+        f"/api/bugs/{bug['id']}/claim-and-run", json={"agent_id": "codex"}
+    )
+
+    assert claim_and_run.status_code == 200
+    payload = claim_and_run.json()
+    assert payload["bug"]["status"] == "failed"
+    assert payload["latest_fix_attempt"]["status"] == "failed"
+    assert "acceptance_checks" in str(payload["latest_fix_attempt"]["failure_reason"])
 
 
 def test_bug_workbench_fail_closed_endpoints(synced_client):

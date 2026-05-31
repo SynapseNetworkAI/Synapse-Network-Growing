@@ -92,7 +92,12 @@ def serialize_bug_event(row: BugEventRow) -> BugEventOut:
     )
 
 
-def build_agent_context(db: Session, row: BugRecordRow) -> BugAgentContextOut:
+def build_agent_context(
+    db: Session,
+    row: BugRecordRow,
+    *,
+    allowed_next_actions: list[str] | None = None,
+) -> BugAgentContextOut:
     evidence = json_loads(row.evidence_json, [])
     metadata = json_loads(row.metadata_json, {})
     return BugAgentContextOut(
@@ -108,11 +113,5 @@ def build_agent_context(db: Session, row: BugRecordRow) -> BugAgentContextOut:
         evidence=evidence,
         acceptance_checks=list(metadata.get("acceptance_checks") or []),
         linked_requirement_id=row.converted_requirement_id,
-        allowed_next_actions=[
-            "claim",
-            "materialize_requirement",
-            "link_fix",
-            "verify",
-            "reopen",
-        ],
+        allowed_next_actions=list(allowed_next_actions or []),
     )

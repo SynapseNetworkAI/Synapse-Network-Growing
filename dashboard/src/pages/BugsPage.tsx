@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api, BugDetail, BugRecord } from '../api'
-import { EmptyPane, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { EmptyPane, StateBadge, useToast } from '../components/workbench'
+import { BugDetailModal } from './bugs/BugDetailModal'
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100]
 
 function formatTime(value: string | null) {
   if (!value) return '-'
@@ -30,23 +33,73 @@ function uniqueValues(items: BugRecord[], key: keyof BugRecord) {
   return Array.from(new Set(items.map((item) => String(item[key] || '')).filter(Boolean))).sort()
 }
 
-function metricValue(items: BugRecord[], predicate: (item: BugRecord) => boolean) {
-  return items.filter(predicate).length
+function toPositiveInt(value: string | null, fallback: number, allowed?: number[]) {
+  const parsed = Number(value || fallback)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  if (allowed && !allowed.includes(parsed)) return fallback
+  return parsed
+}
+
+function updateSearchParams(
+  current: URLSearchParams,
+  values: Record<string, string | number | null | undefined>,
+) {
+  const next = new URLSearchParams(current)
+  Object.entries(values).forEach(([key, value]) => {
+    const normalized = value == null ? '' : String(value).trim()
+    if (!normalized) next.delete(key)
+    else next.set(key, normalized)
+  })
+  return next
+}
+
+function countFromMap(map: Record<string, number>, keys: string[]) {
+  return keys.reduce((sum, key) => sum + Number(map[key] || 0), 0)
+}
+
+function compactPages(page: number, pageCount: number) {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1)
+  const numbers = new Set<number>([1, pageCount, page - 1, page, page + 1].filter((value) => value >= 1 && value <= pageCount))
+  const ordered = Array.from(numbers).sort((a, b) => a - b)
+  const result: Array<number | string> = []
+  ordered.forEach((value, index) => {
+    const previous = ordered[index - 1]
+    if (previous != null && value - previous > 1) result.push(`ellipsis-${previous}-${value}`)
+    result.push(value)
+  })
+  return result
 }
 
 export default function BugsPage() {
   const toast = useToast()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [items, setItems] = useState<BugRecord[]>([])
   const [total, setTotal] = useState(0)
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({})
+  const [severityCounts, setSeverityCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [project, setProject] = useState('')
-  const [status, setStatus] = useState('')
-  const [severity, setSeverity] = useState('')
   const [detail, setDetail] = useState<BugDetail | null>(null)
   const [busy, setBusy] = useState(false)
+  const [searchDraft, setSearchDraft] = useState(searchParams.get('q') || '')
+  const [projectDraft, setProjectDraft] = useState(searchParams.get('project_key') || '')
+  const [statusDraft, setStatusDraft] = useState(searchParams.get('status') || '')
+  const [severityDraft, setSeverityDraft] = useState(searchParams.get('severity') || '')
   const [linkDraft, setLinkDraft] = useState({ branch_name: '', commit_sha: '', pr_url: '' })
   const [verificationSummary, setVerificationSummary] = useState('')
+
+  const page = toPositiveInt(searchParams.get('page'), 1)
+  const pageSize = toPositiveInt(searchParams.get('page_size'), 20, PAGE_SIZE_OPTIONS)
+  const search = searchParams.get('q') || ''
+  const project = searchParams.get('project_key') || ''
+  const status = searchParams.get('status') || ''
+  const severity = searchParams.get('severity') || ''
+
+  useEffect(() => {
+    setSearchDraft(search)
+    setProjectDraft(project)
+    setStatusDraft(status)
+    setSeverityDraft(severity)
+  }, [search, project, status, severity])
 
   const load = async () => {
     setLoading(true)
@@ -56,10 +109,13 @@ export default function BugsPage() {
         project_key: project || undefined,
         status: status || undefined,
         severity: severity || undefined,
-        limit: 100,
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
       })
       setItems(payload.items)
       setTotal(payload.total)
+      setStatusCounts(payload.status_counts || {})
+      setSeverityCounts(payload.severity_counts || {})
     } finally {
       setLoading(false)
     }
@@ -67,11 +123,14 @@ export default function BugsPage() {
 
   useEffect(() => {
     load().catch(() => {})
-  }, [])
+  }, [search, project, status, severity, page, pageSize])
 
   const projectOptions = useMemo(() => uniqueValues(items, 'project_key'), [items])
   const statusOptions = useMemo(() => uniqueValues(items, 'status'), [items])
   const severityOptions = useMemo(() => uniqueValues(items, 'severity'), [items])
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
+  const rangeEnd = total === 0 ? 0 : Math.min(total, page * pageSize)
 
   const openDetail = async (id: number) => {
     setBusy(true)
@@ -109,6 +168,35 @@ export default function BugsPage() {
     }
   }
 
+  const applyFilters = () => {
+    setSearchParams(
+      updateSearchParams(searchParams, {
+        q: searchDraft,
+        project_key: projectDraft,
+        status: statusDraft,
+        severity: severityDraft,
+        page: 1,
+        page_size: pageSize,
+      }),
+    )
+  }
+
+  const resetFilters = () => {
+    setSearchDraft('')
+    setProjectDraft('')
+    setStatusDraft('')
+    setSeverityDraft('')
+    setSearchParams(updateSearchParams(searchParams, { q: '', project_key: '', status: '', severity: '', page: 1, page_size: pageSize }))
+  }
+
+  const goToPage = (nextPage: number) => {
+    setSearchParams(updateSearchParams(searchParams, { page: Math.max(1, Math.min(pageCount, nextPage)), page_size: pageSize }))
+  }
+
+  const changePageSize = (nextPageSize: number) => {
+    setSearchParams(updateSearchParams(searchParams, { page: 1, page_size: nextPageSize }))
+  }
+
   return (
     <div className="space-y-5" data-testid="bugs-page">
       <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
@@ -117,7 +205,7 @@ export default function BugsPage() {
             <div className="text-[11px] uppercase tracking-[0.22em] text-[color:var(--ops-text-caption)]">Agent Fix Queue</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[color:var(--ops-text-title)]">Bug List</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[color:var(--ops-text-muted)]">
-              Agent 原生 bug backlog：记录项目、状态、修复分支、commit、PR 和验证截图，供 agent 读取、领取、修复并回填证据。
+              Agent 原生 bug backlog：分页查看 bug、领取并启动修复、回填 PR / 验证证据，再按门禁关闭。
             </p>
           </div>
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" onClick={() => load().catch(() => {})}>
@@ -127,12 +215,12 @@ export default function BugsPage() {
 
         <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           {[
-            ['Open bugs', metricValue(items, (item) => ['open', 'ready_for_agent', 'triaged', 'reopened'].includes(item.status))],
-            ['Ready for agent', metricValue(items, (item) => ['open', 'ready_for_agent', 'reopened'].includes(item.status))],
-            ['Fixing', metricValue(items, (item) => item.status === 'fixing')],
-            ['Pending verification', metricValue(items, (item) => item.status === 'fixed_pending_verification')],
-            ['Verified', metricValue(items, (item) => item.status === 'verified' || item.status === 'closed')],
-            ['Critical / High', metricValue(items, (item) => ['critical', 'high'].includes(item.severity))],
+            ['Open bugs', countFromMap(statusCounts, ['open', 'ready_for_agent', 'triaged', 'reopened'])],
+            ['Ready for agent', countFromMap(statusCounts, ['open', 'ready_for_agent', 'reopened'])],
+            ['Fixing', countFromMap(statusCounts, ['fixing'])],
+            ['Pending verification', countFromMap(statusCounts, ['fixed_pending_verification'])],
+            ['Verified', countFromMap(statusCounts, ['verified', 'closed'])],
+            ['Critical / High', countFromMap(severityCounts, ['critical', 'high'])],
           ].map(([label, value]) => (
             <div key={label} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
               <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
@@ -144,21 +232,31 @@ export default function BugsPage() {
 
       <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
         <div className="grid gap-3 md:grid-cols-5">
-          <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm md:col-span-2" placeholder="搜索 title / fingerprint / summary" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={project} onChange={(event) => setProject(event.target.value)}>
+          <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm md:col-span-2" placeholder="搜索 title / fingerprint / summary" value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} />
+          <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={projectDraft} onChange={(event) => setProjectDraft(event.target.value)}>
             <option value="">全部项目</option>
             {projectOptions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
-          <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={status} onChange={(event) => setStatus(event.target.value)}>
+          <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={statusDraft} onChange={(event) => setStatusDraft(event.target.value)}>
             <option value="">全部状态</option>
             {statusOptions.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
           <div className="flex gap-2">
-            <select className="min-w-0 flex-1 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={severity} onChange={(event) => setSeverity(event.target.value)}>
+            <select className="min-w-0 flex-1 rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={severityDraft} onChange={(event) => setSeverityDraft(event.target.value)}>
               <option value="">全部级别</option>
               {severityOptions.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
-            <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm text-white" onClick={() => load().catch(() => {})}>查询</button>
+            <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm text-white" onClick={applyFilters}>查询</button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-[color:var(--ops-text-muted)]">
+          <div>当前显示 {rangeStart}-{rangeEnd} / {total}</div>
+          <div className="flex items-center gap-2">
+            <span>每页</span>
+            <select className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))}>
+              {PAGE_SIZE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={resetFilters}>重置筛选</button>
           </div>
         </div>
       </section>
@@ -207,6 +305,23 @@ export default function BugsPage() {
           </table>
         </div>
         {!loading && items.length === 0 ? <div className="p-6"><EmptyPane>暂无 bug 记录。</EmptyPane></div> : null}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[color:var(--ops-stroke-soft)] px-5 py-4">
+          <div className="text-sm text-[color:var(--ops-text-muted)]">第 {page} / {pageCount} 页</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" disabled={page <= 1} className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" onClick={() => goToPage(page - 1)}>上一页</button>
+            {compactPages(page, pageCount).map((item) => typeof item === 'number' ? (
+              <button
+                key={item}
+                type="button"
+                className={`rounded-lg px-3 py-2 text-sm ${item === page ? 'bg-blue-600 text-white' : 'border border-[color:var(--ops-stroke-strong)]'}`}
+                onClick={() => goToPage(item)}
+              >
+                {item}
+              </button>
+            ) : <span key={item} className="px-2 text-sm text-[color:var(--ops-text-caption)]">…</span>)}
+            <button type="button" disabled={page >= pageCount} className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm disabled:opacity-40" onClick={() => goToPage(page + 1)}>下一页</button>
+          </div>
+        </div>
       </section>
 
       <BugDetailModal
@@ -218,6 +333,7 @@ export default function BugsPage() {
         setVerificationSummary={setVerificationSummary}
         onClose={() => setDetail(null)}
         onClaim={() => runAction(() => api.claimBug(detail!.bug.id, { agent_id: 'codex' }), 'Agent 已领取 bug')}
+        onClaimAndRun={() => runAction(() => api.claimAndRunBug(detail!.bug.id, { agent_id: 'codex' }), 'Agent 已领取并启动修复')}
         onMaterialize={() => runAction(() => api.materializeBugRequirement(detail!.bug.id), '已创建或绑定修复需求')}
         onLinkFix={() => runAction(() => api.linkBugFix(detail!.bug.id, { agent_id: 'codex', ...linkDraft }), '修复分支和 commit 已记录')}
         onVerify={() => runAction(() => api.addBugVerification(detail!.bug.id, {
@@ -225,181 +341,11 @@ export default function BugsPage() {
           status: 'verified',
           summary: verificationSummary || 'Verified by agent.',
           commands: [{ command: 'manual verification evidence registered', status: 'passed' }],
-          screenshots: [],
+          screenshots: detail?.latest_fix_attempt?.verification_screenshots || [],
         }), '验证证据已记录')}
         onCloseBug={() => runAction(() => api.closeBug(detail!.bug.id, { actor: 'codex', resolution: 'verified' }), 'Bug 已关闭')}
         onReopen={() => runAction(() => api.reopenBug(detail!.bug.id, { actor: 'codex', reason: 'Regression or verification failed.' }), 'Bug 已重新打开')}
       />
-    </div>
-  )
-}
-
-function BugDetailModal({
-  detail,
-  busy,
-  linkDraft,
-  verificationSummary,
-  setLinkDraft,
-  setVerificationSummary,
-  onClose,
-  onClaim,
-  onMaterialize,
-  onLinkFix,
-  onVerify,
-  onCloseBug,
-  onReopen,
-}: Readonly<{
-  detail: BugDetail | null
-  busy: boolean
-  linkDraft: { branch_name: string; commit_sha: string; pr_url: string }
-  verificationSummary: string
-  setLinkDraft: (value: { branch_name: string; commit_sha: string; pr_url: string }) => void
-  setVerificationSummary: (value: string) => void
-  onClose: () => void
-  onClaim: () => void
-  onMaterialize: () => void
-  onLinkFix: () => void
-  onVerify: () => void
-  onCloseBug: () => void
-  onReopen: () => void
-}>) {
-  const bug = detail?.bug
-  return (
-    <OverlayModal
-      open={Boolean(detail)}
-      eyebrow="Bug Detail"
-      title={bug?.title || 'Bug'}
-      description="结构化 bug 上下文、修复尝试、验证证据和事件记录，供 agent 安全接力。"
-      actions={
-        bug ? (
-          <>
-            <button type="button" disabled={busy} className="rounded-2xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onMaterialize}>创建修复需求</button>
-            <button type="button" disabled={busy || bug.status === 'fixing'} className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={onClaim}>Agent 领取</button>
-          </>
-        ) : null
-      }
-      onClose={onClose}
-    >
-      {detail ? (
-        <div className="max-h-[78vh] space-y-5 overflow-auto px-6 py-5">
-          <section className="grid gap-3 md:grid-cols-4">
-            <InfoTile label="项目" value={bug?.project_key || '-'} />
-            <InfoTile label="状态" value={bug?.status || '-'} />
-            <InfoTile label="严重级别" value={bug?.severity || '-'} />
-            <InfoTile label="出现次数" value={String(bug?.occurrence_count || 0)} />
-          </section>
-
-          <DetailSection title="Summary">
-            <p className="text-sm leading-6 text-[color:var(--ops-text-muted)]">{bug?.summary || 'No summary.'}</p>
-            <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-              <Field label="Fingerprint" value={bug?.fingerprint || '-'} />
-              <Field label="Source Ref" value={bug?.source_ref || '-'} />
-              <Field label="Environment" value={bug?.environment || '-'} />
-              <Field label="Requirement" value={bug?.converted_requirement_id ? `#${bug.converted_requirement_id}` : '-'} />
-            </div>
-          </DetailSection>
-
-          <DetailSection title="Agent Context">
-            <div className="grid gap-3 text-sm md:grid-cols-2">
-              <Field label="Target Project Path" value={detail.agent_context.target_project_path || '-'} />
-              <Field label="Allowed Actions" value={detail.agent_context.allowed_next_actions.join(', ') || '-'} />
-            </div>
-            {detail.agent_context.acceptance_checks.length ? (
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[color:var(--ops-text-muted)]">
-                {detail.agent_context.acceptance_checks.map((item) => <li key={item}>{item}</li>)}
-              </ul>
-            ) : null}
-          </DetailSection>
-
-          <DetailSection title="Evidence">
-            <div className="space-y-3">
-              {bug?.evidence.length ? bug.evidence.map((item, index) => (
-                <pre key={index} className="overflow-auto rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4 text-xs leading-5 text-[color:var(--ops-text-muted)]">{JSON.stringify(item, null, 2)}</pre>
-              )) : <EmptyPane>暂无证据。</EmptyPane>}
-            </div>
-          </DetailSection>
-
-          <DetailSection title="Fix Attempts">
-            <div className="grid gap-3 md:grid-cols-3">
-              <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" placeholder="branch name" value={linkDraft.branch_name} onChange={(event) => setLinkDraft({ ...linkDraft, branch_name: event.target.value })} />
-              <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" placeholder="commit sha" value={linkDraft.commit_sha} onChange={(event) => setLinkDraft({ ...linkDraft, commit_sha: event.target.value })} />
-              <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" placeholder="PR URL" value={linkDraft.pr_url} onChange={(event) => setLinkDraft({ ...linkDraft, pr_url: event.target.value })} />
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" disabled={busy} className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onLinkFix}>链接修复分支 / Commit</button>
-              {detail.latest_fix_attempt?.pr_url ? <a className="rounded-xl border border-cyan-300/30 px-4 py-2 text-sm text-cyan-100" href={detail.latest_fix_attempt.pr_url} target="_blank" rel="noreferrer">打开 PR</a> : null}
-            </div>
-            <div className="mt-4 space-y-2">
-              {detail.fix_attempts.map((attempt) => (
-                <div key={attempt.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3 text-sm">
-                  <div className="flex flex-wrap items-center gap-2"><StateBadge tone={statusTone(attempt.status)}>{attempt.status}</StateBadge><span>{attempt.agent_id}</span><span>{attempt.branch_name || '-'}</span><span>{shortSha(attempt.commit_sha)}</span></div>
-                  {attempt.verification_summary ? <p className="mt-2 text-[color:var(--ops-text-muted)]">{attempt.verification_summary}</p> : null}
-                </div>
-              ))}
-            </div>
-          </DetailSection>
-
-          <DetailSection title="Verification">
-            <textarea className="min-h-24 w-full rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-3 text-sm" placeholder="验证摘要、截图路径或 artifact URL" value={verificationSummary} onChange={(event) => setVerificationSummary(event.target.value)} />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" disabled={busy} className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onVerify}>登记验证证据</button>
-              <button type="button" disabled={busy} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white" onClick={onCloseBug}>关闭 Bug</button>
-              <button type="button" disabled={busy} className="rounded-xl border border-red-300/40 px-4 py-2 text-sm text-red-100" onClick={onReopen}>重新打开</button>
-            </div>
-            {detail.latest_fix_attempt?.verification_screenshots.length ? (
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                {detail.latest_fix_attempt.verification_screenshots.map((item, index) => (
-                  <pre key={index} className="overflow-auto rounded-xl border border-[color:var(--ops-stroke-soft)] p-3 text-xs">{JSON.stringify(item, null, 2)}</pre>
-                ))}
-              </div>
-            ) : <p className="mt-3 text-sm text-[color:var(--ops-text-muted)]">暂无截图证据。</p>}
-          </DetailSection>
-
-          <DetailSection title="Events">
-            <div className="space-y-2">
-              {detail.events.map((event) => (
-                <div key={event.id} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] px-4 py-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <b className="text-[color:var(--ops-text-title)]">{event.event_type}</b>
-                    <span className="text-xs text-[color:var(--ops-text-caption)]">{formatTime(event.created_at)}</span>
-                  </div>
-                  <div className="mt-1 text-[color:var(--ops-text-muted)]">
-                    {event.actor} · {event.from_status || '-'} {'->'} {event.to_status || '-'}
-                  </div>
-                </div>
-              ))}
-              {!detail.events.length ? <EmptyPane>暂无事件。</EmptyPane> : null}
-            </div>
-          </DetailSection>
-        </div>
-      ) : <div className="p-6"><EmptyPane>未选择 bug。</EmptyPane></div>}
-    </OverlayModal>
-  )
-}
-
-function InfoTile({ label, value }: Readonly<{ label: string; value: string }>) {
-  return (
-    <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-4 py-3">
-      <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div>
-      <div className="mt-2 truncate text-sm font-semibold text-[color:var(--ops-text-title)]">{value}</div>
-    </div>
-  )
-}
-
-function DetailSection({ title, children }: Readonly<{ title: string; children: ReactNode }>) {
-  return (
-    <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-4 py-4">
-      <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-[color:var(--ops-text-caption)]">{title}</div>
-      {children}
-    </section>
-  )
-}
-
-function Field({ label, value }: Readonly<{ label: string; value: string }>) {
-  return (
-    <div>
-      <div className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">{label}</div>
-      <div className="mt-1 break-words text-[color:var(--ops-text-muted)]">{value}</div>
     </div>
   )
 }
