@@ -430,7 +430,7 @@ export function DistributionTasksPanel({ formatDateTime }: { formatDateTime: (va
     >
       {!board ? <EmptyPane>分发看板加载中。</EmptyPane> : null}
       {board && board.summary.total_assets === 0 ? <EmptyPane>暂无内容计划。点击“创建内容计划”，把一篇源内容变成多平台分发工作项。</EmptyPane> : null}
-      {board ? <TaskKindFilterControl value={taskKindFilter} onChange={setTaskKindFilter} /> : null}
+      {board ? <TaskKindFilterControl board={board} value={taskKindFilter} onChange={setTaskKindFilter} /> : null}
       {visibleBoard ? <DistributionBoard board={visibleBoard} formatDateTime={formatDateTime} onOpen={(card) => void openAsset(card.asset.id)} /> : null}
       <OverlayModal open={showCreate} eyebrow="Content Plan" title="创建内容计划" description="输入一篇源内容或大纲；创建后自动生成方案，审核通过后再生成平台文档。" actions={<button type="button" disabled={busy} className="rounded-2xl bg-[color:var(--ops-accent-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void createTask()}>{busy ? '创建中…' : '创建'}</button>} onClose={() => setShowCreate(false)}>
         <ContentTaskForm form={form} onChange={setForm} />
