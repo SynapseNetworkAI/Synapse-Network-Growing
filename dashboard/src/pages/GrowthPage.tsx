@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { api, GrowthAIVisibilityCheck, GrowthDiscoveryListing, GrowthLead, GrowthLeadDetail, GrowthResearchRun, GrowthSourceConfig } from '../api'
+import {
+  api,
+  GrowthAIVisibilityCheck,
+  GrowthDiscoveryListing,
+  GrowthLead,
+  GrowthLeadDetail,
+  GrowthProviderProfile,
+  GrowthProviderReply,
+  GrowthResearchRun,
+  GrowthSourceConfig,
+} from '../api'
 import { EmptyPane, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { LeadCreateModal, RecordCreateModal, SourceConfigModal, SourceRunsModal } from './growthModals'
+import { GrowthProviderProfilesPanel } from './GrowthProviderProfilesPanel'
+import { GrowthProviderReplyInboxPanel } from './GrowthProviderReplyInboxPanel'
+import { SourcesPanel } from './GrowthSourcesPanel'
 
 type TabKey = 'sources' | 'investors' | 'providers' | 'ai' | 'mcp'
 
@@ -43,6 +56,8 @@ export default function GrowthPage() {
   const [leads, setLeads] = useState<GrowthLead[]>([])
   const [leadTotal, setLeadTotal] = useState(0)
   const [leadOffset, setLeadOffset] = useState(0)
+  const [providerProfiles, setProviderProfiles] = useState<GrowthProviderProfile[]>([])
+  const [providerReplies, setProviderReplies] = useState<GrowthProviderReply[]>([])
   const [aiChecks, setAiChecks] = useState<GrowthAIVisibilityCheck[]>([])
   const [listings, setListings] = useState<GrowthDiscoveryListing[]>([])
   const [overview, setOverview] = useState({ leads: 0, messages: 0, citations: 0, listings: 0 })
@@ -67,9 +82,11 @@ export default function GrowthPage() {
   const leadType = active === 'providers' ? 'provider' : 'investor'
 
   const load = async (nextLeadOffset = leadOffset) => {
-    const [summary, leadPayload, aiPayload, listingPayload] = await Promise.all([
+    const [summary, leadPayload, profilePayload, replyPayload, aiPayload, listingPayload] = await Promise.all([
       api.getGrowthOverview(),
       api.getGrowthLeads({ lead_type: leadType, q: search || undefined, status: status || undefined, limit: LEAD_PAGE_SIZE, offset: nextLeadOffset }),
+      api.getGrowthProviderProfiles({ q: active === 'providers' ? search || undefined : undefined, limit: 50 }),
+      api.getGrowthProviderReplies({ q: active === 'providers' ? search || undefined : undefined, limit: 20 }),
       api.getGrowthAIVisibilityChecks({ q: search || undefined, limit: 100 }),
       api.getGrowthDiscoveryListings({ status: status || undefined, limit: 100 }),
     ])
@@ -82,6 +99,8 @@ export default function GrowthPage() {
     })
     setLeads(leadPayload.items)
     setLeadTotal(leadPayload.total)
+    setProviderProfiles(profilePayload.items)
+    setProviderReplies(replyPayload.items)
     setAiChecks(aiPayload.items)
     setListings(listingPayload.items)
     setSourceConfigs(sourcePayload.items)
@@ -98,6 +117,15 @@ export default function GrowthPage() {
     setBusy(true)
     try {
       setDetail(await api.getGrowthLead(lead.id))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const openLeadById = async (leadId: number) => {
+    setBusy(true)
+    try {
+      setDetail(await api.getGrowthLead(leadId))
     } finally {
       setBusy(false)
     }
@@ -236,33 +264,41 @@ export default function GrowthPage() {
         />
       )}
       {(active === 'investors' || active === 'providers') && (
-        <LeadPanel
-          leadType={leadType}
-          search={search}
-          status={status}
-          setSearch={setSearch}
-          setStatus={setStatus}
-          leads={visibleLeads}
-          total={leadTotal}
-          offset={leadOffset}
-          limit={LEAD_PAGE_SIZE}
-          onSearch={() => {
-            setLeadOffset(0)
-            load(0).catch(() => {})
-          }}
-          onPrevious={() => {
-            const nextOffset = Math.max(0, leadOffset - LEAD_PAGE_SIZE)
-            setLeadOffset(nextOffset)
-            load(nextOffset).catch(() => {})
-          }}
-          onNext={() => {
-            const nextOffset = leadOffset + LEAD_PAGE_SIZE
-            setLeadOffset(nextOffset)
-            load(nextOffset).catch(() => {})
-          }}
-          onCreate={() => setLeadModal(true)}
-          onOpen={openDetail}
-        />
+        <>
+          <LeadPanel
+            leadType={leadType}
+            search={search}
+            status={status}
+            setSearch={setSearch}
+            setStatus={setStatus}
+            leads={visibleLeads}
+            total={leadTotal}
+            offset={leadOffset}
+            limit={LEAD_PAGE_SIZE}
+            onSearch={() => {
+              setLeadOffset(0)
+              load(0).catch(() => {})
+            }}
+            onPrevious={() => {
+              const nextOffset = Math.max(0, leadOffset - LEAD_PAGE_SIZE)
+              setLeadOffset(nextOffset)
+              load(nextOffset).catch(() => {})
+            }}
+            onNext={() => {
+              const nextOffset = leadOffset + LEAD_PAGE_SIZE
+              setLeadOffset(nextOffset)
+              load(nextOffset).catch(() => {})
+            }}
+            onCreate={() => setLeadModal(true)}
+            onOpen={openDetail}
+          />
+          {active === 'providers' && (
+            <>
+              <GrowthProviderReplyInboxPanel items={providerReplies} onOpenLead={openLeadById} />
+              <GrowthProviderProfilesPanel items={providerProfiles} />
+            </>
+          )}
+        </>
       )}
       {active === 'ai' && <AiVisibilityPanel items={aiChecks} onCreate={() => setRecordModal('ai')} />}
       {active === 'mcp' && <McpDiscoveryPanel items={listings} onCreate={() => setRecordModal('mcp')} />}
@@ -332,52 +368,6 @@ function LeadPanel(props: Readonly<{
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={props.offset <= 0} onClick={props.onPrevious}>上一页</button>
           <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={props.offset + props.limit >= props.total} onClick={props.onNext}>下一页</button>
         </span>
-      </div>
-    </section>
-  )
-}
-
-function SourcesPanel({ sources, onCreate, onEnsureDefault, onRun, onOpenRuns }: Readonly<{
-  sources: GrowthSourceConfig[]
-  onCreate: () => void
-  onEnsureDefault: () => void
-  onRun: (source: GrowthSourceConfig, dryRun: boolean) => void
-  onOpenRuns: (source: GrowthSourceConfig) => void
-}>) {
-  return (
-    <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="text-xl font-semibold text-[color:var(--ops-text-title)]">Provider Source Configs</h3>
-          <p className="mt-2 text-sm text-[color:var(--ops-text-muted)]">配置采集源，自动发现 provider lead，生成人工审核草稿；不自动外发。</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={onEnsureDefault}>创建 Firecrawl 默认配置</button>
-          <button type="button" className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm text-cyan-100" onClick={onCreate}>新增配置</button>
-        </div>
-      </div>
-      <div className="mt-5 overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)]">
-        {sources.length ? sources.map((source) => {
-          const result = source.last_result || {}
-          return (
-            <div key={source.id} className="grid gap-4 border-b border-[color:var(--ops-stroke-soft)] px-5 py-4 last:border-b-0 lg:grid-cols-[1.4fr_1fr_1fr_auto]">
-              <div>
-                <div className="font-semibold text-[color:var(--ops-text-title)]">{source.name}</div>
-                <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">{source.config_type} · {source.description || 'no description'}</div>
-              </div>
-              <div className="text-sm text-[color:var(--ops-text-muted)]">
-                <div>last run: {time(source.last_run_at)}</div>
-                <div>found {Number(result.candidate_count || 0)} · created {Number(result.created_count || 0)} · drafted {Number(result.drafted_count || 0)}</div>
-              </div>
-              <div className="flex items-center"><StateBadge tone={source.status === 'enabled' ? 'ready' : 'muted'}>{source.status}</StateBadge></div>
-              <div className="flex flex-wrap justify-end gap-2">
-                <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onRun(source, true)}>Dry Run</button>
-                <button className="rounded-xl border border-cyan-300/35 px-3 py-2 text-sm text-cyan-100" onClick={() => onRun(source, false)}>Run Now</button>
-                <button className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenRuns(source)}>运行历史</button>
-              </div>
-            </div>
-          )
-        }) : <div className="p-6"><EmptyPane>No source configs yet. Create the Firecrawl default config to start provider acquisition.</EmptyPane></div>}
       </div>
     </section>
   )

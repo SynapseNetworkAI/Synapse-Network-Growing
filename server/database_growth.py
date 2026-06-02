@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Column, DateTime, Index, Integer, Text
+from sqlalchemy import Column, DateTime, Index, Integer, Text, UniqueConstraint
 
 from server.database import Base, utcnow
 
@@ -153,6 +153,68 @@ class GrowthOutreachEventRow(Base):
     summary = Column(Text, nullable=False, default="")
     metadata_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
+class GrowthProviderProfileRow(Base):
+    __tablename__ = "growth_provider_profiles"
+    __table_args__ = (
+        UniqueConstraint("lead_id", name="growth_provider_profiles_lead_unique"),
+        Index("growth_provider_profiles_org_idx", "organization"),
+        Index("growth_provider_profiles_website_idx", "website_url"),
+        Index("growth_provider_profiles_contact_idx", "contact_email"),
+        Index("growth_provider_profiles_contacted_idx", "last_contacted_at"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lead_id = Column(Integer, nullable=False)
+    organization = Column(Text, nullable=False)
+    website_url = Column(Text, nullable=False, default="")
+    company_description = Column(Text, nullable=False, default="")
+    contact_email = Column(Text, nullable=False, default="")
+    contact_source_url = Column(Text, nullable=False, default="")
+    source_url = Column(Text, nullable=False, default="")
+    latest_message_id = Column(Integer)
+    latest_message_subject = Column(Text, nullable=False, default="")
+    latest_message_status = Column(Text, nullable=False, default="")
+    last_contacted_at = Column(DateTime)
+    profile_status = Column(Text, nullable=False, default="historical_lead")
+    evidence_json = Column(Text, nullable=False, default="[]")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
+
+
+class GrowthProviderReplyRow(Base):
+    __tablename__ = "growth_provider_replies"
+    __table_args__ = (
+        UniqueConstraint("mailbox_message_id", name="growth_provider_replies_mailbox_message_unique"),
+        Index("growth_provider_replies_lead_idx", "lead_id"),
+        Index("growth_provider_replies_message_idx", "message_id"),
+        Index("growth_provider_replies_from_idx", "from_email"),
+        Index("growth_provider_replies_received_idx", "received_at"),
+        Index("growth_provider_replies_status_idx", "status"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lead_id = Column(Integer, nullable=False)
+    message_id = Column(Integer, nullable=False)
+    provider_profile_id = Column(Integer)
+    mailbox_message_id = Column(Text, nullable=False)
+    thread_id = Column(Text, nullable=False, default="")
+    from_email = Column(Text, nullable=False)
+    from_name = Column(Text, nullable=False, default="")
+    subject = Column(Text, nullable=False, default="")
+    snippet = Column(Text, nullable=False, default="")
+    body_excerpt = Column(Text, nullable=False, default="")
+    received_at = Column(DateTime)
+    classification = Column(Text, nullable=False, default="unknown")
+    confidence_score = Column(Integer, nullable=False, default=0)
+    suggested_reply_message_id = Column(Integer)
+    status = Column(Text, nullable=False, default="drafted")
+    evidence_json = Column(Text, nullable=False, default="[]")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+    updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 
 
 class GrowthAIVisibilityCheckRow(Base):

@@ -32,6 +32,66 @@ export interface GrowthLeadList {
   lead_type_counts: Record<string, number>
 }
 
+export interface GrowthProviderProfile {
+  id: number
+  lead_id: number
+  organization: string
+  website_url: string
+  company_description: string
+  contact_email: string
+  contact_source_url: string
+  source_url: string
+  latest_message_id: number | null
+  latest_message_subject: string
+  latest_message_status: string
+  last_contacted_at: string | null
+  profile_status: string
+  evidence: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthProviderProfileList {
+  items: GrowthProviderProfile[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface GrowthProviderReply {
+  id: number
+  lead_id: number
+  message_id: number
+  provider_profile_id: number | null
+  mailbox_message_id: string
+  thread_id: string
+  from_email: string
+  from_name: string
+  subject: string
+  snippet: string
+  body_excerpt: string
+  received_at: string | null
+  classification: string
+  confidence_score: number
+  suggested_reply_message_id: number | null
+  suggested_reply_subject: string
+  suggested_reply_body: string
+  suggested_reply_status: string
+  status: string
+  evidence: Array<Record<string, unknown>>
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export interface GrowthProviderReplyList {
+  items: GrowthProviderReply[]
+  total: number
+  limit: number
+  offset: number
+}
+
 export interface GrowthOutreachMessage {
   id: number
   lead_id: number
@@ -152,6 +212,10 @@ export function createGrowthApi(request: RequestFn) {
     }) => request<GrowthLeadList>(`/growth/leads${query(params)}`),
     createGrowthLead: (data: Partial<GrowthLead>) =>
       request<GrowthLead>('/growth/leads', { method: 'POST', body: JSON.stringify(data) }),
+    getGrowthProviderProfiles: (params?: { q?: string; limit?: number; offset?: number }) =>
+      request<GrowthProviderProfileList>(`/growth/provider-profiles${query(params)}`),
+    getGrowthProviderReplies: (params?: { q?: string; status?: string; limit?: number; offset?: number }) =>
+      request<GrowthProviderReplyList>(`/growth/provider-replies${query(params)}`),
     getGrowthSourceConfigs: () => request<{ items: GrowthSourceConfig[]; total: number }>('/growth/source-configs'),
     createGrowthSourceConfig: (data: Partial<GrowthSourceConfig>) =>
       request<GrowthSourceConfig>('/growth/source-configs', { method: 'POST', body: JSON.stringify(data) }),

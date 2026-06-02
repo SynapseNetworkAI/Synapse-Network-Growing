@@ -24,6 +24,8 @@ from server.schemas_growth import (
     GrowthMessageActionRequest,
     GrowthOutreachMessageOut,
     GrowthOverviewOut,
+    GrowthProviderProfileListOut,
+    GrowthProviderReplyListOut,
     GrowthResearchRunListOut,
     GrowthResearchRunOut,
     GrowthReplyRequest,
@@ -33,7 +35,14 @@ from server.schemas_growth import (
     GrowthSourceConfigPatch,
     GrowthSourceRunRequest,
 )
-from server.services.growth import discovery, gmail_drafts, provider_sources, workbench
+from server.services.growth import (
+    discovery,
+    gmail_drafts,
+    provider_profiles,
+    provider_sources,
+    provider_reply_monitor,
+    workbench,
+)
 
 router = APIRouter(prefix="/api/growth", tags=["growth"])
 
@@ -57,6 +66,38 @@ def list_growth_leads(
         lead_type=lead_type,
         status=status,
         q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/provider-profiles", response_model=GrowthProviderProfileListOut)
+def list_growth_provider_profiles(
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return provider_profiles.list_provider_profiles(
+        db,
+        q=q,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/provider-replies", response_model=GrowthProviderReplyListOut)
+def list_growth_provider_replies(
+    q: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    return provider_reply_monitor.list_provider_replies(
+        db,
+        q=q,
+        status=status,
         limit=limit,
         offset=offset,
     )
