@@ -267,6 +267,12 @@ def deploy_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
     row = db.get(ReleaseTaskRow, int(task_id))
     if row is None:
         raise ValueError("Release task not found.")
+    from server.services.releases.mcp_remote_tasks import is_mcp_remote_task, deploy_task as deploy_mcp_remote_task
+    from server.services.releases.tasks import _release_task_to_out
+
+    if is_mcp_remote_task(row):
+        gate = deploy_mcp_remote_task(db, row, body)
+        return _release_task_to_out(row, pr_gate=gate)
     environment = _clean(row.environment).lower()
     if environment == "staging":
         from server.services.releases.local_deploy_tasks import (

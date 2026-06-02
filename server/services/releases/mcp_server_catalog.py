@@ -3,7 +3,12 @@
 MCP_REPO_FULL_NAME = "SynapseNetworkAI/Synapse-Network-MCP-Server"
 MCP_REPO_PATH_ENV = "SYNAPSE_MCP_SERVER_REPO_PATH"
 MCP_RELEASE_CONFIRM_PREFIX = "PUBLISH_MCP_"
+MCP_REMOTE_PROD_CONFIRM_PHRASE = "DEPLOY_MCP_REMOTE_PROD"
 MCP_LOCAL_RUN_PREFIX = "local-mcp-run:"
+MCP_REMOTE_ENDPOINT_URL = "https://mcp.synapse-network.ai/mcp"
+MCP_REMOTE_GCP_PROJECT_ID = "synapse-network-prod"
+MCP_REMOTE_CLOUD_RUN_REGION = "us-central1"
+MCP_REMOTE_CLOUD_RUN_SERVICE = "synapse-prod-mcp-server"
 
 MCP_RELEASE_STATUSES = {
     "planned",
@@ -14,12 +19,26 @@ MCP_RELEASE_STATUSES = {
     "registry_submitting",
     "registry_listed",
     "prod_smoke_running",
+    "remote_prod_ready",
+    "remote_prod_deploying",
+    "remote_prod_deployed",
+    "openai_smoke_running",
+    "remote_prod_verified",
     "directories_pending",
     "completed",
     "failed",
     "cancelled",
 }
 MCP_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+MCP_RUNNER_ACTIVE_STATUSES = (
+    "readiness_running",
+    "npm_publishing",
+    "registry_submitting",
+    "prod_smoke_running",
+    "remote_prod_deploying",
+    "remote_prod_deployed",
+    "openai_smoke_running",
+)
 
 DEFAULT_MCP_SERVER = {
     "server_key": "synapse-network-mcp-server",
@@ -33,8 +52,8 @@ DEFAULT_MCP_SERVER = {
     "repo_full_name": MCP_REPO_FULL_NAME,
     "repo_url": f"https://github.com/{MCP_REPO_FULL_NAME}",
     "local_repo_path": "/Users/cliff/workspace/agent/Synapse-Network-MCP-Server",
-    "transport_kind": "stdio",
-    "remote_endpoint_url": "",
+    "transport_kind": "both",
+    "remote_endpoint_url": MCP_REMOTE_ENDPOINT_URL,
     "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
     "security_boundary": (
         "Uses SYNAPSE_AGENT_KEY only. It never requests owner private keys, "

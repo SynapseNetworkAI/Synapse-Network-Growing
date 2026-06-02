@@ -14,7 +14,9 @@ from server.services.releases.mcp_server_catalog import (
     DEFAULT_MCP_SERVER,
     MCP_LOCAL_RUN_PREFIX,
     MCP_RELEASE_CONFIRM_PREFIX,
+    MCP_REMOTE_PROD_CONFIRM_PHRASE,
     MCP_RELEASE_STATUSES,
+    MCP_RUNNER_ACTIVE_STATUSES,
     MCP_SURFACE_STATUSES,
     MCP_TERMINAL_STATUSES,
 )
@@ -207,6 +209,21 @@ def run_mcp_prod_smoke(
     return _move_to_runner_state(db, row, "prod_smoke_running", "run_prod_smoke", body)
 
 
+def deploy_mcp_remote_prod(
+    db: Session, release_id: int, body: McpServerReleaseActionRequest
+) -> McpServerReleaseOut:
+    row = _require_release(db, release_id)
+    if clean(row.status) != "remote_prod_ready":
+        raise ValueError("MCP remote production deploy requires remote_prod_ready.")
+    if clean(body.confirm_phrase) != MCP_REMOTE_PROD_CONFIRM_PHRASE:
+        raise ValueError(
+            f"confirm_phrase must be {MCP_REMOTE_PROD_CONFIRM_PHRASE} to deploy Remote MCP production."
+        )
+    return _move_to_runner_state(
+        db, row, "remote_prod_deploying", "deploy_remote_prod", body
+    )
+
+
 def patch_mcp_surface(
     db: Session, release_id: int, surface_key: str, body: McpServerSurfacePatchRequest
 ) -> McpServerSurfaceOut:
@@ -287,16 +304,7 @@ def sync_mcp_server_release_statuses(
 ) -> McpServerReleaseSyncResult:
     rows = (
         db.query(McpServerReleaseRow)
-        .filter(
-            McpServerReleaseRow.status.in_(
-                [
-                    "readiness_running",
-                    "npm_publishing",
-                    "registry_submitting",
-                    "prod_smoke_running",
-                ]
-            )
-        )
+        .filter(McpServerReleaseRow.status.in_(MCP_RUNNER_ACTIVE_STATUSES))
         .order_by(McpServerReleaseRow.updated_at.asc())
         .limit(max(1, min(max_records, 200)))
         .all()
@@ -313,6 +321,12 @@ def sync_mcp_server_release_statuses(
         elif status == "registry_submitting":
             result.registry_listed_ids.append(int(row.id))
         elif status == "prod_smoke_running":
+            result.smoke_passed_ids.append(int(row.id))
+        elif status in {
+            "remote_prod_deploying",
+            "remote_prod_deployed",
+            "openai_smoke_running",
+        }:
             result.smoke_passed_ids.append(int(row.id))
         record_event(
             db,

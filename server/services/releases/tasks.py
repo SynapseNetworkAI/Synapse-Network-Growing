@@ -19,7 +19,7 @@ from server.services.releases.pr_gate_projection import release_task_pr_gate_wit
 from server.services.result_objects import ServiceObjectResult
 from server.services.releases import github_cli as _github_cli
 subprocess = _github_cli.subprocess
-VALID_SOURCE_TYPES = {"manual", "requirement_flow"}
+VALID_SOURCE_TYPES = {"manual", "requirement_flow", "mcp_remote_gcloud"}
 VALID_ENVIRONMENTS = {"staging", "production"}
 VALID_STATUSES = {"requested", "deploying", "completed", "failed", "cancelled"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
@@ -27,6 +27,7 @@ SYNAPSE_NETWORK_SERVICE_KEYS = {"gateway", "gateway-admin", "admin-front", "user
 PROJECT_SERVICE_KEYS = {
     "synapse-network": SYNAPSE_NETWORK_SERVICE_KEYS,
     "synapse-network-provider": {"provider-service"},
+    "synapse-network-mcp-server": {"remote-mcp"},
 }
 DIRECT_STAGING_BRANCHES = {"main"}
 SYNAPSE_NETWORK_PROJECT_KEY = "synapse-network"
@@ -125,6 +126,8 @@ def _release_task_deploy_repo(policy: ProjectPolicyRow | None, project_key: str)
     configured = _clean(getattr(policy, "deploy_repo_full_name", None))
     if configured:
         return configured
+    if project_key == "synapse-network-mcp-server":
+        return "SynapseNetworkAI/Synapse-Network-MCP-Server"
     if project_key == SYNAPSE_NETWORK_PROJECT_KEY:
         return SYNAPSE_NETWORK_REPO
     raise ValueError("Release task project is missing deploy_repo_full_name.")
@@ -386,7 +389,7 @@ def list_release_tasks(
 def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
     source_type = _clean(getattr(body, "source_type", "manual")).lower() or "manual"
     if source_type not in VALID_SOURCE_TYPES:
-        raise ValueError("source_type must be manual or requirement_flow")
+        raise ValueError("source_type must be manual, requirement_flow, or mcp_remote_gcloud")
     environment = _clean(getattr(body, "environment", "")).lower()
     if environment not in VALID_ENVIRONMENTS:
         raise ValueError("environment must be staging or production")
@@ -399,6 +402,15 @@ def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
     service_key = _clean(getattr(body, "service_key", "")).lower()
     if not service_key and project_key == SYNAPSE_NETWORK_PROJECT_KEY:
         service_key = "gateway"
+    mcp_metadata: dict[str, Any] | None = None
+    target_commit_sha: str | None = None
+    if source_type == "mcp_remote_gcloud":
+        from server.services.releases.mcp_remote_tasks import create_metadata_for_task
+
+        mcp_result = create_metadata_for_task(db, body)
+        mcp_metadata = mcp_result.task_metadata.model_dump(exclude_none=True)
+        target_commit_sha = mcp_result.target_commit_sha
+        service_key = "remote-mcp"
     if service_key and service_key not in _valid_service_keys_for_project(project_key):
         raise ValueError(_service_key_error_for_project(project_key))
     requirement_id = int(getattr(body, "requirement_id", 0) or 0) or None
@@ -414,11 +426,13 @@ def create_release_task(db: Session, body: Any) -> ReleaseTaskOut:
         project_display_name=_project_display_name(db, project_key, getattr(body, "project_display_name", None)),
         service_key=service_key or None,
         branch_name=branch_name,
+        target_commit_sha=target_commit_sha,
         environment=environment,
         status="requested",
         actor=_clean(getattr(body, "actor", "operator")) or "operator",
         operator=None,
         note=_clean(getattr(body, "note", None)) or None,
+        metadata_json=_json_dump(mcp_metadata or {}),
     )
     db.add(row)
     db.commit()
@@ -436,6 +450,17 @@ def update_release_task(db: Session, task_id: int, body: Any) -> ReleaseTaskOut:
     next_status = _clean(getattr(body, "status", "")).lower()
     if next_status not in TERMINAL_STATUSES:
         raise ValueError("status must be completed, failed, or cancelled")
+    from server.services.releases.mcp_remote_tasks import is_mcp_remote_task, update_terminal_status
+
+    if is_mcp_remote_task(row):
+        gate = update_terminal_status(
+            db,
+            row,
+            next_status,
+            _clean(getattr(body, "operator", "operator")) or "operator",
+            getattr(body, "note", None),
+        )
+        return _release_task_to_out(row, pr_gate=gate)
     row.status = next_status
     row.operator = _clean(getattr(body, "operator", "operator")) or "operator"
     if getattr(body, "note", None) is not None:

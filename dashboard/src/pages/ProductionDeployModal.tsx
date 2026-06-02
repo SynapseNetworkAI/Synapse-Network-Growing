@@ -26,6 +26,9 @@ export default function ProductionDeployModal({
   const busyKey = task ? `release-task-${task.id}-deploy-production` : ''
   const effectiveGate = gate || task?.pr_gate
   const gateReady = Boolean(effectiveGate?.can_deploy_production)
+  const isMcpRemoteTask = task.source_type === 'mcp_remote_gcloud'
+    || (task.project_key === 'synapse-network-mcp-server' && task.service_key === 'remote-mcp')
+  const expectedPhrase = isMcpRemoteTask ? 'DEPLOY_MCP_REMOTE_PROD' : 'YES'
   const gateLoading = gateStatus === 'loading'
   const directFrontend = task.project_key === 'synapse-network'
     && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
@@ -35,8 +38,8 @@ export default function ProductionDeployModal({
     <OverlayModal
       open={Boolean(task)}
       eyebrow="Human Gate"
-      title="确认发布到 production"
-      description="生产发布会触发 GitHub Environment production 与 GCP WIF Cloud Run 工作流。不会自动 rollback。"
+      title={isMcpRemoteTask ? '确认发布 Remote MCP production' : '确认发布到 production'}
+      description={isMcpRemoteTask ? 'Remote MCP 没有 staging 版本；确认后由 MCP release ledger 和本地 GCloud runner 记录真实状态。' : '生产发布会触发 GitHub Environment production 与 GCP WIF Cloud Run 工作流。不会自动 rollback。'}
       onClose={onClose}
     >
       {(
@@ -45,7 +48,7 @@ export default function ProductionDeployModal({
             <div className="font-semibold">Production Human Gate</div>
             <p className="mt-2">
               请确认目标是 <span className="font-mono">synapse-network-prod</span>，分支为 <span className="font-mono">main</span>。
-              {directFrontend ? ' 这是前端 direct production deploy，不强制要求同 commit 先通过 staging。' : ' 且同一 commit 已通过 staging。'}
+              {isMcpRemoteTask ? ' Remote MCP 无 staging 版本，必须依赖 readiness、secret preflight、public probe 和 OpenAI smoke。' : directFrontend ? ' 这是前端 direct production deploy，不强制要求同 commit 先通过 staging。' : ' 且同一 commit 已通过 staging。'}
               确认后仍需要 GitHub production environment reviewers 放行。
             </p>
           </div>
@@ -54,8 +57,8 @@ export default function ProductionDeployModal({
             <InfoCard label="GCP Project" value="synapse-network-prod" mono />
             <InfoCard label="Main Commit" value={effectiveGate?.resolved_commit_sha || '-'} mono />
             <InfoCard
-              label="Staging Evidence"
-              value={directFrontend ? 'Direct frontend deploy' : `Deployment #${effectiveGate?.staging_deployment_record_id || '-'}`}
+              label={isMcpRemoteTask ? 'Remote Evidence' : 'Staging Evidence'}
+              value={isMcpRemoteTask ? 'MCP ledger + OpenAI smoke' : directFrontend ? 'Direct frontend deploy' : `Deployment #${effectiveGate?.staging_deployment_record_id || '-'}`}
             />
           </div>
           {directFrontend ? (
@@ -72,7 +75,7 @@ export default function ProductionDeployModal({
             <FieldLabel>输入确认短语</FieldLabel>
             <input
               className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 font-mono text-sm"
-              placeholder="YES"
+              placeholder={expectedPhrase}
               value={confirmPhrase}
               onChange={(event) => onConfirmPhraseChange(event.target.value)}
             />
@@ -84,7 +87,7 @@ export default function ProductionDeployModal({
             <button
               type="button"
               className="rounded-xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-2.5 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50"
-              disabled={confirmPhrase !== 'YES' || Boolean(busyAction) || !gateReady}
+              disabled={confirmPhrase !== expectedPhrase || Boolean(busyAction) || !gateReady}
               onClick={onDeploy}
             >
               {busyAction === busyKey ? '发布中…' : '确认发布到 production'}

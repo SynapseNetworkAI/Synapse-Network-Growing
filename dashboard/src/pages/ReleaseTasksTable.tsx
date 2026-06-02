@@ -12,6 +12,7 @@ import { STATUS_LABEL, releaseTone } from './releaseListUi'
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
   requirement_flow: '需求流转',
+  mcp_remote_gcloud: 'Remote MCP',
 }
 
 export type GateRequestState = {
@@ -51,6 +52,11 @@ function isFrontendPrebuiltCandidate(task: ReleaseTask) {
     && task.project_key === 'synapse-network'
     && task.status === 'requested'
     && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
+}
+
+function isMcpRemoteTask(task: ReleaseTask) {
+  return task.source_type === 'mcp_remote_gcloud'
+    || (task.project_key === 'synapse-network-mcp-server' && task.service_key === 'remote-mcp')
 }
 
 export function ReleaseTasksTable({
@@ -119,6 +125,7 @@ export function ReleaseTasksTable({
               const gateError = gateState?.status === 'error'
               const gateReady = gateState?.status === 'ready'
               const shouldCheckGate = task.status === 'requested' && ['staging', 'production'].includes(task.environment)
+              const mcpRemoteTask = isMcpRemoteTask(task)
               return (
                 <tr key={task.id} className="border-t border-[color:var(--ops-stroke-soft)] hover:bg-[color:var(--ops-panel-subtle)]">
                   <td className="px-5 py-4">
@@ -202,7 +209,7 @@ export function ReleaseTasksTable({
                         <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" onClick={() => onOpenDetails(task)}>
                           详情
                         </button>
-                        {task.environment === 'staging' && effectiveGate?.can_create_pr ? (
+                    {task.environment === 'staging' && effectiveGate?.can_create_pr ? (
                           <button type="button" className="rounded-lg border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-running-text)] disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => onCreatePr(task)}>
                             {busyAction === `release-task-${task.id}-create-pr` ? '提交中…' : '提交 PR'}
                           </button>
@@ -229,7 +236,7 @@ export function ReleaseTasksTable({
                         ) : null}
                         {task.environment === 'production' && gateReady && effectiveGate?.can_deploy_production && !task.deployment_record_id ? (
                           <button type="button" className="rounded-lg border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-3 py-2 text-sm font-semibold text-[color:var(--ops-state-blocked-text)] disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => onDeployProduction(task)}>
-                            {busyAction === `release-task-${task.id}-deploy-production` ? '发布中…' : '发布到 production'}
+                            {busyAction === `release-task-${task.id}-deploy-production` ? '发布中…' : mcpRemoteTask ? '发布 Remote MCP prod' : '发布到 production'}
                           </button>
                         ) : task.environment === 'production' && shouldCheckGate && !gateReady ? (
                           <button type="button" className="rounded-lg border border-[color:var(--ops-stroke-strong)] px-3 py-2 text-sm" disabled={Boolean(busyAction) || gateLoading} onClick={() => onRefreshGate(task)}>
@@ -237,7 +244,7 @@ export function ReleaseTasksTable({
                           </button>
                         ) : task.environment === 'production' ? (
                           <span className="rounded-lg border border-[color:var(--ops-state-blocked-border)] px-3 py-2 text-sm text-[color:var(--ops-state-blocked-text)]" title={effectiveGate?.blocked_reason || undefined}>
-                            {effectiveGate?.blocked_reason || 'Production 需 Human Gate'}
+                            {effectiveGate?.blocked_reason || (mcpRemoteTask ? 'Remote MCP prod 需 Human Gate' : 'Production 需 Human Gate')}
                           </span>
                         ) : null}
                         <button type="button" className="rounded-lg border border-[color:var(--ops-state-ready-border)] px-3 py-2 text-sm text-[color:var(--ops-state-ready-text)] disabled:opacity-50" disabled={Boolean(busyAction)} onClick={() => onUpdateStatus(task, 'completed')}>

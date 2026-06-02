@@ -1273,7 +1273,6 @@ class ReleaseTaskPrGateOut(BaseModel):
     environment_gate_summary: Optional[str] = None
     blocked_reason: Optional[str] = None
 
-
 class ReleaseTaskOut(BaseModel):
     id: int
     source_type: str = "manual"
@@ -1312,7 +1311,6 @@ class ReleaseBranchOptionOut(BaseModel):
     is_default: bool = False
     source: str = "github"
 
-
 class ReleaseTaskCreateRequest(BaseModel):
     project_key: str = ""
     project_display_name: Optional[str] = None
@@ -1323,6 +1321,8 @@ class ReleaseTaskCreateRequest(BaseModel):
     note: Optional[str] = None
     source_type: str = "manual"
     requirement_id: Optional[int] = None
+    mcp_server_release_id: Optional[int] = None
+    target_commit_sha: Optional[str] = None
 
 
 class ReleaseTaskPatchRequest(BaseModel):

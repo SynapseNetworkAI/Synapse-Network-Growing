@@ -227,6 +227,15 @@ def run_mcp_server_prod_smoke_endpoint(
     return _mcp_action(mcp_service.run_mcp_prod_smoke, db, release_id, body)
 
 
+@router.post("/{release_id}/deploy-remote-prod", response_model=mcp_schema.McpServerReleaseOut)
+def deploy_mcp_server_remote_prod_endpoint(
+    release_id: int,
+    body: mcp_schema.McpServerReleaseActionRequest,
+    db: Session = Depends(get_db),
+):
+    return _mcp_action(mcp_service.deploy_mcp_remote_prod, db, release_id, body)
+
+
 @router.post("/{release_id}/complete", response_model=mcp_schema.McpServerReleaseOut)
 def complete_mcp_server_release_endpoint(
     release_id: int,

@@ -214,9 +214,9 @@ DEFAULT_PROJECT_POLICIES: list[dict[str, Any]] = [
         "max_parallel_requirements": 1,
         "portfolio_budget_points": 90,
         "repo_full_name": "SynapseNetworkAI/Synapse-Network-MCP-Server",
-        "deploy_strategy": "disabled",
+        "deploy_strategy": "mcp_remote_gcloud_runner",
         "deploy_trigger_enabled": False,
-        "notes": "MCP server repo. Keep code verification active; staging release shortcut is disabled in v1.",
+        "notes": "MCP server repo. Keep code verification active; ordinary staging release shortcut is disabled. Remote MCP production deploy uses the dedicated MCP release ledger and GCloud runner bridge.",
     },
     {
         "project_key": "agents-memory",

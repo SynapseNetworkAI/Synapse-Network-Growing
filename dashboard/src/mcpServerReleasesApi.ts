@@ -233,6 +233,8 @@ export const mcpServerReleasesApi = {
     request<McpServerRelease>(`/releases/mcp-servers/${id}/submit-registry`, { method: 'POST', body: JSON.stringify(data || {}) }),
   runProdSmoke: (id: number, data?: { actor?: string; note?: string | null }) =>
     request<McpServerRelease>(`/releases/mcp-servers/${id}/prod-smoke`, { method: 'POST', body: JSON.stringify(data || {}) }),
+  deployRemoteProd: (id: number, data?: { actor?: string; note?: string | null; confirm_phrase?: string | null }) =>
+    request<McpServerRelease>(`/releases/mcp-servers/${id}/deploy-remote-prod`, { method: 'POST', body: JSON.stringify(data || {}) }),
   complete: (id: number, data?: { actor?: string; note?: string | null }) =>
     request<McpServerRelease>(`/releases/mcp-servers/${id}/complete`, { method: 'POST', body: JSON.stringify(data || {}) }),
   patchSurface: (id: number, surfaceKey: string, data: Partial<Pick<McpServerSurface, 'status' | 'listing_url' | 'failure_reason' | 'evidence'>>) =>

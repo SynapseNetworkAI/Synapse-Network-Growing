@@ -23,6 +23,7 @@ const DEFAULT_RELEASE_TARGETS = [
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'user-front', service_label: 'User Front' },
   { project_key: 'synapse-network', project_display_name: 'Synapse-Network', service_key: 'docs-front', service_label: 'Docs Front' },
   { project_key: 'synapse-network-provider', project_display_name: 'Synapse-Network-Provider', service_key: 'provider-service', service_label: 'Provider Service' },
+  { project_key: 'synapse-network-mcp-server', project_display_name: 'Synapse-Network-MCP-Server', service_key: 'remote-mcp', service_label: 'Remote MCP · production only' },
 ]
 
 function shortSha(value: string | null | undefined) {
@@ -125,6 +126,7 @@ function defaultTaskDraft(policies: ProjectPolicy[]) {
     service_key: fallback.service_key,
     branch_name: '',
     environment: 'staging' as 'staging' | 'production',
+    mcp_server_release_id: '',
     note: '',
   }
 }
@@ -311,6 +313,7 @@ export default function ReleasesPage() {
   }, [onlineRecords, onlineEnvironmentFilter, search])
 
   const selectedTarget = taskTargets.find((target) => target.project_key === taskDraft.project_key && target.service_key === taskDraft.service_key) || taskTargets[0]
+  const isMcpRemoteDraft = taskDraft.project_key === 'synapse-network-mcp-server' && taskDraft.service_key === 'remote-mcp'
   const filteredBranchOptions = useMemo(() => {
     const needle = branchQuery.trim().toLowerCase()
     const nextOptions = needle
@@ -325,6 +328,13 @@ export default function ReleasesPage() {
 
   useEffect(() => {
     if (!taskModalOpen || !taskDraft.project_key) return
+    if (isMcpRemoteDraft) {
+      setBranchOptions([{ name: 'main', commit_sha: null, protected: true, is_default: true, source: 'mcp-remote-prod' }])
+      setBranchError(null)
+      setBranchLoading(false)
+      setTaskDraft((current) => ({ ...current, branch_name: 'main', environment: 'production' }))
+      return
+    }
     let cancelled = false
     setBranchOptions([])
     setBranchError(null)
@@ -353,13 +363,13 @@ export default function ReleasesPage() {
     return () => {
       cancelled = true
     }
-  }, [taskModalOpen, taskDraft.project_key, taskDraft.service_key])
+  }, [taskModalOpen, taskDraft.project_key, taskDraft.service_key, isMcpRemoteDraft])
 
   const createTask = async () => {
     if (taskBusy) return
     setTaskBusy(true)
     try {
-      const created = await api.createReleaseTask({
+      const taskPayload = {
         project_key: taskDraft.project_key,
         project_display_name: selectedTarget?.project_display_name || taskDraft.project_display_name || null,
         service_key: taskDraft.service_key,
@@ -367,7 +377,14 @@ export default function ReleasesPage() {
         environment: taskDraft.environment,
         actor: 'operator',
         note: taskDraft.note || null,
-      })
+      }
+      const created = await api.createReleaseTask(isMcpRemoteDraft
+        ? {
+          ...taskPayload,
+          source_type: 'mcp_remote_gcloud',
+          mcp_server_release_id: Number(taskDraft.mcp_server_release_id || 0),
+        }
+        : taskPayload)
       toast.success('发布任务已创建')
       setTaskModalOpen(false)
       setTaskDraft(defaultTaskDraft(policies))
@@ -747,12 +764,14 @@ export default function ReleasesPage() {
               onChange={(event) => {
                 const [project_key, service_key] = event.target.value.split('::')
                 const target = taskTargets.find((item) => item.project_key === project_key && item.service_key === service_key) || taskTargets[0]
+                const isMcpTarget = target.project_key === 'synapse-network-mcp-server' && target.service_key === 'remote-mcp'
                 setTaskDraft((current) => ({
                   ...current,
                   project_key: target.project_key,
                   project_display_name: target.project_display_name,
                   service_key: target.service_key,
-                  branch_name: '',
+                  branch_name: isMcpTarget ? 'main' : '',
+                  environment: isMcpTarget ? 'production' : current.environment,
                 }))
                 setBranchQuery('')
               }}
@@ -800,18 +819,37 @@ export default function ReleasesPage() {
               </p>
             )}
           </label>
+          {isMcpRemoteDraft ? (
+            <label className="block space-y-2">
+              <FieldLabel>MCP release ID</FieldLabel>
+              <input
+                className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 font-mono text-sm"
+                placeholder="例如 1"
+                value={taskDraft.mcp_server_release_id}
+                onChange={(event) => setTaskDraft((current) => ({ ...current, mcp_server_release_id: event.target.value }))}
+              />
+              <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-blocked-text)]">
+                Remote MCP 没有 staging 版本。这里仅创建 production intent；真实状态和 smoke evidence 写入 MCP release ledger。
+              </div>
+            </label>
+          ) : null}
           <label className="block space-y-2">
             <FieldLabel>发布环境</FieldLabel>
             <select
               className="w-full rounded-2xl border border-[color:var(--ops-stroke-strong)] bg-[color:var(--ops-panel)] px-4 py-3 text-sm"
               value={taskDraft.environment}
+              disabled={isMcpRemoteDraft}
               onChange={(event) => setTaskDraft((current) => ({ ...current, environment: event.target.value as 'staging' | 'production' }))}
             >
               <option value="staging">staging</option>
               <option value="production">production</option>
             </select>
           </label>
-          {taskDraft.environment === 'production' ? (
+          {isMcpRemoteDraft ? (
+            <div className="rounded-2xl border border-[color:var(--ops-state-running-border)] bg-[color:var(--ops-state-running-bg)] px-4 py-3 text-sm text-[color:var(--ops-state-running-text)]">
+              Gate: Human confirmation + same main commit + MCP readiness + GCloud secret preflight + public probes + OpenAI discover_services smoke.
+            </div>
+          ) : taskDraft.environment === 'production' ? (
             <div className="rounded-2xl border border-[color:var(--ops-state-blocked-border)] bg-[color:var(--ops-state-blocked-bg)] px-4 py-3 text-sm font-semibold text-[color:var(--ops-state-blocked-text)]">
               这里只创建发布任务，不会自动部署生产；生产 deploy/rollback 仍必须走 Human Gate。
             </div>
@@ -832,7 +870,7 @@ export default function ReleasesPage() {
           <button
             type="button"
             className="fixed bottom-6 right-6 z-50 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_40px_rgba(37,99,235,0.35)] disabled:opacity-50"
-            disabled={taskBusy || branchLoading || !!branchError || !taskDraft.project_key || !taskDraft.branch_name.trim()}
+            disabled={taskBusy || branchLoading || !!branchError || !taskDraft.project_key || !taskDraft.branch_name.trim() || (isMcpRemoteDraft && !taskDraft.mcp_server_release_id.trim())}
             onClick={createTask}
           >
             {taskBusy ? '创建中…' : '创建发布任务'}

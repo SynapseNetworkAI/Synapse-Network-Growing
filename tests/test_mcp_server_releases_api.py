@@ -70,7 +70,7 @@ def test_mcp_server_release_create_list_filter_and_events(synced_client):
         for item in created["surfaces"]
         if item["surface_key"] == "openai_remote_mcp"
     )
-    assert openai["status"] == "blocked_requires_remote_mcp"
+    assert openai["status"] == "candidate"
 
     listed = synced_client.get("/api/releases/mcp-servers?search=mcp-server")
     assert listed.status_code == 200

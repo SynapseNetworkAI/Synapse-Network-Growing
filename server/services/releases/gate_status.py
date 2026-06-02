@@ -27,6 +27,10 @@ def release_task_gate_status(db: Session, task_id: int) -> ReleaseTaskPrGateOut:
             blocked_reason="Gate status is only available for staging or production release tasks."
         )
     try:
+        from server.services.releases.mcp_remote_tasks import is_mcp_remote_task, gate_status as mcp_gate_status
+
+        if is_mcp_remote_task(row):
+            return mcp_gate_status(db, row)
         project_key = _clean(row.project_key)
         policy = _policy_for_project(db, project_key)
         repo_full_name = _release_task_deploy_repo(policy, project_key)
