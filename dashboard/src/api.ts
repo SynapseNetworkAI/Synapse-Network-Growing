@@ -1292,6 +1292,7 @@ export interface ReleaseTask {
   project_display_name: string | null
   service_key: string | null
   branch_name: string
+  target_commit_sha: string | null
   environment: 'staging' | 'production' | string
   status: 'requested' | 'completed' | 'failed' | 'cancelled' | string
   actor: string | null
@@ -2514,6 +2515,9 @@ export const api = {
     environment: 'staging' | 'production'
     actor?: string
     note?: string | null
+    source_type?: string
+    mcp_server_release_id?: number | null
+    target_commit_sha?: string | null
   }) => request<ReleaseTask>('/releases/tasks', { method: 'POST', body: JSON.stringify(data) }),
   updateReleaseTask: (id: number, data: { status: 'completed' | 'failed' | 'cancelled'; operator?: string; note?: string | null }) =>
     request<ReleaseTask>(`/releases/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),

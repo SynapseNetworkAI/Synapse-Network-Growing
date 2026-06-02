@@ -12,7 +12,7 @@ def test_default_projects_include_mcp_server_with_source_repo(synced_client):
     mcp = projects["synapse-network-mcp-server"]
     assert mcp["display_name"] == "Synapse-Network-MCP-Server"
     assert mcp["repo_full_name"] == "SynapseNetworkAI/Synapse-Network-MCP-Server"
-    assert mcp["deploy_strategy"] == "disabled"
+    assert mcp["deploy_strategy"] == "mcp_remote_gcloud_runner"
 
 
 def test_default_projects_repair_legacy_same_name_github_forks(synced_client, db_session):

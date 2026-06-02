@@ -7,6 +7,7 @@ import { STATUS_LABEL, releaseTone } from './releaseListUi'
 const SOURCE_LABEL: Record<string, string> = {
   manual: '人工创建',
   requirement_flow: '需求流转',
+  mcp_remote_gcloud: 'Remote MCP',
 }
 
 const FAILURE_METADATA_KEYS = new Set([
@@ -178,6 +179,8 @@ export function ReleaseTaskDetailModal({
   const failureLogError = showFailure ? releaseTaskFailureLogError(task) : null
   const safeMetadata = displayDeploymentMetadata(task)
   const taskMetadata = (task as ReleaseTask & { task_metadata?: Record<string, unknown> }).task_metadata || {}
+  const isMcpRemoteTask = task.source_type === 'mcp_remote_gcloud'
+    || (task.project_key === 'synapse-network-mcp-server' && task.service_key === 'remote-mcp')
   const attachedPrebuiltImage = metadataString(taskMetadata, 'prebuiltImageDigest')
   const attachedPrebuiltCommit = metadataString(taskMetadata, 'sourceCommitSha')
   const buildCommand = localPrebuiltCommand(task)
@@ -306,6 +309,29 @@ export function ReleaseTaskDetailModal({
           </section>
         ) : null}
 
+        {isMcpRemoteTask ? (
+          <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Remote MCP Ledger</h3>
+            <div className="mt-3 grid gap-3 text-sm text-[color:var(--ops-text-muted)] md:grid-cols-2">
+              <div>Release ID：{String(taskMetadata.mcpServerReleaseId || '-')}</div>
+              <div>Cloud Run：{String(taskMetadata.cloudRunService || 'synapse-prod-mcp-server')}</div>
+              <div>Region：{String(taskMetadata.cloudRunRegion || 'us-central1')}</div>
+              <div>GCP Project：{String(taskMetadata.gcpProjectId || 'synapse-network-prod')}</div>
+              <div className="md:col-span-2">Endpoint：<span className="font-mono">{String(taskMetadata.remoteEndpointUrl || 'https://mcp.synapse-network.ai/mcp')}</span></div>
+              <div>MCP status：{String(taskMetadata.mcpReleaseStatus || task.status)}</div>
+              <div>Target commit：<span className="font-mono">{String(taskMetadata.targetCommitSha || task.target_commit_sha || '-')}</span></div>
+            </div>
+            {taskMetadata.mcpServerId ? (
+              <a className="mt-3 inline-flex rounded-lg border border-[color:var(--ops-state-running-border)] px-3 py-2 text-sm text-[color:var(--ops-state-running-text)]" href={`/releases/mcp-servers/${taskMetadata.mcpServerId}`}>
+                打开 MCP release ledger
+              </a>
+            ) : null}
+            <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
+              无 staging 版本。发布证据来自 MCP release events、Cloud Run healthz/readyz/401 probe 和 OpenAI discover_services smoke。
+            </div>
+          </section>
+        ) : null}
+
         <section className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">PR Gate</h3>
@@ -374,6 +400,10 @@ export function ReleaseTaskDetailModal({
                 </pre>
               </details>
             </div>
+          ) : isMcpRemoteTask ? (
+            <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
+              Remote MCP 发布不创建普通 DeploymentRecord；真实部署、public probe 和 OpenAI smoke 写入 MCP release ledger。
+            </div>
           ) : (
             <div className="mt-3 rounded-xl bg-[color:var(--ops-panel)] p-3 text-sm text-[color:var(--ops-text-muted)]">
               还没有 DeploymentRecord。只有点击发布并通过对应 Gate 后，系统才会创建本地部署记录，并由本地 runner 写入健康检查、结果和完整事件日志。
@@ -390,13 +420,15 @@ export function ReleaseTaskPrGate({ task }: Readonly<{ task: ReleaseTask }>) {
   if (!gate) return null
   if (task.environment === 'production') {
     const ready = Boolean(gate.can_deploy_production)
+    const isMcpRemoteTask = task.source_type === 'mcp_remote_gcloud'
+      || (task.project_key === 'synapse-network-mcp-server' && task.service_key === 'remote-mcp')
     const directFrontend = task.project_key === 'synapse-network'
       && ['admin-front', 'user-front', 'docs-front'].includes(task.service_key || '')
       && ready
       && !gate.staging_deployment_record_id
     return (
       <div className="mt-2 space-y-1">
-        <StateBadge tone={ready ? 'delivered' : 'blocked'}>Production Gate: {ready ? '已满足' : gate.blocked_reason || '待满足'}</StateBadge>
+        <StateBadge tone={ready ? 'delivered' : 'blocked'}>{isMcpRemoteTask ? 'Remote MCP Gate' : 'Production Gate'}: {ready ? '已满足' : gate.blocked_reason || '待满足'}</StateBadge>
         {gate.environment_gate_summary ? <div className="max-w-xs text-xs text-[color:var(--ops-text-caption)]">{gate.environment_gate_summary}</div> : null}
         {directFrontend ? <div className="max-w-xs text-xs text-[color:var(--ops-state-running-text)]">Direct production frontend deploy: 未强制要求 staging evidence。</div> : null}
         {gate.resolved_commit_sha ? <div className="max-w-xs font-mono text-xs text-[color:var(--ops-text-caption)]">main {gate.resolved_commit_sha.slice(0, 12)}</div> : null}
