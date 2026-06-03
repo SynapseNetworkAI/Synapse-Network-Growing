@@ -9,6 +9,8 @@ from server.database_growth import (
     GrowthLeadRow,
     GrowthOutreachEventRow,
     GrowthOutreachMessageRow,
+    GrowthProviderProfileRow,
+    GrowthProviderReplyRow,
     GrowthResearchRunRow,
     GrowthSourceConfigRow,
 )
@@ -18,6 +20,8 @@ from server.schemas_growth import (
     GrowthLeadOut,
     GrowthOutreachEventOut,
     GrowthOutreachMessageOut,
+    GrowthProviderProfileOut,
+    GrowthProviderReplyOut,
     GrowthResearchRunOut,
     GrowthSourceConfigOut,
 )
@@ -130,6 +134,59 @@ def event_out(row: GrowthOutreachEventRow) -> GrowthOutreachEventOut:
         summary=row.summary or "",
         metadata=json_loads(row.metadata_json, {}),
         created_at=row.created_at,
+    )
+
+
+def provider_profile_out(row: GrowthProviderProfileRow) -> GrowthProviderProfileOut:
+    return GrowthProviderProfileOut(
+        id=row.id,
+        lead_id=row.lead_id,
+        organization=row.organization,
+        website_url=row.website_url or "",
+        company_description=row.company_description or "",
+        contact_email=row.contact_email or "",
+        contact_source_url=row.contact_source_url or "",
+        source_url=row.source_url or "",
+        latest_message_id=row.latest_message_id,
+        latest_message_subject=row.latest_message_subject or "",
+        latest_message_status=row.latest_message_status or "",
+        last_contacted_at=row.last_contacted_at,
+        profile_status=row.profile_status or "historical_lead",
+        evidence=json_loads(row.evidence_json, []),
+        metadata=json_loads(row.metadata_json, {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def provider_reply_out(
+    row: GrowthProviderReplyRow,
+    suggested_reply: GrowthOutreachMessageRow | None = None,
+) -> GrowthProviderReplyOut:
+    return GrowthProviderReplyOut(
+        id=row.id,
+        lead_id=row.lead_id,
+        message_id=row.message_id,
+        provider_profile_id=row.provider_profile_id,
+        mailbox_message_id=row.mailbox_message_id,
+        thread_id=row.thread_id or "",
+        from_email=row.from_email,
+        from_name=row.from_name or "",
+        subject=row.subject or "",
+        snippet=row.snippet or "",
+        body_excerpt=row.body_excerpt or "",
+        received_at=row.received_at,
+        classification=row.classification or "unknown",
+        confidence_score=int(row.confidence_score or 0),
+        suggested_reply_message_id=row.suggested_reply_message_id,
+        suggested_reply_subject=suggested_reply.subject if suggested_reply is not None else "",
+        suggested_reply_body=suggested_reply.body if suggested_reply is not None else "",
+        suggested_reply_status=suggested_reply.status if suggested_reply is not None else "",
+        status=row.status or "drafted",
+        evidence=json_loads(row.evidence_json, []),
+        metadata=json_loads(row.metadata_json, {}),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

@@ -75,6 +75,24 @@ class GrowthSourceConfigOut(GrowthSourceConfigCreate):
     id: int
     last_run_at: Optional[datetime] = None
     last_result: dict[str, object] = Field(default_factory=dict)
+
+
+class GrowthProviderProfileOut(BaseModel):
+    id: int
+    lead_id: int
+    organization: str
+    website_url: str
+    company_description: str
+    contact_email: str
+    contact_source_url: str
+    source_url: str
+    latest_message_id: Optional[int] = None
+    latest_message_subject: str
+    latest_message_status: str
+    last_contacted_at: Optional[datetime] = None
+    profile_status: str
+    evidence: list[dict[str, object]] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -111,6 +129,46 @@ class GrowthResearchRunOut(BaseModel):
 
 class GrowthResearchRunListOut(BaseModel):
     items: list[GrowthResearchRunOut] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class GrowthProviderProfileListOut(BaseModel):
+    items: list[GrowthProviderProfileOut] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class GrowthProviderReplyOut(BaseModel):
+    id: int
+    lead_id: int
+    message_id: int
+    provider_profile_id: Optional[int] = None
+    mailbox_message_id: str
+    thread_id: str
+    from_email: str
+    from_name: str
+    subject: str
+    snippet: str
+    body_excerpt: str
+    received_at: Optional[datetime] = None
+    classification: str
+    confidence_score: int
+    suggested_reply_message_id: Optional[int] = None
+    suggested_reply_subject: str = ""
+    suggested_reply_body: str = ""
+    suggested_reply_status: str = ""
+    status: str
+    evidence: list[dict[str, object]] = Field(default_factory=list)
+    metadata: dict[str, object] = Field(default_factory=dict)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class GrowthProviderReplyListOut(BaseModel):
+    items: list[GrowthProviderReplyOut] = Field(default_factory=list)
     total: int = 0
     limit: int = 50
     offset: int = 0

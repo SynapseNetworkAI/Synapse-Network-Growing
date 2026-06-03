@@ -18,16 +18,43 @@ def _create_task(client, **overrides):
     return client.post("/api/releases/tasks", json=payload)
 
 
-def _create_ready_mcp_release(client, db_session):
+def _create_ready_mcp_release(client, db_session, repo_path=None):
     created = client.post(
         "/api/releases/mcp-servers",
         json={"package_version": "0.1.0", "release_notes": "Remote MCP prod."},
     )
     assert created.status_code == 201
     row = db_session.get(McpServerReleaseRow, created.json()["id"])
+    if repo_path is not None:
+        _write_mcp_repo(repo_path, "0.1.0")
+        row.server.local_repo_path = str(repo_path)
     row.status = "ready_to_publish"
     db_session.commit()
     return created.json()["id"]
+
+
+def _write_mcp_repo(path, version: str):
+    path.mkdir()
+    (path / "package.json").write_text(
+        json.dumps(
+            {
+                "name": "@synapse-network-ai/mcp-server",
+                "version": version,
+                "mcpName": "io.github.synapsenetworkai/synapse-network-mcp-server",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (path / "server.json").write_text(
+        json.dumps(
+            {
+                "name": "io.github.synapsenetworkai/synapse-network-mcp-server",
+                "version": version,
+                "packages": [{"registryType": "npm"}],
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def test_create_release_task_and_query_defaults_to_local_runner(synced_client):
@@ -506,7 +533,7 @@ Node.js v25.9.0
 
 
 def test_mcp_remote_runner_verifies_openai_smoke_and_completes_linked_task(
-    monkeypatch, synced_client, db_session
+    monkeypatch, synced_client, db_session, tmp_path
 ):
     monkeypatch.setattr(
         "server.services.releases.mcp_remote_tasks._mcp_main_commit_sha",
@@ -516,7 +543,7 @@ def test_mcp_remote_runner_verifies_openai_smoke_and_completes_linked_task(
     monkeypatch.setenv("SYNAPSE_REMOTE_MCP_AUTH_TOKEN", "remote_secret")
     monkeypatch.setenv("OPENAI_API_KEY", "openai_secret")
     monkeypatch.setattr(mcp_server_runner, "_run_step", lambda *_args, **_kwargs: None)
-    release_id = _create_ready_mcp_release(synced_client, db_session)
+    release_id = _create_ready_mcp_release(synced_client, db_session, tmp_path / "mcp")
     task = _create_task(
         synced_client,
         source_type="mcp_remote_gcloud",
@@ -608,7 +635,7 @@ def test_mcp_remote_sync_linked_task_skips_until_verified(
 
 
 def test_mcp_remote_byok_deploy_does_not_require_customer_token(
-    monkeypatch, synced_client, db_session
+    monkeypatch, synced_client, db_session, tmp_path
 ):
     monkeypatch.setattr(
         "server.services.releases.mcp_remote_tasks._mcp_main_commit_sha",
@@ -618,7 +645,7 @@ def test_mcp_remote_byok_deploy_does_not_require_customer_token(
     monkeypatch.delenv("SYNAPSE_REMOTE_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(mcp_server_runner, "_run_step", lambda *_args, **_kwargs: None)
-    release_id = _create_ready_mcp_release(synced_client, db_session)
+    release_id = _create_ready_mcp_release(synced_client, db_session, tmp_path / "mcp")
     task = _create_task(
         synced_client,
         source_type="mcp_remote_gcloud",
@@ -644,12 +671,12 @@ def test_mcp_remote_byok_deploy_does_not_require_customer_token(
 
 
 def test_mcp_remote_openai_smoke_requires_token_and_openai_key(
-    monkeypatch, synced_client, db_session
+    monkeypatch, synced_client, db_session, tmp_path
 ):
     monkeypatch.delenv("SYNAPSE_REMOTE_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(mcp_server_runner, "_run_step", lambda *_args, **_kwargs: None)
-    release_id = _create_ready_mcp_release(synced_client, db_session)
+    release_id = _create_ready_mcp_release(synced_client, db_session, tmp_path / "mcp")
     release = db_session.get(McpServerReleaseRow, release_id)
     release.status = "openai_smoke_running"
     db_session.commit()

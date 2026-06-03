@@ -34,6 +34,10 @@ export type {
   GrowthOutreachEvent,
   GrowthOutreachMessage,
   GrowthOverview,
+  GrowthProviderProfile,
+  GrowthProviderProfileList,
+  GrowthProviderReply,
+  GrowthProviderReplyList,
   GrowthResearchRun,
   GrowthSourceConfig,
 } from './apiGrowth'

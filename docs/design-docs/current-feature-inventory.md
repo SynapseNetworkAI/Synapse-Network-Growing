@@ -162,6 +162,8 @@
 8. `Sources` 管理 provider acquisition 采集配置和运行历史。V1 支持 `github_mcp_repos`、`mcp_directories`、`api_provider_sites`、`package_ecosystem`、`manual_seed_list`，同时保留 legacy `github_provider_search` 兼容；内置 Firecrawl provider seed 用于跑通首个 provider lead 和人工审核 outreach draft。
 9. Provider source runner 只使用公开联系证据：官方 partner/contact 页面、README/docs/package metadata、公开 GitHub profile email；`noreply.github.com` 或隐私保护邮箱不使用。`fit_score >= 70` 创建 Lead，`fit_score >= 80` 且有可信邮箱才生成 `needs_review` 邮件草稿；无可信邮箱只创建 Lead 并记录 blocker。
 10. Gmail Draft 集成使用本地 OAuth 配置和 encrypted local secret refresh token，只调用 Gmail Draft API，记录 `gmail_draft_id`、`draft_url`、`contact_email`、`contact_provenance` 和 `gmail_draft_created` event；不调用 Gmail send API。Draft Agent 会读取 `.agents/product-marketing-context.md`、`roles/growth_lead/prompts/persona.md` 和 bounded skill excerpts 来生成 investor/provider outreach 草稿。解析失败、空正文或缺少 personalization evidence 会 fail closed，不写入假 message。
+11. `growth_provider_profiles` 是已发送 provider 历史线索的客户资料库，记录官网、公司介绍、联系邮箱、最近发送消息和 evidence；`scripts/growth/sync_provider_customer_profiles.py` 从 sent provider outreach ledger 幂等同步资料库，并可导出 JSONL；`/growth` -> `Providers` 下的 `Provider Customer Profiles` 面板通过 `/api/growth/provider-profiles` 读取该资料库。
+12. `growth_provider_replies` 是 provider outreach 的 Gmail 回复监控账本；`scripts/growth/provider_reply_monitor.py` 通过 Gmail IMAP 读取 INBOX，匹配 sent provider messages，记录 inbound reply，生成 `needs_review` 回复草稿，并写入 `reply_received` / `provider_reply_draft_created` evidence；脚本支持 `--watch` 周期扫描并写入 JSONL run history；`/growth` -> `Providers` 下的 `Provider Reply Inbox` 显示入站摘要、分类和建议回复正文；不自动发送回复邮件。
 
 ## 5. Error Discovery And Intake Gate
 

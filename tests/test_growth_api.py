@@ -3,10 +3,12 @@ from server.database_growth import (
     GrowthLeadRow,
     GrowthOutreachEventRow,
     GrowthOutreachMessageRow,
+    GrowthProviderProfileRow,
     GrowthResearchRunRow,
 )
 from server.services.local_secrets import write_local_secret_version
 from server.services.growth.draft_agent import GrowthDraftResult
+from server.services.growth.provider_profiles import sync_provider_profiles
 from server.services.growth.provider_sources import run_enabled_provider_sources
 
 
@@ -226,7 +228,6 @@ def test_growth_overview_counts(synced_client):
     assert payload["lead_counts"]["investor"] == 1
     assert payload["lead_counts"]["provider"] == 1
     assert payload["discovery_counts"]["candidate"] == 1
-
 
 def test_growth_source_config_crud_and_firecrawl_dry_run(synced_client, db_session):
     created = synced_client.post(
@@ -570,3 +571,62 @@ def test_growth_gmail_draft_edge_cases(synced_client, db_session, monkeypatch):
     )
     assert existing.status_code == 200
     assert existing.json()["metadata"]["gmail_draft_id"] == "existing-draft"
+
+
+def test_growth_provider_profile_sync_uses_sent_history(
+    synced_client, monkeypatch, db_session
+):
+    lead = synced_client.post(
+        "/api/growth/leads",
+        json=_provider_payload(
+            name="Firecrawl",
+            organization="Firecrawl",
+            contact_channels=[
+                {
+                    "kind": "email",
+                    "value": "partnerships@firecrawl.dev",
+                    "source_url": "https://docs.firecrawl.dev/partner-integration",
+                }
+            ],
+        ),
+    ).json()
+    monkeypatch.setattr(
+        "server.services.growth.workbench.generate_outreach_draft",
+        lambda **kwargs: GrowthDraftResult(
+            subject="Synapse provider channel",
+            body="Official site: https://synapse-network.ai/",
+            personalization_evidence=[{"source": "site", "reason": "provider fit"}],
+            metadata={"campaign_key": "test"},
+        ),
+    )
+    message = synced_client.post(
+        f"/api/growth/leads/{lead['id']}/draft-message",
+        json={"channel": "email", "actor": "codex"},
+    ).json()
+    synced_client.post(
+        f"/api/growth/messages/{message['id']}/approve",
+        json={"actor": "operator"},
+    )
+    synced_client.post(
+        f"/api/growth/messages/{message['id']}/mark-sent",
+        json={"actor": "operator", "metadata": {"smtp_sent": True}},
+    )
+
+    profiles = sync_provider_profiles(db_session)
+
+    assert len(profiles) == 1
+    profile = db_session.query(GrowthProviderProfileRow).one()
+    assert profile.organization == "Firecrawl"
+    assert profile.website_url == "https://www.firecrawl.dev/"
+    assert "search, scrape, crawl" in profile.company_description
+    assert profile.contact_email == "partnerships@firecrawl.dev"
+    assert profile.latest_message_status == "sent"
+
+    response = synced_client.get("/api/growth/provider-profiles?q=firecrawl")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["organization"] == "Firecrawl"
+    assert payload["items"][0]["website_url"] == "https://www.firecrawl.dev/"
+    assert "search, scrape, crawl" in payload["items"][0]["company_description"]
+    assert payload["items"][0]["contact_email"] == "partnerships@firecrawl.dev"

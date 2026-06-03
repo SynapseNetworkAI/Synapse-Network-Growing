@@ -41,6 +41,52 @@ const provider = {
   },
 }
 
+const providerProfile = {
+  id: 1,
+  lead_id: 2,
+  organization: 'Firecrawl',
+  website_url: 'https://www.firecrawl.dev/',
+  company_description: 'Firecrawl provides an API for AI systems to search, scrape, crawl, and interact with the web.',
+  contact_email: 'partnerships@firecrawl.dev',
+  contact_source_url: 'https://docs.firecrawl.dev/partner-integration',
+  source_url: 'https://www.firecrawl.dev/',
+  latest_message_id: 22,
+  latest_message_subject: 'Synapse provider channel',
+  latest_message_status: 'sent',
+  last_contacted_at: '2026-05-31T10:00:00',
+  profile_status: 'historical_lead',
+  evidence: [{ source: 'https://www.firecrawl.dev/', reason: 'Company website and description source for customer profile.' }],
+  metadata: {},
+  created_at: '2026-05-31T10:00:00',
+  updated_at: '2026-05-31T10:00:00',
+}
+
+const providerReply = {
+  id: 1,
+  lead_id: 2,
+  message_id: 22,
+  provider_profile_id: 1,
+  mailbox_message_id: '<reply-firecrawl-1@example.com>',
+  thread_id: 'thread-firecrawl',
+  from_email: 'partnerships@firecrawl.dev',
+  from_name: 'Firecrawl Partnerships',
+  subject: 'Re: Synapse provider channel',
+  snippet: 'Yes, please send details.',
+  body_excerpt: 'Yes, please send details about the provider registration and pricing.',
+  received_at: '2026-06-02T13:00:00',
+  classification: 'interested',
+  confidence_score: 85,
+  suggested_reply_message_id: 23,
+  suggested_reply_subject: 'Re: Synapse provider channel',
+  suggested_reply_body: 'Thanks for getting back to me. I can send the provider registration details.\n\nOfficial site: https://synapse-network.ai/',
+  suggested_reply_status: 'needs_review',
+  status: 'drafted',
+  evidence: [],
+  metadata: { auto_send: false },
+  created_at: '2026-06-02T13:01:00',
+  updated_at: '2026-06-02T13:01:00',
+}
+
 function json(data: unknown, status = 200) {
   return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) } as Response)
 }
@@ -106,6 +152,8 @@ function installFetch() {
       })
     }
     if (url.includes('/growth/leads') && init?.method === 'POST') return json({ ...investor, id: 3 }, 201)
+    if (url.includes('/growth/provider-profiles')) return json({ items: [providerProfile], total: 1, limit: 50, offset: 0 })
+    if (url.includes('/growth/provider-replies')) return json({ items: [providerReply], total: 1, limit: 20, offset: 0 })
     if (url.includes('/growth/leads?') && url.includes('provider')) return json(listPayload([provider]))
     if (url.includes('/growth/leads')) return json(listPayload([investor]))
     if (url.includes('/growth/messages/10/approve')) return json({ id: 10, lead_id: 1, status: 'approved', subject: 'Hello', body: 'Draft body', personalization_evidence: [], channel: 'email', campaign_id: null, approved_by: 'operator', sent_at: null, failure_reason: null, metadata: {}, created_at: null, updated_at: null })
@@ -156,8 +204,17 @@ describe('GrowthPage', () => {
     render(<GrowthPage />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Providers' }))
-    await screen.findByText('Firecrawl')
-    fireEvent.click(screen.getByText('Firecrawl'))
+    expect((await screen.findAllByText('Firecrawl')).length).toBeGreaterThan(0)
+    expect(await screen.findByTestId('provider-customer-profiles')).toBeInTheDocument()
+    expect(await screen.findByTestId('provider-reply-inbox')).toBeInTheDocument()
+    expect(screen.getByText('Provider Reply Inbox')).toBeInTheDocument()
+    expect(screen.getByText('Firecrawl Partnerships')).toBeInTheDocument()
+    expect(screen.getByText(/provider registration details/)).toBeInTheDocument()
+    expect(screen.getByText(/https:\/\/synapse-network\.ai\//)).toBeInTheDocument()
+    expect(screen.getByText('Provider Customer Profiles')).toBeInTheDocument()
+    expect(screen.getByText('https://www.firecrawl.dev/')).toBeInTheDocument()
+    expect(screen.getByText(/search, scrape, crawl/)).toBeInTheDocument()
+    fireEvent.click(screen.getAllByText('Firecrawl')[0])
     const providerDialog = await screen.findByRole('dialog')
     expect(within(providerDialog).getByText('partnerships@firecrawl.dev')).toBeInTheDocument()
     expect(within(providerDialog).getByText(/partner-integration/)).toBeInTheDocument()
