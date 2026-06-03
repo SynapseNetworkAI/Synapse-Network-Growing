@@ -14,6 +14,7 @@ SELECTABLE_SOURCE_BUCKETS = {
     "direct_pain",
     "ecosystem_discussion",
     "builder_problem",
+    "agent_infrastructure_signal",
 }
 
 DIRECT_PAIN_TERMS = (
@@ -92,6 +93,29 @@ BUILDER_PROBLEM_TERMS = (
     "local ci",
     "deploy runner",
     "devtools",
+)
+
+AGENT_INFRASTRUCTURE_TERMS = (
+    "agent skills",
+    "agent tools",
+    "api key",
+    "api pricing",
+    "coding agent",
+    "computer use",
+    "cursor",
+    "external api",
+    "inference backend",
+    "kilo code",
+    "modular architecture",
+    "openrouter",
+    "permissions",
+    "runtime",
+    "tool-use",
+    "tool use",
+    "tool-using",
+    "vercel ai gateway",
+    "workflow",
+    "workflows",
 )
 
 BRAND_UNSAFE_TERMS = (
@@ -236,7 +260,12 @@ def _first_match(text: str, terms: tuple[str, ...]) -> str | None:
 
 
 def _matched_keywords(text: str) -> tuple[str, ...]:
-    terms = DIRECT_PAIN_TERMS + ECOSYSTEM_TERMS + BUILDER_PROBLEM_TERMS
+    terms = (
+        DIRECT_PAIN_TERMS
+        + ECOSYSTEM_TERMS
+        + BUILDER_PROBLEM_TERMS
+        + AGENT_INFRASTRUCTURE_TERMS
+    )
     return tuple(term for term in terms if term in text)[:12]
 
 
@@ -247,6 +276,10 @@ def _source_bucket(text: str) -> str:
         return "ecosystem_discussion"
     if _contains_any(text, BUILDER_PROBLEM_TERMS):
         return "builder_problem"
+    if _contains_any(text, AGENT_TERMS) and _contains_any(
+        text, AGENT_INFRASTRUCTURE_TERMS
+    ):
+        return "agent_infrastructure_signal"
     if _contains_any(text, AGENT_TERMS):
         return "generic_agent_news"
     return "off_topic"
@@ -259,6 +292,9 @@ def _problem_fit_score(text: str) -> float:
     score += min(0.45, 0.09 * sum(1 for term in DIRECT_PAIN_TERMS if term in text))
     score += min(0.25, 0.05 * sum(1 for term in ECOSYSTEM_TERMS if term in text))
     score += min(0.15, 0.05 * sum(1 for term in BUILDER_PROBLEM_TERMS if term in text))
+    score += min(
+        0.22, 0.055 * sum(1 for term in AGENT_INFRASTRUCTURE_TERMS if term in text)
+    )
     return min(1.0, score)
 
 
@@ -282,7 +318,10 @@ def _conversation_quality_score(source_text: str) -> float:
             "problem",
             "issue",
             "cost",
+            "infrastructure",
             "pricing",
+            "runtime",
+            "workflow",
         )
     ):
         score += 0.20
@@ -316,7 +355,18 @@ def _audience_fit_score(text: str, author_handle: str | None) -> float:
     score = 0.35
     if _contains_any(
         text,
-        ("developer", "devtools", "builder", "provider", "api", "mcp", "open source"),
+        (
+            "developer",
+            "devtools",
+            "builder",
+            "provider",
+            "api",
+            "mcp",
+            "open source",
+            "runtime",
+            "workflow",
+            "tooling",
+        ),
     ):
         score += 0.30
     if any(
@@ -345,6 +395,12 @@ def _reply_angle(text: str) -> str:
         return "receipt_evidence"
     if _contains_any(text, ("human gate", "approval", "governance", "policy")):
         return "human_gate"
+    if _contains_any(text, ("permissions", "access", "api key", "external api")):
+        return "governed_access"
+    if _contains_any(
+        text, ("runtime", "tool-use", "tool use", "agent skills", "inference backend")
+    ):
+        return "tool_access_rails"
     if _contains_any(text, ("x402", "usdc", "settlement", "micropayment", "wallet")):
         return "api_metering"
     return "agent_economy_context"

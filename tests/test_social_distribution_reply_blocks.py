@@ -6,9 +6,11 @@ from server.database_social_distribution import (
     SocialContentAssetRow,
     SocialDistributionEventRow,
 )
+from server.routers import social_distribution as social_distribution_router
 from server.services.social import publishing as social_publishing
 from server.services.social import distribution_reply_blocks as reply_blocks
 from server.services.social import distribution_reply_block_policy as reply_block_policy
+from server.services.social.distribution import get_content_asset
 from server.services.social.distribution_reply_block_publisher import (
     run_x_social_daily_reply_block_publisher,
 )
@@ -133,6 +135,50 @@ def test_generate_x_reply_block_creates_agent_reviewed_candidates(
     ]
 
 
+def test_generate_x_reply_block_uses_long_default_runtime_budget(
+    synced_client, db_session, monkeypatch
+):
+    asset = _reply_asset()
+    db_session.add(asset)
+    db_session.commit()
+    db_session.refresh(asset)
+    captured: dict[str, object] = {}
+
+    def fake_generate(db, **kwargs):
+        captured.update(kwargs)
+        return {
+            "asset": get_content_asset(db, int(kwargs["asset_id"])),
+            "reply_ids": [],
+            "failed_reply_ids": [],
+            "source_candidate_ids": [],
+            "processed_source_count": 0,
+            "auto_publish": False,
+            "agent_review": True,
+            "timed_out": False,
+            "blocked_reason": None,
+            "publish_mode": "agent_approved_needs_manual_publish",
+            "approval_ref_configured": False,
+        }
+
+    monkeypatch.setattr(
+        social_distribution_router,
+        "generate_x_reply_block_candidates",
+        fake_generate,
+    )
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 5, "agent_review": True},
+    )
+
+    assert response.status_code == 200
+    assert captured["max_seconds"] == reply_blocks.DEFAULT_REPLY_BLOCK_MAX_SECONDS
+    assert (
+        captured["per_reply_timeout_seconds"]
+        == reply_blocks.DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS
+    )
+
+
 def test_generate_x_reply_block_strips_urls_from_reply_text(
     synced_client, db_session, monkeypatch
 ):
@@ -253,7 +299,12 @@ def test_generate_x_reply_block_fails_closed_without_real_sources(
     event = db_session.query(SocialDistributionEventRow).one()
     assert event.event_type == "x_source_sync_blocked"
     payload = json.loads(event.payload_json)
-    assert payload["oauth_status"] in {"missing_local_secret", "invalid_refresh_token", "needs_authorization", "error"}
+    assert payload["oauth_status"] in {
+        "missing_local_secret",
+        "invalid_refresh_token",
+        "needs_authorization",
+        "error",
+    }
 
 
 def test_generate_x_reply_block_missing_client_config_has_bounded_error(
@@ -263,7 +314,9 @@ def test_generate_x_reply_block_missing_client_config_has_bounded_error(
         reply_block_policy.x_oauth_token_provider,
         "get_access_token",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            ValueError("X_OAUTH_CLIENT_ID is required in local environment configuration.")
+            ValueError(
+                "X_OAUTH_CLIENT_ID is required in local environment configuration."
+            )
         ),
     )
     asset = _reply_asset()
@@ -432,7 +485,94 @@ def test_generate_x_reply_block_selects_agentic_economy_payment_rail_posts(
     for reply in replies:
         strategy = json.loads(reply.metadata_json)["x_reply_source_strategy"]
         assert strategy["source_bucket"] == "ecosystem_discussion"
-        assert strategy["reply_angle"] in {"api_metering", "agent_economy_context"}
+        assert strategy["reply_angle"] in {
+            "agent_economy_context",
+            "api_metering",
+            "governed_access",
+        }
+        assert strategy["selected"] is True
+        assert strategy["do_not_reply_reason"] is None
+
+
+def test_generate_x_reply_block_skips_existing_sources_and_selects_agent_infra_posts(
+    synced_client, db_session, monkeypatch
+):
+    _install_reply_agent(monkeypatch)
+    monkeypatch.setattr(
+        reply_block_policy.x_oauth_token_provider,
+        "get_access_token",
+        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
+            "access-token", refreshed=False
+        ),
+    )
+    asset = _reply_asset()
+    db_session.add(asset)
+    for index in range(1, 6):
+        post_id = f"710{index}"
+        db_session.add(
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url=f"https://x.com/x402/status/{post_id}",
+                author_handle="x402",
+                topic=f"Existing agent payment source {index}",
+                summary="Agent payments, x402, API metering, and settlement rails for autonomous workflows.",
+                relevance_score=1.0 - (index * 0.01),
+                status="new",
+            )
+        )
+        db_session.add(
+            SocialReplyItemRow(
+                external_reply_id=f"target:{post_id}",
+                source_post_id=post_id,
+                source_url=f"https://x.com/x402/status/{post_id}",
+                source_author_handle="x402",
+                source_text="Already drafted source.",
+                author_handle="x402",
+                incoming_text="Already drafted source.",
+                suggested_reply="Existing draft.",
+                status="agent_approved_needs_manual_publish",
+            )
+        )
+    for index, text in enumerate(
+        [
+            "Getting an agent running now means choosing a runtime, inference backend, and tool-use stack.",
+            "Agent skills and modular architecture make video search workflows easier to operate.",
+            "OpenRouter, Vercel AI Gateway, Cursor, and Kilo Code are becoming a practical agent toolchain.",
+            "The access and permissions granted to agents should evolve with external API workflows.",
+            "Computer use for coding agents makes governed tool access more important.",
+        ],
+        start=1,
+    ):
+        db_session.add(
+            SocialTrendItemRow(
+                source_platform="x",
+                source_url=f"https://x.com/agentinfra/status/720{index}",
+                author_handle="agentinfra",
+                topic=f"Agent infrastructure source {index}",
+                summary=f"{text} Source: X watchlist @agentinfra.",
+                relevance_score=0.9 - (index * 0.01),
+                status="new",
+            )
+        )
+    db_session.commit()
+    db_session.refresh(asset)
+
+    response = synced_client.post(
+        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
+        json={"actor": "agent", "target_count": 5, "agent_review": True},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["reply_ids"]) == 5
+    replies = db_session.query(SocialReplyItemRow).order_by(SocialReplyItemRow.id).all()
+    generated = [
+        reply for reply in replies if reply.source_author_handle == "agentinfra"
+    ]
+    assert len(generated) == 5
+    for reply in generated:
+        strategy = json.loads(reply.metadata_json)["x_reply_source_strategy"]
+        assert strategy["source_bucket"] == "agent_infrastructure_signal"
         assert strategy["selected"] is True
         assert strategy["do_not_reply_reason"] is None
 
