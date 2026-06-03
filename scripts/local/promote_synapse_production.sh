@@ -261,6 +261,7 @@ if is_frontend_service "${SERVICE}"; then
   echo "[local-prod] frontend production build ref=${build_ref}"
   (
     cd "${synapse_network_repo}"
+    export STAGING_IMAGE_BUILD_BACKEND="${PRODUCTION_FRONTEND_IMAGE_BUILD_BACKEND:-cloudbuild}"
     bash scripts/deploy/local_build_frontend_image.sh \
       --service "${SERVICE}" \
       --environment production \
