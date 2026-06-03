@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 import json
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
@@ -84,6 +84,7 @@ def _line_source_posts(text: str) -> list[ReplySourcePost]:
 
 
 def _trend_source_posts(db: Session, *, limit: int) -> list[ReplySourcePost]:
+    candidate_limit = max(30, limit * 12)
     rows = (
         db.query(SocialTrendItemRow)
         .filter(
@@ -96,7 +97,7 @@ def _trend_source_posts(db: Session, *, limit: int) -> list[ReplySourcePost]:
             SocialTrendItemRow.collected_at.desc(),
             SocialTrendItemRow.id.desc(),
         )
-        .limit(max(1, limit * 3))
+        .limit(candidate_limit)
         .all()
     )
     posts: list[ReplySourcePost] = []
@@ -131,7 +132,7 @@ def _trend_source_posts(db: Session, *, limit: int) -> list[ReplySourcePost]:
             )
         )
     db.flush()
-    return posts[:limit]
+    return posts
 
 
 def _dedupe_source_posts(
@@ -173,7 +174,9 @@ def _explicit_source_post(item: dict[str, object]) -> ReplySourcePost:
                 max_chars=1200,
             ),
             rationale=_bounded(
-                str(item.get("rationale") or "Provided by operator/browser collection."),
+                str(
+                    item.get("rationale") or "Provided by operator/browser collection."
+                ),
                 max_chars=500,
             ),
             opt_in_evidence=_bounded(

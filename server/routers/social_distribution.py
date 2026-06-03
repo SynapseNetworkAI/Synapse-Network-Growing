@@ -73,6 +73,8 @@ from server.services.social.distribution_publish_audit import (
     mark_distribution_task_removed,
 )
 from server.services.social.distribution_reply_blocks import (
+    DEFAULT_REPLY_BLOCK_MAX_SECONDS,
+    DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS,
     generate_x_reply_block_candidates,
 )
 from server.services.social.distribution_tasks import (
@@ -280,8 +282,11 @@ def generate_x_reply_block_endpoint(
             target_count=body.target_count,
             actor=body.actor,
             agent_review=body.agent_review,
-            max_seconds=body.max_seconds or 90,
-            per_reply_timeout_seconds=body.per_reply_timeout_seconds or 30,
+            max_seconds=body.max_seconds or DEFAULT_REPLY_BLOCK_MAX_SECONDS,
+            per_reply_timeout_seconds=(
+                body.per_reply_timeout_seconds
+                or DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS
+            ),
             auto_publish=body.auto_publish,
             force_regenerate=body.force_regenerate,
         )

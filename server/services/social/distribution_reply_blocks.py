@@ -30,7 +30,10 @@ from server.services.social.distribution_reply_block_policy import (
     existing_complete_reply_block,
     require_source_sync_auth_if_needed,
 )
-from server.services.social.distribution_reply_sources import ReplySourcePost, usable_reply_source_posts
+from server.services.social.distribution_reply_sources import (
+    ReplySourcePost,
+    usable_reply_source_posts,
+)
 
 
 @dataclass
@@ -47,8 +50,8 @@ class ReplyBlockGeneration:
     auto_publish: bool = False
 
 
-DEFAULT_REPLY_BLOCK_MAX_SECONDS = 90
-DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS = 30
+DEFAULT_REPLY_BLOCK_MAX_SECONDS = 450
+DEFAULT_REPLY_BLOCK_PER_REPLY_TIMEOUT_SECONDS = 90
 
 
 def _monotonic_seconds() -> float:

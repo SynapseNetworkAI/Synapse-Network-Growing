@@ -366,7 +366,7 @@ export function createSocialDistributionApi(request: RequestFn) {
           method: 'POST',
           body: JSON.stringify(data),
         },
-        120_000,
+        600_000,
       ),
     approveAndGenerateSocialDistributionTasks: (
       assetId: number,
