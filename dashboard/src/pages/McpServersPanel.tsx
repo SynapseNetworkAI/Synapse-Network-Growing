@@ -196,7 +196,7 @@ function defaultServerDraft() {
     repo_url: 'https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server',
     package_name: '@synapse-network-ai/mcp-server',
     package_registry: 'npm',
-    registry_name: 'io.github.synapsenetworkai/synapse-network-mcp-server',
+    registry_name: 'io.github.SynapseNetworkAI/synapse-network-mcp-server',
     transport_kind: 'stdio',
     remote_endpoint_url: '',
     install_command: 'npx -y @synapse-network-ai/mcp-server',

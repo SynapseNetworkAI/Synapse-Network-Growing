@@ -40,7 +40,7 @@ def _write_mcp_repo(path, version: str):
             {
                 "name": "@synapse-network-ai/mcp-server",
                 "version": version,
-                "mcpName": "io.github.synapsenetworkai/synapse-network-mcp-server",
+                "mcpName": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
             }
         ),
         encoding="utf-8",
@@ -48,7 +48,7 @@ def _write_mcp_repo(path, version: str):
     (path / "server.json").write_text(
         json.dumps(
             {
-                "name": "io.github.synapsenetworkai/synapse-network-mcp-server",
+                "name": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
                 "version": version,
                 "packages": [{"registryType": "npm"}],
             }

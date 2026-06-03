@@ -83,7 +83,7 @@ with psycopg.connect(dsn) as conn:
             update mcp_server_releases
                set status = 'registry_listed',
                    package_url = 'https://www.npmjs.com/package/@synapse-network-ai/mcp-server/v/0.1.0',
-                   registry_url = 'https://registry.modelcontextprotocol.io/servers/io.github.synapsenetworkai/synapse-network-mcp-server',
+                   registry_url = 'https://registry.modelcontextprotocol.io/servers/io.github.SynapseNetworkAI/synapse-network-mcp-server',
                    smoke_evidence_json = '{"status":"passed","command":"SYNAPSE_ENV=prod npm run test:e2e:prod","charged_usdc":"0"}',
                    updated_at = now()
              where id = %s
@@ -253,8 +253,8 @@ test('MCP Servers release tab tracks npm, registry, smoke evidence, and Growth d
     const surfacePatch = await request.patch(`/api/releases/mcp-servers/${release.id}/surfaces/official_mcp_registry`, {
       data: {
         status: 'listed',
-        listing_url: 'https://registry.modelcontextprotocol.io/servers/io.github.synapsenetworkai/synapse-network-mcp-server',
-        evidence: { source: 'e2e_mock_runner', registry_name: 'io.github.synapsenetworkai/synapse-network-mcp-server' },
+        listing_url: 'https://registry.modelcontextprotocol.io/servers/io.github.SynapseNetworkAI/synapse-network-mcp-server',
+        evidence: { source: 'e2e_mock_runner', registry_name: 'io.github.SynapseNetworkAI/synapse-network-mcp-server' },
       },
     })
     expect(surfacePatch.ok()).toBeTruthy()
