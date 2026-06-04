@@ -326,6 +326,7 @@ class SocialXReplyBlockGenerateOut(BaseModel):
     agent_review: bool = True
     publish_mode: str = "agent_approved_needs_manual_publish"
     approval_ref_configured: bool = False
+    source_sync: dict[str, object] | None = None
 
 
 class SocialAssetPlannerSignalOut(BaseModel):
