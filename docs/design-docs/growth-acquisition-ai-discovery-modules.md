@@ -4,7 +4,7 @@ title: Growth Acquisition and AI Discovery Modules
 role: growth_lead
 status: ready
 created_at: 2026-05-30
-updated_at: 2026-05-30
+updated_at: 2026-06-04
 author: codex
 target_repo: Synapse-Network-Growing
 ---
@@ -13,7 +13,7 @@ target_repo: Synapse-Network-Growing
 
 ## Purpose
 
-Synapse Network is live at `https://synapse-network.ai/`. The next Company Ops surface should help the operator find two early markets and make Synapse discoverable to AI agents:
+Synapse Network is live at `https://www.synapse-network.ai/`. The next Company Ops surface should help the operator find two early markets and make Synapse discoverable to AI agents:
 
 1. Investors who understand AI infrastructure, agent infrastructure, API marketplaces, payments, crypto rails, and developer platforms.
 2. Provider users who already own APIs, MCP servers, data services, automation tools, search/browser tools, or AI utilities that agents could invoke.
@@ -24,10 +24,11 @@ The planned route is `/growth`. It is a Human-Agent Control Plane, not an autono
 
 ## Current Production Facts
 
-1. `https://synapse-network.ai/` is the production marketing site.
-2. `https://synapse-network.ai/llms.txt` exists and should remain the canonical machine-readable product explainer.
+1. `https://www.synapse-network.ai/` is the production marketing site and should be the canonical homepage in metadata, `robots.txt`, `llms.txt`, sitemap, docs, and distribution copy.
+2. `https://www.synapse-network.ai/llms.txt` exists and should remain the canonical machine-readable product explainer.
 3. Current public positioning should stay consistent with the product marketing context: Synapse is the settlement layer for AI agents, a way for agents to discover, invoke, and pay for APIs with budget isolation and USDC settlement.
 4. Current robots policy broadly allows crawling while disallowing dashboard, provider, API, and Next.js data paths. The next production-site iteration should make AI crawler policy explicit instead of accidental.
+5. Live baseline on 2026-06-04 found a P0 discovery gap: `www` is the confirmed official homepage, but the production sitemap was effectively empty and some canonical / `llms.txt` links still pointed at non-`www`. AI Visibility must track this as a feed experiment until fixed and rechecked.
 
 ## Operating Boundary
 
@@ -223,6 +224,11 @@ Useful fields:
 8. `missing_facts`
 9. `run_at`
 10. `next_action`
+11. `feed_key`
+12. `run_group`
+13. `result_rank`
+14. `evidence_url`
+15. `metadata_json`
 
 ## Module 1: Investor Radar
 
@@ -472,6 +478,16 @@ Track these weekly:
 7. `settlement layer for AI agents`
 8. `MCP server billing`
 
+The baseline query set for GPT, Claude, and Grok should also include:
+
+1. `What is Synapse Network for AI agents?`
+2. `AI agent payment API`
+3. `How can AI agents pay for APIs?`
+4. `MCP server for paid API calls`
+5. `AI agent USDC settlement layer`
+6. `Synapse Network vs x402`
+7. `How can API providers earn from AI agents?`
+
 ### AI Visibility Flow
 
 ```text
@@ -492,6 +508,55 @@ define query set
 5. Missing fact categories.
 6. Crawler access health.
 7. Query trend over time.
+
+### AI Visibility Optimization Plan
+
+Growing exposes `GET /api/growth/ai-visibility/optimization-plan` as the operator-facing plan source for continuous agent SEO. It is a structured read-only plan, while `AIVisibilityCheck` remains the run ledger. `GET /api/growth/ai-visibility/comparisons` groups checks by `feed_key + run_group` so the operator can compare GPT, Claude, and Grok search outcomes after each feed experiment.
+
+Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
+
+Optimization loop:
+
+```text
+live baseline
+-> fix crawl/canonical/source docs
+-> create feed experiment
+-> publish docs/site/GitHub/MCP registry assets
+-> probe ChatGPT, Claude, and Grok
+-> record AIVisibilityCheck evidence
+-> compare against previous run
+-> open next content or platform task
+```
+
+P0 feed experiments:
+
+1. `brand_disambiguation_www`: make `https://www.synapse-network.ai/` and docs show up for brand queries and distinguish Synapse Network from unrelated `synapse.network` results.
+2. `agent_payment_category_pages`: publish answer-ready docs and homepage pages for AI agent payment APIs, paid API calls, USDC settlement, receipts, and budget isolation.
+3. `mcp_paid_api_discovery`: make the Remote MCP endpoint and package visible in MCP Registry, Smithery, Glama, docs, and GitHub surfaces.
+
+Comparison rules:
+
+1. Use the same `feed_key` for all checks generated by one content feed experiment.
+2. Use the same `run_group` for one search-testing round, for example `2026-06-04-baseline` or `2026-06-18-after-docs-launch`.
+3. Record one `AIVisibilityCheck` per platform/query result, including evidence URL or screenshot path when available.
+4. Treat missing GPT, Claude, or Grok rows as missing platform evidence, not as a pass.
+5. Only mark an experiment effective when the comparison shows improved mention/citation counts against the previous run group.
+6. Use `docs/ops/11_AI_Visibility_Probe_Runbook.md` and `scripts/growth/record_ai_visibility_probe.py` to validate and record manual ChatGPT, Claude, and Grok probe rows.
+
+Product documentation design:
+
+1. Add a major docs category named `AI Agent Payments`.
+2. Create citation-ready pages for `/ai-agent-payments`, `/agent-payment-api`, `/agent-pays-for-llm-calls`, `/provider-monetization`, `/receipts-and-budget-isolation`, `/synapse-vs-x402`, and `/faq`.
+3. Every page should include a 40-60 word standalone definition, machine-readable facts table, user path, payment flow, comparison block, FAQ, schema markup, last updated date, and links to source surfaces.
+
+Stitch and Figma workflow:
+
+1. Use Stitch to design the docs landing page and comparison blocks from the plan's `design_plan.stitch_prompt`.
+2. Import the Stitch exploration into Figma as visual guidance.
+3. Normalize typography, spacing, and reusable docs-front components in Figma.
+4. Implement the final source of truth in MDX / production site code, `llms.txt`, sitemap, and schema. Figma must not become the canonical content source.
+
+Success requires repeated external evidence, not a one-off local change: brand queries should cite `www`, docs, GitHub, or MCP registry; at least half of the priority category queries should mention Synapse on two target platforms; and results should hold for three weekly runs.
 
 ## Module 4: MCP Discovery Distribution
 
@@ -586,15 +651,17 @@ Suggested endpoints:
 12. `POST /api/growth/leads/{id}/do-not-contact`
 13. `GET /api/growth/ai-visibility/checks`
 14. `POST /api/growth/ai-visibility/checks`
-15. `GET /api/growth/discovery-listings`
-16. `POST /api/growth/discovery-listings`
-17. `PATCH /api/growth/discovery-listings/{id}`
-18. `GET /api/growth/source-configs`
-19. `POST /api/growth/source-configs`
-20. `PATCH /api/growth/source-configs/{id}`
-21. `POST /api/growth/source-configs/{id}/run`
-22. `GET /api/growth/source-configs/{id}/runs`
-23. `GET /api/growth/research-runs/{id}`
+15. `GET /api/growth/ai-visibility/optimization-plan`
+16. `GET /api/growth/ai-visibility/comparisons`
+17. `GET /api/growth/discovery-listings`
+18. `POST /api/growth/discovery-listings`
+19. `PATCH /api/growth/discovery-listings/{id}`
+20. `GET /api/growth/source-configs`
+21. `POST /api/growth/source-configs`
+22. `PATCH /api/growth/source-configs/{id}`
+23. `POST /api/growth/source-configs/{id}/run`
+24. `GET /api/growth/source-configs/{id}/runs`
+25. `GET /api/growth/research-runs/{id}`
 
 ## UI Design
 
@@ -741,14 +808,14 @@ Future runtime validation:
 1. `/growth` can search and paginate investor/provider leads.
 2. A lead can generate a draft message but cannot send without approval.
 3. An approved batch sends one by one and writes `OutreachEvent`.
-4. AI Visibility stores query, platform, answer summary, citation status, cited URL, competitors, and next action.
+4. AI Visibility stores query, platform, answer summary, citation status, cited URL, competitors, feed key, run group, result rank, evidence URL, and next action.
 5. MCP Discovery tracks registry submission status and live listing URL.
 6. Production `llms.txt` and robots policy can be checked from the Ops Console.
 
 External validation:
 
-1. `curl https://synapse-network.ai/llms.txt` returns current product facts.
-2. `curl https://synapse-network.ai/robots.txt` shows intentional crawler policy.
+1. `curl https://www.synapse-network.ai/llms.txt` returns current product facts and uses `www` links.
+2. `curl https://www.synapse-network.ai/robots.txt` shows intentional crawler policy and a non-empty `www` sitemap URL.
 3. Official MCP Registry can search or resolve the Synapse MCP server after submission.
 4. At least one third-party MCP directory shows a verified Synapse listing.
 5. Outreach metrics record real sends and replies only.

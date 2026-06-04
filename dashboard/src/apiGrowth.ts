@@ -173,9 +173,73 @@ export interface GrowthAIVisibilityCheck {
   competitor_mentions: string[]
   missing_facts: string[]
   next_action: string
+  feed_key: string
+  run_group: string
+  result_rank: number
+  evidence_url: string
+  metadata: Record<string, unknown>
   run_at: string | null
   created_at: string | null
   updated_at: string | null
+}
+
+export interface GrowthAIVisibilityComparison {
+  feed_key: string
+  run_group: string
+  platforms: string[]
+  external_platforms: string[]
+  total_checks: number
+  external_checks_count: number
+  local_validation_count: number
+  mentioned_count: number
+  cited_count: number
+  missing_platforms: string[]
+  top_competitors: string[]
+  next_actions: string[]
+  evidence_urls: string[]
+  latest_run_at: string | null
+}
+
+export interface GrowthAIVisibilityQuery {
+  query: string
+  intent: string
+  target_platforms: string[]
+  success_signal: string
+}
+
+export interface GrowthAIVisibilityFeedExperiment {
+  feed_key: string
+  surfaces: string[]
+  content_assets: string[]
+  target_queries: string[]
+  measurement_window_days: number
+}
+
+export interface GrowthAIVisibilityDocsPlan {
+  canonical_domain: string
+  docs_category: string
+  pages: string[]
+  required_blocks: string[]
+  schema_types: string[]
+}
+
+export interface GrowthAIVisibilityDesignPlan {
+  stitch_prompt: string
+  figma_handoff: string[]
+  implementation_targets: string[]
+}
+
+export interface GrowthAIVisibilityOptimizationPlan {
+  module_key: string
+  objective: string
+  canonical_domain: string
+  critical_fixes: string[]
+  baseline_queries: GrowthAIVisibilityQuery[]
+  feed_experiments: GrowthAIVisibilityFeedExperiment[]
+  product_docs: GrowthAIVisibilityDocsPlan
+  design_plan: GrowthAIVisibilityDesignPlan
+  growing_workflows: string[]
+  success_criteria: string[]
 }
 
 export interface GrowthDiscoveryListing {
@@ -256,6 +320,12 @@ export function createGrowthApi(request: RequestFn) {
       request<{ items: GrowthAIVisibilityCheck[]; total: number; limit: number; offset: number }>(
         `/growth/ai-visibility/checks${query(params)}`,
       ),
+    getGrowthAIVisibilityComparisons: (params?: { feed_key?: string; run_group?: string; limit?: number }) =>
+      request<{ items: GrowthAIVisibilityComparison[]; total: number }>(
+        `/growth/ai-visibility/comparisons${query(params)}`,
+      ),
+    getGrowthAIVisibilityOptimizationPlan: () =>
+      request<GrowthAIVisibilityOptimizationPlan>('/growth/ai-visibility/optimization-plan'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
     getGrowthDiscoveryListings: (params?: { surface?: string; status?: string; limit?: number; offset?: number }) =>

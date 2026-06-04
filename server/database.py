@@ -25,7 +25,7 @@ from server.config import (
     DB_POOL_SIZE,
     DB_POOL_TIMEOUT,
 )
-
+from server.database_growth_ai_visibility import migrate_growth_ai_visibility_schema
 from server.database_social_budget import migrate_social_x_read_budget
 logger = logging.getLogger("ops-dashboard.db")
 
@@ -1578,7 +1578,7 @@ def _migrate(engine_):
     if "recurring_workflows" not in tables:
         logger.info("Migrating: creating 'recurring_workflows' table")
         RecurringWorkflowRow.__table__.create(bind=engine_, checkfirst=True)
-
+    migrate_growth_ai_visibility_schema(engine_, insp, tables)
     if "project_policies" in tables:
         existing = {c["name"] for c in insp.get_columns("project_policies")}
         project_policy_cols = {

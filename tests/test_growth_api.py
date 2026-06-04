@@ -173,6 +173,25 @@ def test_growth_message_lifecycle_and_do_not_contact(synced_client, monkeypatch)
 
 
 def test_growth_ai_visibility_and_discovery_listing(synced_client, db_session):
+    plan = synced_client.get("/api/growth/ai-visibility/optimization-plan")
+    assert plan.status_code == 200
+    plan_payload = plan.json()
+    assert plan_payload["canonical_domain"] == "https://www.synapse-network.ai/"
+    assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
+    assert plan_payload["baseline_queries"][0]["target_platforms"] == [
+        "chatgpt",
+        "claude",
+        "grok",
+    ]
+    assert {
+        experiment["feed_key"] for experiment in plan_payload["feed_experiments"]
+    } >= {
+        "brand_disambiguation_www",
+        "agent_payment_category_pages",
+        "mcp_paid_api_discovery",
+    }
+    assert "ai_visibility_search_probe" in plan_payload["growing_workflows"]
+
     check = synced_client.post(
         "/api/growth/ai-visibility/checks",
         json={
@@ -183,12 +202,95 @@ def test_growth_ai_visibility_and_discovery_listing(synced_client, db_session):
             "synapse_cited": False,
             "competitor_mentions": ["RapidAPI"],
             "next_action": "Create MCP monetization answer block.",
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-04-baseline",
+            "result_rank": 3,
+            "evidence_url": "https://example.com/perplexity-proof",
+            "metadata": {"search_mode": "manual"},
         },
     )
     assert check.status_code == 201
-    assert (
-        synced_client.get("/api/growth/ai-visibility/checks?q=MCP").json()["total"] == 1
+    assert check.json()["feed_key"] == "mcp_paid_api_discovery"
+    assert check.json()["run_group"] == "2026-06-04-baseline"
+    assert check.json()["result_rank"] == 3
+    assert check.json()["metadata"]["search_mode"] == "manual"
+    for platform, cited in (("chatgpt", True), ("claude", False)):
+        synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "MCP server for paid API calls",
+                "platform": platform,
+                "answer_summary": f"{platform} result",
+                "synapse_mentioned": cited,
+                "synapse_cited": cited,
+                "cited_urls": ["https://www.synapse-network.ai/"] if cited else [],
+                "competitor_mentions": ["RapidAPI"] if not cited else [],
+                "next_action": "Keep feeding MCP registry evidence.",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-04-baseline",
+            },
+        )
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"
     )
+    assert comparison.status_code == 200
+    comparison_payload = comparison.json()["items"][0]
+    assert comparison_payload["feed_key"] == "mcp_paid_api_discovery"
+    assert comparison_payload["run_group"] == "2026-06-04-baseline"
+    assert comparison_payload["total_checks"] == 3
+    assert comparison_payload["external_checks_count"] == 3
+    assert comparison_payload["local_validation_count"] == 0
+    assert comparison_payload["cited_count"] == 1
+    assert "grok" in comparison_payload["missing_platforms"]
+    assert "RapidAPI" in comparison_payload["top_competitors"]
+    assert (
+        synced_client.get("/api/growth/ai-visibility/checks?q=MCP").json()["total"] == 3
+    )
+
+    local_only = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "How can AI agents pay for APIs?",
+            "platform": "www_local_validation",
+            "answer_summary": "Local www page renders and contains extractable answer blocks.",
+            "synapse_mentioned": True,
+            "synapse_cited": True,
+            "feed_key": "agent_payment_category_pages",
+            "run_group": "2026-06-04-local-feed",
+        },
+    )
+    assert local_only.status_code == 201
+    local_comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages"
+    ).json()["items"][0]
+    assert local_comparison["total_checks"] == 1
+    assert local_comparison["local_validation_count"] == 1
+    assert local_comparison["external_checks_count"] == 0
+    assert local_comparison["cited_count"] == 0
+    assert set(local_comparison["missing_platforms"]) == {
+        "chatgpt",
+        "claude",
+        "grok",
+    }
+
+    live_validation = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "AI agent payment API live crawl",
+            "platform": "www_live_validation",
+            "answer_summary": "Live www page still returns 404 before deploy.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "feed_key": "agent_payment_category_pages",
+            "run_group": "2026-06-04-live-predeploy",
+        },
+    )
+    assert live_validation.status_code == 201
+    live_comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages&run_group=2026-06-04-live-predeploy"
+    ).json()["items"][0]
+    assert live_comparison["external_checks_count"] == 0
+    assert live_comparison["local_validation_count"] == 1
 
     listing = synced_client.post(
         "/api/growth/discovery-listings",
@@ -229,6 +331,7 @@ def test_growth_overview_counts(synced_client):
     assert payload["lead_counts"]["provider"] == 1
     assert payload["discovery_counts"]["candidate"] == 1
 
+
 def test_growth_source_config_crud_and_firecrawl_dry_run(synced_client, db_session):
     created = synced_client.post(
         "/api/growth/source-configs",
@@ -255,7 +358,9 @@ def test_growth_source_config_crud_and_firecrawl_dry_run(synced_client, db_sessi
     )
     assert patched.status_code == 200
     assert patched.json()["status"] == "paused"
-    synced_client.patch(f"/api/growth/source-configs/{source['id']}", json={"status": "enabled"})
+    synced_client.patch(
+        f"/api/growth/source-configs/{source['id']}", json={"status": "enabled"}
+    )
 
     dry_run = synced_client.post(
         f"/api/growth/source-configs/{source['id']}/run",
@@ -420,8 +525,12 @@ def test_growth_gmail_draft_records_evidence_without_sending(
     monkeypatch.setattr("server.config.GMAIL_OAUTH_CLIENT_ID", "client-id")
     monkeypatch.setattr("server.config.GMAIL_OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setattr("server.config.GMAIL_SENDER_EMAIL", "cliff@synapse-network.ai")
-    monkeypatch.setattr("server.config.GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "gmail-test")
-    monkeypatch.setattr("server.config.OPS_LOCAL_SECRET_ENCRYPTION_KEY", "test-local-secret-key")
+    monkeypatch.setattr(
+        "server.config.GMAIL_OAUTH_REFRESH_TOKEN_LOCAL_KEY", "gmail-test"
+    )
+    monkeypatch.setattr(
+        "server.config.OPS_LOCAL_SECRET_ENCRYPTION_KEY", "test-local-secret-key"
+    )
     write_local_secret_version(db_session, "gmail-test", "refresh-token")
     db_session.commit()
 
@@ -441,7 +550,12 @@ def test_growth_gmail_draft_records_evidence_without_sending(
             return FakeResponse({"access_token": "access-token"})
         if "gmail.googleapis.com/gmail/v1/users/me/drafts" in url:
             assert "Authorization" in kwargs["headers"]
-            return FakeResponse({"id": "draft-123", "message": {"id": "msg-123", "threadId": "thread-123"}})
+            return FakeResponse(
+                {
+                    "id": "draft-123",
+                    "message": {"id": "msg-123", "threadId": "thread-123"},
+                }
+            )
         raise AssertionError(f"unexpected URL {url}")
 
     monkeypatch.setattr("server.services.growth.gmail_drafts.httpx.post", fake_post)
@@ -509,19 +623,25 @@ def test_growth_source_config_reuse_patch_runs_and_error_paths(synced_client):
     assert blocked_run.status_code == 400
     assert "not enabled" in blocked_run.json()["detail"]
 
-    synced_client.patch(f"/api/growth/source-configs/{source_id}", json={"status": "enabled"})
+    synced_client.patch(
+        f"/api/growth/source-configs/{source_id}", json={"status": "enabled"}
+    )
     run = synced_client.post(
         f"/api/growth/source-configs/{source_id}/run",
         json={"dry_run": True, "max_results": 1, "create_drafts": False},
     )
     assert run.status_code == 200
     run_id = run.json()["id"]
-    runs = synced_client.get(f"/api/growth/source-configs/{source_id}/runs?limit=1&offset=0")
+    runs = synced_client.get(
+        f"/api/growth/source-configs/{source_id}/runs?limit=1&offset=0"
+    )
     assert runs.status_code == 200
     assert runs.json()["total"] == 1
     assert runs.json()["items"][0]["id"] == run_id
     assert synced_client.get(f"/api/growth/research-runs/{run_id}").status_code == 200
-    assert synced_client.get("/api/growth/source-configs/999999/runs").status_code == 404
+    assert (
+        synced_client.get("/api/growth/source-configs/999999/runs").status_code == 404
+    )
     assert synced_client.get("/api/growth/research-runs/999999").status_code == 404
 
 

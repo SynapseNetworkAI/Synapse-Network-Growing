@@ -179,9 +179,15 @@ def provider_reply_out(
         classification=row.classification or "unknown",
         confidence_score=int(row.confidence_score or 0),
         suggested_reply_message_id=row.suggested_reply_message_id,
-        suggested_reply_subject=suggested_reply.subject if suggested_reply is not None else "",
-        suggested_reply_body=suggested_reply.body if suggested_reply is not None else "",
-        suggested_reply_status=suggested_reply.status if suggested_reply is not None else "",
+        suggested_reply_subject=suggested_reply.subject
+        if suggested_reply is not None
+        else "",
+        suggested_reply_body=suggested_reply.body
+        if suggested_reply is not None
+        else "",
+        suggested_reply_status=suggested_reply.status
+        if suggested_reply is not None
+        else "",
         status=row.status or "drafted",
         evidence=json_loads(row.evidence_json, []),
         metadata=json_loads(row.metadata_json, {}),
@@ -202,6 +208,11 @@ def ai_check_out(row: GrowthAIVisibilityCheckRow) -> GrowthAIVisibilityCheckOut:
         competitor_mentions=json_loads(row.competitor_mentions_json, []),
         missing_facts=json_loads(row.missing_facts_json, []),
         next_action=row.next_action or "",
+        feed_key=getattr(row, "feed_key", "") or "",
+        run_group=getattr(row, "run_group", "") or "",
+        result_rank=int(getattr(row, "result_rank", 0) or 0),
+        evidence_url=getattr(row, "evidence_url", "") or "",
+        metadata=json_loads(getattr(row, "metadata_json", None), {}),
         run_at=row.run_at,
         created_at=row.created_at,
         updated_at=row.updated_at,

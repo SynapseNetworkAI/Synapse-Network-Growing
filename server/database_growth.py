@@ -187,7 +187,9 @@ class GrowthProviderProfileRow(Base):
 class GrowthProviderReplyRow(Base):
     __tablename__ = "growth_provider_replies"
     __table_args__ = (
-        UniqueConstraint("mailbox_message_id", name="growth_provider_replies_mailbox_message_unique"),
+        UniqueConstraint(
+            "mailbox_message_id", name="growth_provider_replies_mailbox_message_unique"
+        ),
         Index("growth_provider_replies_lead_idx", "lead_id"),
         Index("growth_provider_replies_message_idx", "message_id"),
         Index("growth_provider_replies_from_idx", "from_email"),
@@ -235,6 +237,11 @@ class GrowthAIVisibilityCheckRow(Base):
     competitor_mentions_json = Column(Text, nullable=False, default="[]")
     missing_facts_json = Column(Text, nullable=False, default="[]")
     next_action = Column(Text, nullable=False, default="")
+    feed_key = Column(Text, nullable=False, default="")
+    run_group = Column(Text, nullable=False, default="")
+    result_rank = Column(Integer, nullable=False, default=0)
+    evidence_url = Column(Text, nullable=False, default="")
+    metadata_json = Column(Text, nullable=False, default="{}")
     run_at = Column(DateTime, nullable=False, default=utcnow)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
