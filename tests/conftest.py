@@ -239,6 +239,13 @@ def _reset_postgres_schema() -> None:
         return
     with TEST_ENGINE.begin() as conn:
         conn.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+        if conn.scalar(text("SELECT to_regclass('public.social_x_read_budget_events')")):
+            conn.execute(
+                text(
+                    'TRUNCATE TABLE "public"."social_x_read_budget_events" '
+                    "RESTART IDENTITY CASCADE"
+                )
+            )
 
 
 def _quoted_table_name(table) -> str:

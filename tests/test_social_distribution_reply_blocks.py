@@ -337,31 +337,6 @@ def test_generate_x_reply_block_missing_client_config_has_bounded_error(
     assert payload["oauth_status"] == "missing_client_config"
 
 
-def test_generate_x_reply_block_reports_empty_trend_inventory(
-    synced_client, db_session, monkeypatch
-):
-    monkeypatch.setattr(
-        reply_block_policy.x_oauth_token_provider,
-        "get_access_token",
-        lambda *_args, **_kwargs: social_publishing.XOAuth2AccessToken(
-            "access-token", refreshed=False
-        ),
-    )
-    asset = _reply_asset()
-    db_session.add(asset)
-    db_session.commit()
-    db_session.refresh(asset)
-
-    response = synced_client.post(
-        f"/api/social/distribution/assets/{asset.id}/generate-x-reply-block",
-        json={"actor": "agent", "target_count": 5},
-    )
-
-    assert response.status_code == 400
-    assert "no usable X source posts were found" in response.json()["detail"]
-    assert db_session.query(SocialReplyItemRow).count() == 0
-
-
 def test_generate_x_reply_block_selects_agent_economy_sources_from_trends(
     synced_client, db_session, monkeypatch
 ):

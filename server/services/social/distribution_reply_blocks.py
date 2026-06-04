@@ -34,6 +34,9 @@ from server.services.social.distribution_reply_sources import (
     ReplySourcePost,
     usable_reply_source_posts,
 )
+from server.services.social.distribution_reply_source_sync import (
+    sync_reply_sources_from_watchlist,
+)
 
 
 @dataclass
@@ -275,8 +278,9 @@ def _usable_reply_posts_or_raise(
     *,
     source_posts: list[dict[str, object]] | None,
     target_count: int,
+    actor: str,
     force_regenerate: bool = False,
-) -> list[ReplySourcePost]:
+) -> tuple[list[ReplySourcePost], dict[str, object] | None]:
     usable_posts = usable_reply_source_posts(
         db,
         asset,
@@ -285,8 +289,18 @@ def _usable_reply_posts_or_raise(
         allow_existing_replies=force_regenerate,
     )
     if usable_posts:
-        return usable_posts
+        return usable_posts, None
     if not source_posts:
+        source_sync = dict(sync_reply_sources_from_watchlist(db, asset, actor=actor))
+        usable_posts = usable_reply_source_posts(
+            db,
+            asset,
+            source_posts=source_posts,
+            target_count=target_count,
+            allow_existing_replies=force_regenerate,
+        )
+        if usable_posts:
+            return usable_posts, source_sync
         raise ValueError(
             "X OAuth is available, but no usable X source posts were found. "
             "Sync watchlist trends first, or provide 5 source posts with "
@@ -329,6 +343,7 @@ def _write_reply_block_result(
     auto_publish: bool,
     publish_mode: str,
     force_regenerate: bool,
+    source_sync: dict[str, object] | None = None,
 ) -> None:
     metadata = _json_loads(asset.agent_metadata_json)
     metadata["reply_block"] = {
@@ -346,6 +361,7 @@ def _write_reply_block_result(
         "timed_out": bool(result.timed_out),
         "blocked_reason": result.blocked_reason,
         "force_regenerate": bool(force_regenerate),
+        "source_sync": source_sync,
     }
     asset.agent_metadata_json = _json_dumps(metadata)
     asset.status = "failed" if result.timed_out or not result.reply_ids else "ready"
@@ -374,6 +390,7 @@ def _write_reply_block_result(
             "timed_out": bool(result.timed_out),
             "blocked_reason": result.blocked_reason,
             "force_regenerate": bool(force_regenerate),
+            "source_sync": source_sync,
         },
     )
     if result.timed_out:
@@ -421,11 +438,12 @@ def generate_x_reply_block_candidates(
         source_posts=source_posts,
         actor=actor,
     )
-    usable_posts = _usable_reply_posts_or_raise(
+    usable_posts, source_sync = _usable_reply_posts_or_raise(
         db,
         asset,
         source_posts=source_posts,
         target_count=target_count,
+        actor=actor,
         force_regenerate=force_regenerate,
     )
     auto_publish_allowed, publish_mode, compliance_blocker = _auto_publish_allowed(
@@ -463,6 +481,7 @@ def generate_x_reply_block_candidates(
         auto_publish=auto_publish_allowed,
         publish_mode=publish_mode,
         force_regenerate=force_regenerate,
+        source_sync=source_sync,
     )
     db.commit()
     return {
@@ -477,4 +496,5 @@ def generate_x_reply_block_candidates(
         "blocked_reason": generation.blocked_reason or compliance_blocker,
         "publish_mode": publish_mode,
         "approval_ref_configured": bool(config.X_AI_REPLY_APPROVAL_REF),
+        "source_sync": source_sync,
     }
