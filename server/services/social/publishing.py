@@ -1440,6 +1440,7 @@ def _create_reply_from_repost_candidate(
     actor: str = "x_social_reply_candidate_sweep",
     force_regenerate: bool = False,
     reply_timeout_seconds: int | None = None,
+    reuse_existing_by_source_post: bool = True,
 ) -> SocialReplyItemRow:
     source_url = str(candidate.source_url or "").strip()
     if not source_url:
@@ -1453,7 +1454,11 @@ def _create_reply_from_repost_candidate(
             SocialReplyItemRow.platform == "x",
             or_(
                 SocialReplyItemRow.source_candidate_id == int(candidate.id),
-                SocialReplyItemRow.source_post_id == source_post_id,
+                *(
+                    [SocialReplyItemRow.source_post_id == source_post_id]
+                    if reuse_existing_by_source_post
+                    else []
+                ),
             ),
         )
         .order_by(SocialReplyItemRow.id.desc())
@@ -1463,7 +1468,12 @@ def _create_reply_from_repost_candidate(
         not force_regenerate or existing.status in {"published", "published_manual", "rejected"}
     ):
         return existing
-    row = existing or SocialReplyItemRow(external_reply_id=f"target:{source_post_id}")
+    external_reply_id = (
+        f"target:{source_post_id}"
+        if reuse_existing_by_source_post
+        else f"target:{source_post_id}:candidate:{int(candidate.id)}"
+    )
+    row = existing or SocialReplyItemRow(external_reply_id=external_reply_id)
     try:
         if reply_timeout_seconds is None:
             generated = generate_x_reply_for_candidate(candidate)

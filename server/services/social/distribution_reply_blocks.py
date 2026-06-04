@@ -7,13 +7,11 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from server import config
 from server.database import (
     SocialReplyItemRow,
-    SocialRepostCandidateRow,
     utcnow,
 )
 from server.database_social_distribution import SocialContentAssetRow
@@ -26,6 +24,9 @@ from server.services.social.publishing import (
     run_content_policy_check,
 )
 from server.schemas import SocialReplyPublishRequest
+from server.services.social.distribution_reply_block_candidates import (
+    candidate_for_reply_source,
+)
 from server.services.social.distribution_reply_block_policy import (
     existing_complete_reply_block,
     require_source_sync_auth_if_needed,
@@ -91,37 +92,6 @@ def _is_engagement_reply_asset(asset: SocialContentAssetRow) -> bool:
     )
 
 
-def _candidate_for_source(
-    db: Session, source: ReplySourcePost, *, asset: SocialContentAssetRow
-) -> SocialRepostCandidateRow:
-    existing = (
-        db.query(SocialRepostCandidateRow)
-        .filter(
-            SocialRepostCandidateRow.platform == "x",
-            or_(
-                SocialRepostCandidateRow.source_url == source.source_url,
-                SocialRepostCandidateRow.source_text == source.source_text,
-            ),
-        )
-        .order_by(SocialRepostCandidateRow.id.desc())
-        .first()
-    )
-    candidate = existing or SocialRepostCandidateRow(platform="x")
-    candidate.source_url = source.source_url
-    candidate.author_handle = source.author_handle
-    candidate.source_text = source.source_text
-    candidate.suggested_quote = (
-        f"Add one concrete Synapse angle about {source.reply_angle.replace('_', ' ')}. "
-        "Do not include links, URLs, domains, or source-post URLs; contribute a technical point only when it fits the source post."
-    )
-    candidate.relevance_score = 0.9
-    candidate.status = "candidate"
-    candidate.updated_at = utcnow()
-    if existing is None:
-        db.add(candidate)
-    return candidate
-
-
 def _agent_approve_reply(
     row: SocialReplyItemRow, *, actor: str, approved_status: str
 ) -> None:
@@ -150,6 +120,7 @@ def _generate_replies_for_sources(
     asset: SocialContentAssetRow,
     sources: list[ReplySourcePost],
     *,
+    target_count: int,
     actor: str,
     agent_review: bool,
     max_seconds: int,
@@ -162,6 +133,8 @@ def _generate_replies_for_sources(
     candidate_ids: list[int] = []
     failed_reply_ids: list[int] = []
     for source in sources:
+        if len(reply_ids) >= max(1, int(target_count)):
+            break
         elapsed = _monotonic_seconds() - started_at
         if elapsed >= max(1, int(max_seconds)):
             return ReplyBlockGeneration(
@@ -175,7 +148,7 @@ def _generate_replies_for_sources(
                     f"after {len(candidate_ids)} source posts"
                 ),
             )
-        candidate = _candidate_for_source(db, source, asset=asset)
+        candidate = candidate_for_reply_source(db, source, asset=asset)
         db.flush()
         reply = _create_reply_from_repost_candidate(
             db,
@@ -183,6 +156,7 @@ def _generate_replies_for_sources(
             actor=actor,
             force_regenerate=force_regenerate,
             reply_timeout_seconds=per_reply_timeout_seconds,
+            reuse_existing_by_source_post=force_regenerate,
         )
         metadata = _json_loads(reply.metadata_json)
         metadata["x_reply_compliance"] = {
@@ -211,7 +185,7 @@ def _generate_replies_for_sources(
         reply_ids=reply_ids,
         failed_reply_ids=failed_reply_ids,
         source_candidate_ids=candidate_ids,
-        processed_source_count=len(sources),
+        processed_source_count=len(candidate_ids),
         publish_mode=publish_mode,
         approval_ref_configured=bool(config.X_AI_REPLY_APPROVAL_REF),
     )
@@ -281,11 +255,16 @@ def _usable_reply_posts_or_raise(
     actor: str,
     force_regenerate: bool = False,
 ) -> tuple[list[ReplySourcePost], dict[str, object] | None]:
+    selection_count = (
+        max(1, int(target_count))
+        if source_posts
+        else max(1, int(target_count) * 2)
+    )
     usable_posts = usable_reply_source_posts(
         db,
         asset,
         source_posts=source_posts,
-        target_count=target_count,
+        target_count=selection_count,
         allow_existing_replies=force_regenerate,
     )
     if usable_posts:
@@ -296,7 +275,7 @@ def _usable_reply_posts_or_raise(
             db,
             asset,
             source_posts=source_posts,
-            target_count=target_count,
+            target_count=selection_count,
             allow_existing_replies=force_regenerate,
         )
         if usable_posts:
@@ -456,7 +435,8 @@ def generate_x_reply_block_candidates(
     generation = _generate_replies_for_sources(
         db,
         asset,
-        usable_posts[: max(1, target_count)],
+        usable_posts,
+        target_count=target_count,
         actor=actor,
         agent_review=agent_review,
         max_seconds=max_seconds,
