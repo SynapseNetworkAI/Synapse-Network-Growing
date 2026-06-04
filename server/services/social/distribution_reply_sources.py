@@ -198,6 +198,42 @@ def _existing_reply_post_ids(db: Session) -> set[str]:
     }
 
 
+def _asset_reply_post_ids(db: Session, asset: SocialContentAssetRow) -> set[str]:
+    metadata = _json_loads(asset.agent_metadata_json)
+    reply_block = metadata.get("reply_block")
+    if not isinstance(reply_block, dict):
+        return set()
+    reply_ids = [
+        int(value)
+        for value in reply_block.get("reply_ids", [])
+        if str(value).isdigit()
+    ]
+    if not reply_ids:
+        return set()
+    return {
+        str(row[0])
+        for row in db.query(SocialReplyItemRow.source_post_id)
+        .filter(
+            SocialReplyItemRow.id.in_(reply_ids),
+            SocialReplyItemRow.source_post_id.isnot(None),
+        )
+        .all()
+        if row[0]
+    }
+
+
+def _rank_reply_source_posts(posts: list[ReplySourcePost]) -> list[ReplySourcePost]:
+    return sorted(
+        posts,
+        key=lambda post: (
+            float(post.problem_fit_score or 0.0),
+            1 if post.source_bucket == "direct_pain" else 0,
+            str(post.source_url),
+        ),
+        reverse=True,
+    )
+
+
 def usable_reply_source_posts(
     db: Session,
     asset: SocialContentAssetRow,
@@ -210,7 +246,8 @@ def usable_reply_source_posts(
     parsed_posts = _line_source_posts(f"{asset.body or ''}\n{asset.summary or ''}")
     trend_posts = _trend_source_posts(db, limit=target_count)
     existing_post_ids = _existing_reply_post_ids(db)
-    eligible = [
+    asset_reply_post_ids = _asset_reply_post_ids(db, asset)
+    candidates = [
         post
         for post in _dedupe_source_posts(
             explicit_posts + parsed_posts + trend_posts,
@@ -218,18 +255,26 @@ def usable_reply_source_posts(
         )
         if post.source_post_id
         and post.source_text
-        and (allow_existing_replies or post.source_post_id not in existing_post_ids)
+        and (allow_existing_replies or post.source_post_id not in asset_reply_post_ids)
         and not post.do_not_reply_reason
     ]
-    eligible.sort(
-        key=lambda post: (
-            float(post.problem_fit_score or 0.0),
-            1 if post.source_bucket == "direct_pain" else 0,
-            str(post.source_url),
-        ),
-        reverse=True,
+    if allow_existing_replies:
+        return _rank_reply_source_posts(candidates)[: max(1, target_count)]
+
+    fresh = [
+        post for post in candidates if post.source_post_id not in existing_post_ids
+    ]
+    ranked_fresh = _rank_reply_source_posts(fresh)
+    if len(ranked_fresh) >= max(1, target_count):
+        return ranked_fresh[: max(1, target_count)]
+
+    reusable = [
+        post for post in candidates if post.source_post_id in existing_post_ids
+    ]
+    return _dedupe_source_posts(
+        ranked_fresh + _rank_reply_source_posts(reusable),
+        limit=max(1, target_count),
     )
-    return eligible[: max(1, target_count)]
 
 
 def _with_strategy(
