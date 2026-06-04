@@ -46,6 +46,7 @@ from server.services.scheduling.secret_manager_workflows import SECRET_MANAGER_C
 from server.services.scheduling.cleanup_workflows import GROWTH_PROVIDER_SOURCE_WORKFLOW, run_cleanup_workflow
 from server.services.scheduling.staging_environment_workflows import STAGING_ENVIRONMENT_SHUTDOWN_WORKFLOW
 from server.services.social.daily_planner import run_x_social_daily_content_planner
+from server.services.social.daily_content_task_planner import run_x_social_daily_content_task_planner
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
 )
@@ -247,6 +248,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
         "escalation_rule": {"on_generation_failure": "notify_portfolio_operator", "on_inventory_satisfied": "no_op"},
         "validation_signal": {"success_metric": "active_count"},
     },
+    {"workflow_key": "x_social_daily_content_task_planner", "display_name": "X Daily Article And Media Task Planner", "description": "Daily idempotent X Article and X media content-task planner that creates source plans, agent-reviews drafts, and stops at human-gated publish readiness.", "trigger_type": "scheduled", "owner_role": "growth_lead", "schedule": {"cadence": "daily", "suggested_local_time": "09:00"}, "input_query": {"platform": "x", "task_types": ["x_article_pack", "x_media_post"], "strategy": "synapse_system_awareness"}, "output_action": {"kind": "create_daily_x_content_tasks", "auto_publish": False, "human_gate_required": True}, "escalation_rule": {"on_agent_review_blocked": "await_human_review", "on_inventory_satisfied": "no_op"}, "validation_signal": {"success_metric": "ready_to_publish_count"}},
     {
         "workflow_key": "x_social_trend_radar_sweep",
         "display_name": "X Social Trend Radar Sweep",
@@ -300,6 +302,7 @@ BUILTIN_RECURRING_WORKFLOWS: list[dict[str, Any]] = [
 _X_SOCIAL_DRY_RUNS: dict[str, dict[str, Any]] = {
     "social_asset_planner_sweep": {"cadence": "hourly", "target_count": 3, "max_signals_per_prompt": 5, "auto_publish": False, "human_gate_required": True},
     "x_social_daily_content_planner": {"platform": "x", "cadence": "hourly", "idempotency": "top_up_to_three_active_drafts_per_operator_local_day", "target_count": 3, "auto_publish": False, "human_gate_required": True},
+    "x_social_daily_content_task_planner": {"platform": "x", "cadence": "daily", "task_types": ["x_article_pack", "x_media_post"], "idempotency": "one_article_and_one_media_task_per_strategy_per_operator_local_day", "auto_publish": False, "human_gate_required": True},
     "x_social_trend_radar_sweep": {"platform": "x", "read_only": True, "min_relevance_score": 0.70, "external_actions": []},
     "x_social_repost_candidate_sweep": {"platform": "x", "auto_repost": False, "human_gate_required": True, "min_relevance_score": 0.75},
     "x_social_reply_candidate_sweep": {"platform": "x", "cadence": "every_30_minutes", "source": "social_repost_candidates", "max_created_per_run": 1, "auto_reply": False, "human_gate_required": True},
@@ -323,7 +326,7 @@ def _signal_candidate_summary(db: Session, *, limit: int = 5) -> list[dict[str, 
         )
     return items
 def _run_x_social_workflow(db: Session, workflow_key: str) -> Any:
-    runners = {"social_asset_planner_sweep": run_social_asset_planner_sweep, "x_social_daily_content_planner": run_x_social_daily_content_planner, "x_social_trend_radar_sweep": run_x_social_trend_radar_sweep, "x_social_repost_candidate_sweep": run_x_social_repost_candidate_sweep, "x_social_reply_candidate_sweep": run_x_social_reply_candidate_sweep, "x_social_weekly_analytics_review": run_x_social_weekly_analytics_review}
+    runners = {"social_asset_planner_sweep": run_social_asset_planner_sweep, "x_social_daily_content_planner": run_x_social_daily_content_planner, "x_social_daily_content_task_planner": run_x_social_daily_content_task_planner, "x_social_trend_radar_sweep": run_x_social_trend_radar_sweep, "x_social_repost_candidate_sweep": run_x_social_repost_candidate_sweep, "x_social_reply_candidate_sweep": run_x_social_reply_candidate_sweep, "x_social_weekly_analytics_review": run_x_social_weekly_analytics_review}
     return runners.get(workflow_key, run_x_social_post_observer_sweep)(db)
 def _bundle_candidate_summary(review_payload: dict[str, Any], *, limit: int = 5) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
@@ -914,8 +917,6 @@ def _closeout_and_compact_sweep(db: Session, *, acceptance_limit: int, auto_disp
             company_review_id=int(review.id),
         ),
     }
-
-
 def _approval_sweep(db: Session) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(hours=4)
@@ -956,16 +957,12 @@ def _approval_sweep(db: Session) -> dict[str, Any]:
         "approval_source_counts": gate_type_counts,
         "pending_items": pending_items,
     }
-
-
 def _requirement_family_cleanup_sweep(db: Session) -> dict[str, Any]:
     return cleanup_requirement_families(
         db,
         categories={"validation_experiment", "release_bottleneck", "approval_automation", "incident_recovery", "bug_fix"},
         archive_validation_experiments=True,
     )
-
-
 def _workflow_blackboard(row: WorkflowRunRow) -> dict[str, Any]:
     payload = _json_loads(row.blackboard_json, {})
     return dict(payload) if isinstance(payload, dict) else {}

@@ -27,6 +27,8 @@ from server.schemas_social_distribution import (
     SocialDistributionGenerateTasksRequest,
     SocialDistributionGenerateXArticlePackOut,
     SocialDistributionGenerateXArticlePackRequest,
+    SocialDailyXContentPlannerRequest,
+    SocialDailyXContentPlannerRunOut,
     SocialDistributionMarkLiveRequest,
     SocialDistributionMarkRemovedRequest,
     SocialDistributionPublishXRequest,
@@ -48,6 +50,9 @@ from server.services.social.distribution import (
 )
 from server.services.social.distribution_asset_planner import (
     run_social_asset_planner_sweep,
+)
+from server.services.social.daily_content_task_planner import (
+    run_x_social_daily_content_task_planner,
 )
 from server.services.social.distribution_article_packs import generate_x_article_pack
 from server.services.social.distribution_board import social_distribution_board
@@ -168,6 +173,23 @@ def list_content_assets_endpoint(db: Session = Depends(get_db)):
 @router.post("/assets/plan-next", response_model=SocialAssetPlannerRunOut)
 def run_social_asset_planner_endpoint(db: Session = Depends(get_db)):
     return run_social_asset_planner_sweep(db)
+
+
+@router.post(
+    "/assets/plan-daily-x-content",
+    response_model=SocialDailyXContentPlannerRunOut,
+)
+def run_daily_x_content_task_planner_endpoint(
+    body: SocialDailyXContentPlannerRequest,
+    db: Session = Depends(get_db),
+):
+    return run_x_social_daily_content_task_planner(
+        db,
+        strategy_key=body.strategy_key,
+        strategy_summary=body.strategy_summary,
+        local_date=body.local_date,
+        actor=body.actor,
+    )
 
 
 @router.get("/assets/{asset_id}", response_model=SocialContentAssetDetailOut)
