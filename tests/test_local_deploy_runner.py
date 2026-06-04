@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from server.database import DeploymentEventRow, DeploymentRecordRow, ReleaseTaskRow
 from server.database_scheduled_jobs import ScheduledJobReleaseTaskRow
@@ -12,6 +13,22 @@ from server.services.local_runner.deploy_runs import (
     finish_local_deployment,
 )
 from server.services.releases import local_deploy_tasks
+
+
+def test_local_deploy_scripts_accept_git_worktree_targets():
+    repo_root = Path(__file__).resolve().parents[1]
+    script_paths = [
+        repo_root / "scripts/local/deploy_synapse_staging.sh",
+        repo_root / "scripts/local/deploy_synapse_provider_staging.sh",
+    ]
+
+    for script_path in script_paths:
+        script = script_path.read_text()
+        assert 'git -C "${TARGET_REPO}" rev-parse --is-inside-work-tree' in script
+        assert 'git -C "${TARGET_REPO}" "$@"' in script
+        assert '--git-dir="${TARGET_REPO}/.git"' not in script
+        assert 'GIT_DIR="${TARGET_REPO}/.git"' not in script
+        assert '[[ ! -d "${TARGET_REPO}/.git" ]]' not in script
 
 
 def test_release_task_deploy_can_queue_local_runner_record(

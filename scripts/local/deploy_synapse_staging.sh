@@ -86,7 +86,7 @@ require_cmd node
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/synapse_gcp_env_guard.sh"
 
-if [[ ! -d "${TARGET_REPO}/.git" ]]; then
+if ! git -C "${TARGET_REPO}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   echo "target repo not found or not a git checkout: ${TARGET_REPO}" >&2
   exit 2
 fi
@@ -104,16 +104,7 @@ synapse_release_env_guard \
   --repo "${TARGET_REPO}"
 
 git_target() {
-  git \
-    --git-dir="${TARGET_REPO}/.git" \
-    --work-tree="${TARGET_REPO}" \
-    "$@"
-}
-
-run_in_target_worktree() {
-  GIT_DIR="${TARGET_REPO}/.git" \
-    GIT_WORK_TREE="${TARGET_REPO}" \
-    "$@"
+  git -C "${TARGET_REPO}" "$@"
 }
 
 run_with_timeout() {
