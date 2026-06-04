@@ -372,6 +372,33 @@ def test_production_local_branch_helper_errors(monkeypatch):
     assert "Unable to resolve" in error
 
 
+def test_production_local_branch_helper_uses_repo_env_override(monkeypatch):
+    monkeypatch.setattr(config, "E2E_MODE", False)
+    monkeypatch.setenv("SYNAPSE_NETWORK_REPO", "/tmp/synapse-network-clean-main")
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return release_production_tasks_service.subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout="clean-main-sha\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        release_production_tasks_service.subprocess, "run", fake_run
+    )
+
+    sha, error = release_production_tasks_service._local_branch_commit_sha(
+        "synapse-network", "main"
+    )
+
+    assert sha == "clean-main-sha"
+    assert error is None
+    assert calls[0][:3] == ["git", "-C", "/tmp/synapse-network-clean-main"]
+
+
 def test_production_gate_blocks_stale_target_commit(monkeypatch, db_session):
     monkeypatch.setattr(
         release_production_tasks_service,
