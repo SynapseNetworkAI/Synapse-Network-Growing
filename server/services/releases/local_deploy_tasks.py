@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -55,6 +56,20 @@ SYNAPSE_STAGING_LOCAL_SERVICES = PREBUILT_FRONTEND_SERVICES | {
 SYNAPSE_PROVIDER_STAGING_LOCAL_SERVICES = {"provider-service"}
 
 
+def _repo_path_from_env(env_key: str, fallback: str) -> str:
+    return _clean(os.environ.get(env_key)) or fallback
+
+
+def _synapse_network_repo_path() -> str:
+    return _repo_path_from_env("SYNAPSE_NETWORK_REPO", SYNAPSE_NETWORK_REPO_PATH)
+
+
+def _synapse_provider_repo_path() -> str:
+    return _repo_path_from_env(
+        "SYNAPSE_NETWORK_PROVIDER_REPO", SYNAPSE_NETWORK_PROVIDER_REPO_PATH
+    )
+
+
 def _release_task_metadata(row: ReleaseTaskRow) -> dict[str, Any]:
     return _json_load_dict(getattr(row, "metadata_json", None))
 
@@ -80,7 +95,7 @@ def _synapse_network_staging_command(
         "--ref",
         _clean(row.branch_name) or "main",
         "--target-repo",
-        SYNAPSE_NETWORK_REPO_PATH,
+        _synapse_network_repo_path(),
         "--project",
         SYNAPSE_STAGING_GCP_PROJECT_ID,
         "--region",
@@ -106,7 +121,7 @@ def _synapse_provider_staging_command(
         "--ref",
         _clean(row.branch_name) or "main",
         "--target-repo",
-        SYNAPSE_NETWORK_PROVIDER_REPO_PATH,
+        _synapse_provider_repo_path(),
         "--project",
         SYNAPSE_STAGING_GCP_PROJECT_ID,
         "--region",
