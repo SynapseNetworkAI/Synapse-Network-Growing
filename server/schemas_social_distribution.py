@@ -352,6 +352,38 @@ class SocialAssetPlannerRunOut(BaseModel):
     signals: list[SocialAssetPlannerSignalOut] = Field(default_factory=list)
 
 
+class SocialDailyXContentTaskOut(BaseModel):
+    task_type: str
+    asset_id: int
+    title: str
+    stage: str
+    column_key: str | None = None
+    ready_to_publish_count: int = 0
+    reused_existing: bool = False
+    generated_task_ids: list[int] = Field(default_factory=list)
+    blocker: str | None = None
+
+
+class SocialDailyXContentPlannerRequest(BaseModel):
+    strategy_key: str = "synapse_system_awareness"
+    strategy_summary: str | None = None
+    local_date: str | None = None
+    actor: str = "x_daily_content_task_planner"
+
+
+class SocialDailyXContentPlannerRunOut(BaseModel):
+    workflow_key: str = "x_social_daily_content_task_planner"
+    local_date: str
+    strategy_key: str
+    target_task_types: list[str] = Field(default_factory=list)
+    created_asset_ids: list[int] = Field(default_factory=list)
+    existing_asset_ids: list[int] = Field(default_factory=list)
+    tasks: list[SocialDailyXContentTaskOut] = Field(default_factory=list)
+    already_satisfied: bool = False
+    auto_publish: bool = False
+    human_gate_required: bool = True
+
+
 class SocialDistributionCampaignTemplateOut(BaseModel):
     campaign_key: str
     created_count: int = 0
