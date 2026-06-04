@@ -10,6 +10,8 @@ from server.schemas_growth import (
     GrowthAIVisibilityCheckCreate,
     GrowthAIVisibilityCheckListOut,
     GrowthAIVisibilityCheckOut,
+    GrowthAIVisibilityComparisonListOut,
+    GrowthAIVisibilityOptimizationPlanOut,
     GrowthDiscoveryListingCreate,
     GrowthDiscoveryListingListOut,
     GrowthDiscoveryListingOut,
@@ -36,6 +38,7 @@ from server.schemas_growth import (
     GrowthSourceRunRequest,
 )
 from server.services.growth import (
+    ai_visibility_plan,
     discovery,
     gmail_drafts,
     provider_profiles,
@@ -326,6 +329,29 @@ def growth_do_not_contact(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-visibility/optimization-plan",
+    response_model=GrowthAIVisibilityOptimizationPlanOut,
+)
+def get_ai_visibility_optimization_plan():
+    return ai_visibility_plan.ai_visibility_optimization_plan()
+
+
+@router.get(
+    "/ai-visibility/comparisons",
+    response_model=GrowthAIVisibilityComparisonListOut,
+)
+def list_ai_visibility_comparisons(
+    feed_key: str | None = None,
+    run_group: str | None = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    return discovery.list_ai_comparisons(
+        db, feed_key=feed_key, run_group=run_group, limit=limit
+    )
 
 
 @router.get("/ai-visibility/checks", response_model=GrowthAIVisibilityCheckListOut)

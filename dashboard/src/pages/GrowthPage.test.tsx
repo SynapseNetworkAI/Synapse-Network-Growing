@@ -158,6 +158,42 @@ function installFetch() {
     if (url.includes('/growth/leads')) return json(listPayload([investor]))
     if (url.includes('/growth/messages/10/approve')) return json({ id: 10, lead_id: 1, status: 'approved', subject: 'Hello', body: 'Draft body', personalization_evidence: [], channel: 'email', campaign_id: null, approved_by: 'operator', sent_at: null, failure_reason: null, metadata: {}, created_at: null, updated_at: null })
     if (url.includes('/growth/messages/20/create-gmail-draft')) return json({ id: 20, lead_id: 2, status: 'queued', subject: 'Synapse provider fit for Firecrawl', body: 'Draft body', personalization_evidence: [], channel: 'email', campaign_id: null, approved_by: 'operator', sent_at: null, failure_reason: null, metadata: { gmail_status: 'draft_created', gmail_draft_id: 'draft-123', draft_url: 'https://mail.google.com/mail/u/0/#drafts?compose=draft-123', contact_email: 'partnerships@firecrawl.dev' }, created_at: null, updated_at: null })
+    if (url.includes('/growth/ai-visibility/optimization-plan')) {
+      return json({
+        module_key: 'ai_visibility',
+        objective: 'Make Synapse Network discoverable and citable in ChatGPT, Claude, and Grok.',
+        canonical_domain: 'https://www.synapse-network.ai/',
+        critical_fixes: ['Use www canonical domain.'],
+        baseline_queries: [
+          { query: 'What is Synapse Network for AI agents?', intent: 'brand_disambiguation', target_platforms: ['chatgpt', 'claude', 'grok'], success_signal: 'Official citation appears.' },
+        ],
+        feed_experiments: [
+          { feed_key: 'brand_disambiguation_www', surfaces: ['www', 'docs'], content_assets: ['canonical homepage metadata'], target_queries: ['What is Synapse Network for AI agents?'], measurement_window_days: 14 },
+        ],
+        product_docs: { canonical_domain: 'https://www.synapse-network.ai/', docs_category: 'AI Agent Payments', pages: ['/ai-agent-payments'], required_blocks: ['definition'], schema_types: ['FAQPage'] },
+        design_plan: { stitch_prompt: 'Design an AI agent payments docs landing page.', figma_handoff: ['Import Stitch output.'], implementation_targets: ['docs-front'] },
+        growing_workflows: ['ai_visibility_baseline_sweep', 'ai_visibility_search_probe'],
+        success_criteria: ['Stable citations for three weekly runs.'],
+      })
+    }
+    if (url.includes('/growth/ai-visibility/comparisons')) {
+      return json({
+        items: [{
+          feed_key: 'brand_disambiguation_www',
+          run_group: '2026-06-04-baseline',
+          platforms: ['chatgpt', 'claude'],
+          total_checks: 2,
+          mentioned_count: 1,
+          cited_count: 1,
+          missing_platforms: ['grok'],
+          top_competitors: ['synapse.network'],
+          next_actions: ['Fix www canonical and sitemap.'],
+          evidence_urls: ['https://example.com/evidence'],
+          latest_run_at: null,
+        }],
+        total: 1,
+      })
+    }
     if (url.includes('/growth/ai-visibility/checks') && init?.method === 'POST') return json({ id: 2, query: 'agent API marketplace', platform: 'chatgpt', answer_summary: '', synapse_mentioned: false, synapse_cited: false, cited_urls: [], competitor_mentions: [], missing_facts: [], next_action: '', run_at: null, created_at: null, updated_at: null }, 201)
     if (url.includes('/growth/ai-visibility/checks')) return json({ items: [{ id: 1, query: 'MCP monetization platform', platform: 'perplexity', answer_summary: 'No citation', synapse_mentioned: false, synapse_cited: false, cited_urls: [], competitor_mentions: ['RapidAPI'], missing_facts: [], next_action: 'Create answer block', run_at: null, created_at: null, updated_at: null }], total: 1, limit: 100, offset: 0 })
     if (url.includes('/growth/discovery-listings') && init?.method === 'POST') return json({ id: 2, surface: 'glama', target_repo: '', package_name: '', listing_url: '', status: 'candidate', submission_evidence: {}, verification_evidence: {}, failure_reason: '', last_checked_at: null, created_at: null, updated_at: null }, 201)
@@ -223,6 +259,13 @@ describe('GrowthPage', () => {
     fireEvent.click(within(providerDialog).getByRole('button', { name: /关闭/i }))
 
     fireEvent.click(screen.getByRole('button', { name: 'AI Visibility' }))
+    await screen.findByTestId('ai-visibility-optimization-panel')
+    expect(screen.getByText('https://www.synapse-network.ai/')).toBeInTheDocument()
+    expect(screen.getByText('AI Agent Payments')).toBeInTheDocument()
+    expect(screen.getAllByText('brand_disambiguation_www').length).toBeGreaterThan(0)
+    expect(screen.getByText('Search comparison')).toBeInTheDocument()
+    expect(screen.getByText(/2026-06-04-baseline/)).toBeInTheDocument()
+    expect(screen.getByText(/Missing: grok/)).toBeInTheDocument()
     await screen.findByText('MCP monetization platform')
     fireEvent.click(screen.getByRole('button', { name: '新增 Check' }))
     const aiDialog = await screen.findByRole('dialog', { name: '新增 AI Visibility Check' })

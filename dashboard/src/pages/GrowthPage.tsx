@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   api,
   GrowthAIVisibilityCheck,
+  GrowthAIVisibilityComparison,
+  GrowthAIVisibilityOptimizationPlan,
   GrowthDiscoveryListing,
   GrowthLead,
   GrowthLeadDetail,
@@ -12,6 +14,7 @@ import {
 } from '../api'
 import { EmptyPane, OverlayModal, StateBadge, useToast } from '../components/workbench'
 import { LeadCreateModal, RecordCreateModal, SourceConfigModal, SourceRunsModal } from './growthModals'
+import { GrowthAIVisibilityPanel } from './GrowthAIVisibilityPanel'
 import { GrowthProviderProfilesPanel } from './GrowthProviderProfilesPanel'
 import { GrowthProviderReplyInboxPanel } from './GrowthProviderReplyInboxPanel'
 import { SourcesPanel } from './GrowthSourcesPanel'
@@ -59,6 +62,8 @@ export default function GrowthPage() {
   const [providerProfiles, setProviderProfiles] = useState<GrowthProviderProfile[]>([])
   const [providerReplies, setProviderReplies] = useState<GrowthProviderReply[]>([])
   const [aiChecks, setAiChecks] = useState<GrowthAIVisibilityCheck[]>([])
+  const [aiComparisons, setAiComparisons] = useState<GrowthAIVisibilityComparison[]>([])
+  const [aiPlan, setAiPlan] = useState<GrowthAIVisibilityOptimizationPlan | null>(null)
   const [listings, setListings] = useState<GrowthDiscoveryListing[]>([])
   const [overview, setOverview] = useState({ leads: 0, messages: 0, citations: 0, listings: 0 })
   const [detail, setDetail] = useState<GrowthLeadDetail | null>(null)
@@ -82,11 +87,13 @@ export default function GrowthPage() {
   const leadType = active === 'providers' ? 'provider' : 'investor'
 
   const load = async (nextLeadOffset = leadOffset) => {
-    const [summary, leadPayload, profilePayload, replyPayload, aiPayload, listingPayload] = await Promise.all([
+    const [summary, leadPayload, profilePayload, replyPayload, aiPlanPayload, aiComparisonPayload, aiPayload, listingPayload] = await Promise.all([
       api.getGrowthOverview(),
       api.getGrowthLeads({ lead_type: leadType, q: search || undefined, status: status || undefined, limit: LEAD_PAGE_SIZE, offset: nextLeadOffset }),
       api.getGrowthProviderProfiles({ q: active === 'providers' ? search || undefined : undefined, limit: 50 }),
       api.getGrowthProviderReplies({ q: active === 'providers' ? search || undefined : undefined, limit: 20 }),
+      api.getGrowthAIVisibilityOptimizationPlan(),
+      api.getGrowthAIVisibilityComparisons({ limit: 10 }),
       api.getGrowthAIVisibilityChecks({ q: search || undefined, limit: 100 }),
       api.getGrowthDiscoveryListings({ status: status || undefined, limit: 100 }),
     ])
@@ -101,6 +108,8 @@ export default function GrowthPage() {
     setLeadTotal(leadPayload.total)
     setProviderProfiles(profilePayload.items)
     setProviderReplies(replyPayload.items)
+    setAiPlan(aiPlanPayload)
+    setAiComparisons(aiComparisonPayload.items)
     setAiChecks(aiPayload.items)
     setListings(listingPayload.items)
     setSourceConfigs(sourcePayload.items)
@@ -300,7 +309,7 @@ export default function GrowthPage() {
           )}
         </>
       )}
-      {active === 'ai' && <AiVisibilityPanel items={aiChecks} onCreate={() => setRecordModal('ai')} />}
+      {active === 'ai' && <GrowthAIVisibilityPanel items={aiChecks} comparisons={aiComparisons} plan={aiPlan} onCreate={() => setRecordModal('ai')} />}
       {active === 'mcp' && <McpDiscoveryPanel items={listings} onCreate={() => setRecordModal('mcp')} />}
 
       <LeadDetailModal detail={detail} busy={busy} onClose={() => setDetail(null)} action={action} />
@@ -453,13 +462,6 @@ function formatContactProvenance(value: unknown) {
     const record = item as Record<string, unknown>
     return String(record.source_url || record.provenance || record.reason || '')
   }).filter(Boolean).join(' · ') || '-'
-}
-
-function AiVisibilityPanel({ items, onCreate }: Readonly<{
-  items: GrowthAIVisibilityCheck[]
-  onCreate: () => void
-}>) {
-  return <RecordPanel title="AI Visibility Checks" actionLabel="新增 Check" onCreate={onCreate}>{items.map((item) => <Row key={item.id} title={item.query} meta={`${item.platform} · cited ${item.synapse_cited ? 'yes' : 'no'} · ${item.next_action || '-'}`} status={item.synapse_cited ? 'cited' : 'not_cited'} />)}</RecordPanel>
 }
 
 function McpDiscoveryPanel({ items, onCreate }: Readonly<{

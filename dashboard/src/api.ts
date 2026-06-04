@@ -27,6 +27,8 @@ export type { BugAgentContext, BugClaimResult, BugDetail, BugEvent, BugFixAttemp
 import { createGrowthApi } from './apiGrowth'
 export type {
   GrowthAIVisibilityCheck,
+  GrowthAIVisibilityComparison,
+  GrowthAIVisibilityOptimizationPlan,
   GrowthDiscoveryListing,
   GrowthLead,
   GrowthLeadDetail,
