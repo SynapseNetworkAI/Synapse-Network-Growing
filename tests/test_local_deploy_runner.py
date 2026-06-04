@@ -17,6 +17,9 @@ from server.services.releases import local_deploy_tasks
 def test_release_task_deploy_can_queue_local_runner_record(
     monkeypatch, synced_client, db_session
 ):
+    target_repo = "/tmp/synapse-network-main"
+    monkeypatch.setenv("SYNAPSE_NETWORK_REPO", target_repo)
+
     created = synced_client.post(
         "/api/releases/tasks",
         json={
@@ -58,6 +61,8 @@ def test_release_task_deploy_can_queue_local_runner_record(
         "user-front",
     ]
     assert metadata["localRunnerCommand"][4:6] == ["--ref", "main"]
+    target_repo_index = metadata["localRunnerCommand"].index("--target-repo") + 1
+    assert metadata["localRunnerCommand"][target_repo_index] == target_repo
     assert metadata["localRunnerCommand"][-4:] == [
         "--project",
         "fabled-archive-494108-k5",
@@ -363,6 +368,37 @@ def test_local_deploy_runner_applies_manifest_and_ignores_bad_files(
     assert record.external_url == "https://example.test"
     assert metadata["imageDigest"].endswith("a" * 64)
     assert metadata["cloudRunRevision"] == "rev-1"
+
+
+def test_staging_commands_use_configured_repo_overrides(monkeypatch):
+    network_repo = "/tmp/synapse-network-release-main"
+    provider_repo = "/tmp/synapse-provider-release-main"
+    monkeypatch.setenv("SYNAPSE_NETWORK_REPO", network_repo)
+    monkeypatch.setenv("SYNAPSE_NETWORK_PROVIDER_REPO", provider_repo)
+    network = ReleaseTaskRow(
+        project_key="synapse-network",
+        service_key="admin-front",
+        branch_name="main",
+        environment="staging",
+        status="requested",
+    )
+    provider = ReleaseTaskRow(
+        project_key="synapse-network-provider",
+        service_key="provider-service",
+        branch_name="main",
+        environment="staging",
+        status="requested",
+    )
+
+    network_command = local_deploy_tasks._synapse_network_staging_command(
+        network, service_key="admin-front"
+    )
+    provider_command = local_deploy_tasks._synapse_provider_staging_command(
+        provider, service_key="provider-service"
+    )
+
+    assert network_command[network_command.index("--target-repo") + 1] == network_repo
+    assert provider_command[provider_command.index("--target-repo") + 1] == provider_repo
 
 
 def test_local_deploy_task_command_edges():
