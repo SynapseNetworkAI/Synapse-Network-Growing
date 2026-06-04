@@ -131,6 +131,7 @@ def test_generate_content_plan_and_board_projection(synced_client):
     assert columns["needs_review"]["count"] == 1
     card = columns["needs_review"]["cards"][0]
     assert card["document_count"] == 1
+    assert card["ready_to_publish_count"] == 0
     assert card["task_kind_code"] == "multi_platform_campaign"
     assert card["next_action"].startswith("审核方案")
 

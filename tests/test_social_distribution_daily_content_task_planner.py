@@ -3,6 +3,7 @@ from server.database_social_distribution import (
     SocialDistributionDocumentRow,
     SocialDistributionTaskRow,
 )
+from server.services.result_objects import ServiceObjectResult
 from server.services.social.agent_content_pack import CanonicalArticleExpansion
 from server.services.social.daily_content_task_planner import (
     run_x_social_daily_content_task_planner,
@@ -43,7 +44,9 @@ def _patch_daily_task_agents(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "server.services.social.daily_content_task_planner.run_content_policy_check",
-        lambda _text: {"status": "passed", "blocked_reasons": [], "warnings": []},
+        lambda _text: ServiceObjectResult(
+            {"status": "passed", "blocked_reasons": [], "warnings": []}
+        ),
     )
 
 
@@ -178,11 +181,13 @@ def test_daily_x_content_task_agent_review_blocks_to_human_review(
     _patch_daily_task_agents(monkeypatch, tmp_path)
     monkeypatch.setattr(
         "server.services.social.daily_content_task_planner.run_content_policy_check",
-        lambda _text: {
-            "status": "blocked",
-            "blocked_reasons": ["unsafe_financial_claim"],
-            "warnings": [],
-        },
+        lambda _text: ServiceObjectResult(
+            {
+                "status": "blocked",
+                "blocked_reasons": ["unsafe_financial_claim"],
+                "warnings": [],
+            }
+        ),
     )
 
     result = run_x_social_daily_content_task_planner(

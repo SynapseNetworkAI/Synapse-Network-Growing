@@ -25,6 +25,8 @@ from server.services.social.distribution_projection import _asset_out
 from server.services.social.distribution_reply_metadata import reply_ids_from_asset
 from server.services.social.distribution_task_kinds import task_kind_for_asset
 
+PUBLISHABLE_DOCUMENT_KINDS = {"platform_draft", "x_article_pack"}
+
 
 def social_distribution_board(
     db: Session,
@@ -96,7 +98,7 @@ def _board_card(
         + status_counts.get("rejected", 0)
         + doc_status_counts.get("failed", 0),
         ready_to_publish_count=_card_ready_to_publish_count(
-            status_counts, doc_status_counts, task_kind_code=task_kind.code
+            status_counts, docs, task_kind_code=task_kind.code
         ),
         live_count=status_counts.get("live", 0)
         + status_counts.get("published", 0)
@@ -181,7 +183,7 @@ def _asset_is_live(
 
 
 def _asset_is_ready_to_publish(status_counts: Counter[str]) -> bool:
-    return _ready_to_publish_count(status_counts, Counter()) > 0
+    return _ready_task_count(status_counts) > 0
 
 
 def _asset_needs_review(
@@ -198,22 +200,33 @@ def _asset_needs_review(
 
 def _ready_to_publish_count(
     status_counts: Counter[str],
-    doc_status_counts: Counter[str],
+    docs: list[SocialDistributionDocumentRow],
 ) -> int:
+    return _ready_task_count(status_counts) + _ready_document_count(docs)
+
+
+def _ready_task_count(status_counts: Counter[str]) -> int:
     return (
         status_counts.get("draft_ready", 0)
-        + status_counts.get("needs_review", 0)
         + status_counts.get("approved", 0)
         + status_counts.get("submitted", 0)
-        + doc_status_counts.get("generated", 0)
-        + doc_status_counts.get("needs_review", 0)
-        + doc_status_counts.get("approved", 0)
+        + status_counts.get("needs_manual_article_publish", 0)
+    )
+
+
+def _ready_document_count(docs: list[SocialDistributionDocumentRow]) -> int:
+    return sum(
+        1
+        for doc in docs
+        if doc.task_id is None
+        and str(doc.document_kind or "") in PUBLISHABLE_DOCUMENT_KINDS
+        and str(doc.status or "") in {"approved", "published"}
     )
 
 
 def _card_ready_to_publish_count(
     status_counts: Counter[str],
-    doc_status_counts: Counter[str],
+    docs: list[SocialDistributionDocumentRow],
     *,
     task_kind_code: str,
 ) -> int:
@@ -223,7 +236,7 @@ def _card_ready_to_publish_count(
             + status_counts.get("approved", 0)
             + status_counts.get("needs_review", 0)
         )
-    return _ready_to_publish_count(status_counts, doc_status_counts)
+    return _ready_to_publish_count(status_counts, docs)
 
 
 def _has_document_kind(

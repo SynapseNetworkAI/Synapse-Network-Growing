@@ -11,6 +11,7 @@ from server.database_social_distribution import (
     SocialDistributionEventRow,
     SocialDistributionTaskRow,
 )
+from server.services.result_objects import dump_service_result
 
 TASK_STATUSES = {
     "planned",
@@ -83,7 +84,9 @@ def _record_event(
             event_type=event_type,
             actor=actor.strip() or "system",
             summary=summary,
-            payload_json=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            payload_json=json.dumps(
+                dump_service_result(payload), ensure_ascii=False, sort_keys=True
+            ),
         )
     )
 
