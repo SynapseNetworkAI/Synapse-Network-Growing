@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Any
 
@@ -34,6 +35,20 @@ LOCAL_REPO_PATH_BY_PROJECT = {
     "synapse-network": "/Users/cliff/workspace/agent/Synapse-Network",
     "synapse-network-provider": "/Users/cliff/workspace/agent/Synapse-Network-Provider",
 }
+LOCAL_REPO_ENV_BY_PROJECT = {
+    "synapse-network": "SYNAPSE_NETWORK_REPO",
+    "synapse-network-provider": "SYNAPSE_NETWORK_PROVIDER_REPO",
+}
+
+
+def _local_repo_path_for_project(project_key: str) -> str:
+    clean_project_key = _clean(project_key)
+    env_key = LOCAL_REPO_ENV_BY_PROJECT.get(clean_project_key)
+    if env_key:
+        env_path = _clean(os.environ.get(env_key))
+        if env_path:
+            return env_path
+    return _clean(LOCAL_REPO_PATH_BY_PROJECT.get(clean_project_key))
 
 
 def _local_branch_commit_sha(
@@ -43,7 +58,7 @@ def _local_branch_commit_sha(
         if branch_name in E2E_BRANCH_OPTIONS:
             return f"e2e-commit-{branch_name.replace('/', '-')}", None
         return None, "分支不存在，请重新选择有效远端分支"
-    repo_path = LOCAL_REPO_PATH_BY_PROJECT.get(_clean(project_key))
+    repo_path = _local_repo_path_for_project(project_key)
     if not repo_path:
         return None, "Local production gate has no registered repository path."
     try:
