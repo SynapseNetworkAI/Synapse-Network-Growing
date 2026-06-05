@@ -226,8 +226,17 @@ def _feed_report(
 
 
 def _stable_positive_runs(comparisons: list[GrowthAIVisibilityComparisonOut]) -> int:
-    positive = [item for item in comparisons if _is_positive_external_run(item)]
-    return len(positive)
+    latest_external_runs = sorted(
+        [item for item in comparisons if item.external_checks_count > 0],
+        key=lambda item: item.latest_run_at or datetime.min,
+        reverse=True,
+    )
+    streak = 0
+    for item in latest_external_runs:
+        if not _is_positive_external_run(item):
+            break
+        streak += 1
+    return streak
 
 
 def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:

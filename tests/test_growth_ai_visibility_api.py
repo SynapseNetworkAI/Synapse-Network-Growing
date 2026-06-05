@@ -677,6 +677,45 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
     assert brand_score["known_collision_competitors"] == ["synapsenetwork.xyz"]
 
 
+def test_ai_visibility_weekly_report_counts_only_latest_positive_streak(synced_client):
+    def record_run(run_group: str, *, positive: bool) -> None:
+        for platform in ("chatgpt", "claude"):
+            response = synced_client.post(
+                "/api/growth/ai-visibility/checks",
+                json={
+                    "query": "AI agent payment API",
+                    "platform": platform,
+                    "answer_summary": (
+                        "Synapse Network is cited by an official source."
+                        if positive
+                        else "No Synapse citation appeared."
+                    ),
+                    "synapse_mentioned": positive,
+                    "synapse_cited": positive,
+                    "cited_urls": ["https://www.synapse-network.ai/"]
+                    if positive
+                    else [],
+                    "feed_key": "agent_payment_category_pages",
+                    "run_group": run_group,
+                },
+            )
+            assert response.status_code == 201
+
+    record_run("2026-06-01-weekly-positive", positive=True)
+    record_run("2026-06-08-weekly-regressed", positive=False)
+    record_run("2026-06-15-weekly-positive", positive=True)
+
+    report = synced_client.get("/api/growth/ai-visibility/weekly-report")
+
+    assert report.status_code == 200
+    payload = report.json()
+    assert payload["stable_positive_runs"] == 1
+    assert (
+        "Fewer than three stable positive external runs have been recorded."
+        in payload["blockers"]
+    )
+
+
 def test_growth_ai_visibility_external_probe_gate_partial_ready(
     monkeypatch,
     synced_client,
