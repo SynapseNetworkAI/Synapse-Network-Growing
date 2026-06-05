@@ -9,6 +9,14 @@ def valid_mcp_registry_body() -> str:
     )
 
 
+def valid_github_org_profile_body() -> str:
+    return (
+        "SynapseNetwork is the settlement layer "
+        "https://www.synapse-network.ai/ "
+        "https://mcp.synapse-network.ai/mcp"
+    )
+
+
 def test_feed_validation_brand_feed_blocks_without_bare_redirect(monkeypatch):
     def fake_fetch(label: str, url: str, **_kwargs):
         if label == "bare_domain_redirect":
@@ -31,6 +39,13 @@ def test_feed_validation_brand_feed_blocks_without_bare_redirect(monkeypatch):
                 url=url,
                 status=200,
                 body_snippet="https://www.synapse-network.ai/",
+            )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet=valid_github_org_profile_body(),
             )
         return feed_validation.HttpProbeResult(label=label, url=url, status=200)
 
@@ -77,6 +92,13 @@ def test_feed_validation_brand_feed_records_ai_crawler_policy(monkeypatch):
                 url=url,
                 status=200,
                 body_snippet="https://www.synapse-network.ai/",
+            )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet=valid_github_org_profile_body(),
             )
         return feed_validation.HttpProbeResult(label=label, url=url, status=200)
 
@@ -129,6 +151,13 @@ def test_feed_validation_brand_feed_accepts_www_redirect_without_trailing_slash(
                 url=url,
                 status=200,
                 body_snippet="https://www.synapse-network.ai/",
+            )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet=valid_github_org_profile_body(),
             )
         return feed_validation.HttpProbeResult(label=label, url=url, status=200)
 
@@ -197,6 +226,13 @@ def test_feed_validation_brand_feed_accepts_explicit_ai_crawler_policy(monkeypat
                 status=200,
                 body_snippet="https://www.synapse-network.ai/",
             )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet=valid_github_org_profile_body(),
+            )
         return feed_validation.HttpProbeResult(label=label, url=url, status=200)
 
     monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
@@ -211,6 +247,58 @@ def test_feed_validation_brand_feed_accepts_explicit_ai_crawler_policy(monkeypat
     assert policy["policy_mode"] == "explicit"
     assert policy["missing_explicit_crawlers"] == []
     assert policy["blocked_crawlers"] == []
+    assert validate_records(rows, allow_local_validation=True) == []
+
+
+def test_feed_validation_brand_feed_blocks_stale_github_org_profile(monkeypatch):
+    def fake_fetch(label: str, url: str, **_kwargs):
+        if label == "bare_domain_redirect":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=301,
+                headers={"location": feed_validation.CANONICAL_HOMEPAGE},
+            )
+        if label == "robots":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="User-agent: *\nAllow: /\n",
+            )
+        if label == "llms":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="Synapse Network is the settlement layer for AI agents.",
+            )
+        if label == "sitemap":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="https://www.synapse-network.ai/",
+            )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="SynapseNetworkAI",
+            )
+        return feed_validation.HttpProbeResult(label=label, url=url, status=200)
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="brand_disambiguation_www",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].synapse_mentioned is False
+    assert any("GitHub organization profile" in fact for fact in rows[0].missing_facts)
+    assert "GitHub organization profile fixes" in rows[0].next_action
     assert validate_records(rows, allow_local_validation=True) == []
 
 
@@ -243,6 +331,13 @@ def test_feed_validation_brand_feed_blocks_ai_crawler_disallow_all(monkeypatch):
                 url=url,
                 status=200,
                 body_snippet="https://www.synapse-network.ai/",
+            )
+        if label == "github_org_profile":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet=valid_github_org_profile_body(),
             )
         return feed_validation.HttpProbeResult(label=label, url=url, status=200)
 
