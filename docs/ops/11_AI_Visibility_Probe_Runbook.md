@@ -86,7 +86,10 @@ One optimization cycle should use a single `feed_key` and at least two
 Examples:
 
 1. `brand_disambiguation_www`: homepage metadata, About answer block, GitHub
-   org README, X profile bio, and canonical `llms.txt`.
+   org README, X profile bio, and canonical `llms.txt`. Treat
+   `synapsenetwork.xyz` and unrelated `synapse.network` results as
+   brand-collision competitors in `competitor_mentions` until ChatGPT, Claude,
+   and Grok prefer `https://www.synapse-network.ai/`.
 2. `agent_payment_category_pages`: AI Agent Payments docs category, `/ai-agent-payments`,
    `/agent-payment-api`, FAQ, schema, and sitemap.
 3. `mcp_paid_api_discovery`: MCP Registry, Smithery, Glama, GitHub README,
@@ -175,9 +178,14 @@ pages, docs pages, Remote MCP readiness/auth boundaries, and the official MCP
 Registry listing freshness for the `mcp_paid_api_discovery` feed. The MCP feed
 also checks that npm has published `@synapse-network-ai/mcp-server@0.1.4`, because
 the official Registry refuses refreshed metadata until the referenced npm package
-version exists. It emits `*_live_validation` rows. These rows are useful blockers
-and readiness evidence, but they are not GPT/Claude/Grok answer evidence and do
-not count toward external citation success. The brand feed row also includes
+version exists. If npm still reports only an older version, configure npm
+Trusted Publisher for `SynapseNetworkAI/Synapse-Network-MCP-Server`
+`publish-mcp.yml` or provide a publish-capable `NPM_TOKEN`, run Publish MCP
+Server with `expected_version=0.1.4`, then refresh the official MCP Registry with
+`mcp-publisher`. It emits `*_live_validation` rows. These rows are useful
+blockers and readiness evidence, but they are not GPT/Claude/Grok answer
+evidence and do not count toward external citation success. The brand feed row
+also includes
 `metadata.ai_crawler_policy`,
 which records whether answer-engine search crawlers such as `OAI-SearchBot`,
 `ChatGPT-User`, `GPTBot`, `ClaudeBot`, `Claude-User`, `Claude-SearchBot`,
@@ -309,12 +317,18 @@ The output should be `status=ready` when the requested platform keys exist, or
 `ANTHROPIC_API_KEY`, or `XAI_API_KEY`. It must never print key values.
 
 The Growing gate at `/api/growth/ai-visibility/external-probe-gate` also
-reports `ready_platforms` and `missing_platforms`. When the feed is ready but
-only some keys exist, the gate returns `ready_for_partial_external_probes` and
-shows `partial_api_readiness_command` / `partial_api_execute_command` for the
-configured platforms. Use that only for focused diagnostics. Full success still
-requires comparable ChatGPT, Claude, and Grok evidence for the same feed and run
-group.
+reports `ready_platforms`, `missing_platforms`, and
+`manual_probe_template_command`. `manual_ready_to_execute=true` means the feed is
+ready for manual ChatGPT, Claude, and Grok UI checks even when API execution is
+blocked by missing keys. If API keys are missing, run the manual template
+command, use the generated rows as a checklist in each UI, fill in answer
+summaries, citations, and screenshot paths, then apply the JSONL with
+`record_ai_visibility_probe.py`. When the feed is ready but only some keys exist,
+the gate returns `ready_for_partial_external_probes` and shows
+`partial_api_readiness_command` / `partial_api_execute_command` for the configured
+platforms. Use partial API probes only for focused diagnostics. Full success
+still requires comparable ChatGPT, Claude, and Grok evidence for the same feed
+and run group.
 
 Execute paid probes:
 

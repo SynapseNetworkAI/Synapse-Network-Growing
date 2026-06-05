@@ -60,6 +60,7 @@ def ai_visibility_external_probe_gate(
         status=status,
         ready_to_execute=feed_ready and api_keys_ready,
         partial_ready_to_execute=feed_ready and bool(ready_platforms),
+        manual_ready_to_execute=feed_ready,
         feed_ready=feed_ready,
         api_keys_ready=api_keys_ready,
         target_platforms=TARGET_PLATFORMS,
@@ -69,6 +70,11 @@ def ai_visibility_external_probe_gate(
         blockers=blockers,
         feed_validation_command=readiness.validation_command,
         record_readiness_command=readiness.apply_command,
+        manual_probe_template_command=_manual_probe_template_command(
+            feed_key=safe_feed_key,
+            run_group=safe_run_group,
+            output_path=output_path,
+        ),
         api_readiness_command=api_base,
         api_execute_command=f"{api_base} --output {output_path} --execute",
         partial_api_readiness_command=partial_api_base,
@@ -142,6 +148,19 @@ def _api_base(*, feed_key: str, run_group: str) -> str:
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
         "--platforms chatgpt,claude,grok"
+    )
+
+
+def _manual_probe_template_command(
+    *, feed_key: str, run_group: str, output_path: str
+) -> str:
+    return (
+        "python scripts/growth/generate_ai_visibility_probe_template.py "
+        f"--feed-key {feed_key} "
+        f"--run-group {run_group} "
+        "--platforms chatgpt,claude,grok "
+        "--mode after-feed "
+        f"--output {output_path}"
     )
 
 

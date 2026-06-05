@@ -502,6 +502,7 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                 "status": "ready_for_partial_external_probes",
                 "ready_to_execute": False,
                 "partial_ready_to_execute": True,
+                "manual_ready_to_execute": True,
                 "feed_ready": True,
                 "api_keys_ready": False,
                 "target_platforms": ["chatgpt", "claude", "grok"],
@@ -527,6 +528,11 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                     "python scripts/growth/record_ai_visibility_probe.py "
                     "docs/archive/evidence/growth/ai-visibility/live.jsonl "
                     "--allow-local-validation --apply"
+                ),
+                "manual_probe_template_command": (
+                    "python scripts/growth/generate_ai_visibility_probe_template.py "
+                    "--feed-key brand_disambiguation_www "
+                    "--platforms chatgpt,claude,grok --mode after-feed"
                 ),
                 "api_readiness_command": (
                     "python scripts/growth/run_ai_visibility_api_probe.py "
@@ -581,6 +587,11 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
     payload = json.loads(rendered)
     assert payload["status"] == "ready_for_partial_external_probes"
     assert payload["ready_platforms"] == ["chatgpt"]
+    assert payload["manual_ready_to_execute"] is True
+    assert (
+        "generate_ai_visibility_probe_template.py"
+        in payload["manual_probe_template_command"]
+    )
     assert "OPENAI_API_KEY" in rendered
     assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
     assert "sk-test" not in rendered

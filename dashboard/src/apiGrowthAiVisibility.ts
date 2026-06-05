@@ -295,6 +295,7 @@ export interface GrowthAIVisibilityExternalProbeGate {
   status: string
   ready_to_execute: boolean
   partial_ready_to_execute: boolean
+  manual_ready_to_execute: boolean
   feed_ready: boolean
   api_keys_ready: boolean
   target_platforms: string[]
@@ -304,6 +305,7 @@ export interface GrowthAIVisibilityExternalProbeGate {
   blockers: string[]
   feed_validation_command: string
   record_readiness_command: string
+  manual_probe_template_command: string
   api_readiness_command: string
   api_execute_command: string
   partial_api_readiness_command: string

@@ -283,6 +283,7 @@ class GrowthAIVisibilityExternalProbeGateOut(BaseModel):
     status: str
     ready_to_execute: bool = False
     partial_ready_to_execute: bool = False
+    manual_ready_to_execute: bool = False
     feed_ready: bool = False
     api_keys_ready: bool = False
     target_platforms: list[str] = Field(default_factory=list)
@@ -294,6 +295,7 @@ class GrowthAIVisibilityExternalProbeGateOut(BaseModel):
     blockers: list[str] = Field(default_factory=list)
     feed_validation_command: str
     record_readiness_command: str
+    manual_probe_template_command: str = ""
     api_readiness_command: str
     api_execute_command: str
     partial_api_readiness_command: str = ""

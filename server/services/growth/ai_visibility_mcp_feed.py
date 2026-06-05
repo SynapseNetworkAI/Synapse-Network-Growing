@@ -112,7 +112,10 @@ def mcp_feed_missing(
             (unauth_mcp.status == 401, "Unauthenticated /mcp POST must return 401."),
             (
                 npm_package_ready,
-                "npm package @synapse-network-ai/mcp-server must publish version 0.1.4 before the MCP Registry can refresh.",
+                "npm package @synapse-network-ai/mcp-server must publish version "
+                "0.1.4 before the MCP Registry can refresh; configure npm Trusted "
+                "Publisher for SynapseNetworkAI/Synapse-Network-MCP-Server "
+                "publish-mcp.yml or provide a publish-capable NPM_TOKEN first.",
             ),
             (
                 registry_ready,
@@ -152,8 +155,10 @@ def mcp_next_action(
         return "Fix Remote MCP readiness/auth boundary before external MCP discovery probes."
     if not npm_package_ready:
         return (
-            "Publish @synapse-network-ai/mcp-server@0.1.4 to npm, then refresh "
-            "the official MCP Registry metadata with mcp-publisher."
+            "Configure npm Trusted Publisher for SynapseNetworkAI/Synapse-Network-MCP-Server "
+            "publish-mcp.yml or provide a publish-capable NPM_TOKEN, run Publish MCP "
+            "Server with expected_version=0.1.4, then refresh the official MCP "
+            "Registry metadata with mcp-publisher."
         )
     if not registry_ready:
         return (

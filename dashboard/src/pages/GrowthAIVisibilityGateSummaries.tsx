@@ -62,11 +62,17 @@ export function ExternalProbeGateSummary({ gate }: Readonly<{ gate: GrowthAIVisi
           <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">External probe gate</div>
           <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">{gate.feed_key}</div>
         </div>
-        <StateBadge tone={gate.ready_to_execute ? 'delivered' : 'blocked'}>{gate.status}</StateBadge>
+        <div className="flex flex-wrap items-center gap-2">
+          <StateBadge tone={gate.ready_to_execute ? 'delivered' : 'blocked'}>{gate.status}</StateBadge>
+          <StateBadge tone={gate.manual_ready_to_execute ? 'delivered' : 'blocked'}>
+            {gate.manual_ready_to_execute ? 'manual ready' : 'manual blocked'}
+          </StateBadge>
+        </div>
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+      <div className="mt-3 grid gap-3 lg:grid-cols-5">
         <Info label="Run group" value={gate.run_group} />
         <Info label="Feed ready" value={gate.feed_ready ? 'yes' : 'no'} />
+        <Info label="Manual UI ready" value={gate.manual_ready_to_execute ? 'yes' : 'no'} />
         <Info label="API keys ready" value={gate.api_keys_ready ? 'yes' : 'no'} />
         <Info label="Partial ready" value={gate.partial_ready_to_execute ? 'yes' : 'no'} />
       </div>
@@ -89,6 +95,7 @@ export function ExternalProbeGateSummary({ gate }: Readonly<{ gate: GrowthAIVisi
       <EvidenceList title="Probe blockers" empty="Ready to execute external probes." items={gate.blockers} />
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <CommandBlock label="Validate feed" value={gate.feed_validation_command} />
+        <CommandBlock label="Manual template" value={gate.manual_probe_template_command || '-'} />
         <CommandBlock label="API readiness" value={gate.api_readiness_command} />
         <CommandBlock label="Execute probes" value={gate.api_execute_command} />
         <CommandBlock label="Configured-platform readiness" value={gate.partial_api_readiness_command || '-'} />

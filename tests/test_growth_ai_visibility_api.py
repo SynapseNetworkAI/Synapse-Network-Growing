@@ -30,6 +30,9 @@ def test_growth_ai_visibility_and_discovery_listing(
         "Redirect https://synapse-network.ai/*" in fix
         for fix in plan_payload["critical_fixes"]
     )
+    assert any(
+        "synapsenetwork.xyz" in fix for fix in plan_payload["critical_fixes"]
+    )
     assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
     assert plan_payload["baseline_queries"][0]["target_platforms"] == [
         "chatgpt",
@@ -60,6 +63,13 @@ def test_growth_ai_visibility_and_discovery_listing(
         "https://synapse-network.ai/" in command
         and "https://www.synapse-network.ai/" in command
         for command in package_by_key["brand_disambiguation_www"]["validation_commands"]
+    )
+    assert "Synapse Network AI agents" in package_by_key[
+        "brand_disambiguation_www"
+    ]["target_queries"]
+    assert any(
+        "synapsenetwork.xyz" in action
+        for action in package_by_key["brand_disambiguation_www"]["next_actions"]
     )
     assert (
         "--feed-key agent_payment_category_pages"
@@ -568,6 +578,7 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["status"] == "blocked_until_feed_ready"
     assert payload["ready_to_execute"] is False
     assert payload["partial_ready_to_execute"] is False
+    assert payload["manual_ready_to_execute"] is False
     assert payload["feed_ready"] is False
     assert payload["api_keys_ready"] is False
     assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
@@ -575,6 +586,10 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
+    assert "generate_ai_visibility_probe_template.py" in payload[
+        "manual_probe_template_command"
+    ]
+    assert "--mode after-feed" in payload["manual_probe_template_command"]
     assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
     assert "--execute" in payload["api_execute_command"]
     assert "record_ai_visibility_probe.py" in payload["record_probe_command"]
@@ -621,6 +636,7 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert payload["status"] == "ready_for_partial_external_probes"
     assert payload["ready_to_execute"] is False
     assert payload["partial_ready_to_execute"] is True
+    assert payload["manual_ready_to_execute"] is True
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is False
     assert payload["ready_platforms"] == ["chatgpt", "claude"]
@@ -628,6 +644,9 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert "--platforms chatgpt,claude" in payload["partial_api_readiness_command"]
     assert "--platforms chatgpt,claude" in payload["partial_api_execute_command"]
     assert "--platforms chatgpt,claude,grok" in payload["api_readiness_command"]
+    assert "--platforms chatgpt,claude,grok" in payload[
+        "manual_probe_template_command"
+    ]
     assert "grok missing XAI_API_KEY." in payload["blockers"]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
@@ -674,11 +693,15 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert payload["status"] == "ready_to_execute_external_probes"
     assert payload["ready_to_execute"] is True
     assert payload["partial_ready_to_execute"] is True
+    assert payload["manual_ready_to_execute"] is True
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is True
     assert payload["ready_platforms"] == ["chatgpt", "claude", "grok"]
     assert payload["missing_platforms"] == []
     assert all(item["configured"] for item in payload["provider_readiness"])
+    assert "generate_ai_visibility_probe_template.py" in payload[
+        "manual_probe_template_command"
+    ]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
     assert "xai-test-secret" not in rendered
