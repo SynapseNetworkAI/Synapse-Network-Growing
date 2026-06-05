@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-OFFICIAL_SITE = "https://synapse-network.ai/"
+OFFICIAL_SITE = "https://www.synapse-network.ai/"
 
 
 def draft_provider_reply(

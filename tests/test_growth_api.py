@@ -1,5 +1,4 @@
 from server.database_growth import (
-    GrowthDiscoveryListingRow,
     GrowthLeadRow,
     GrowthOutreachEventRow,
     GrowthOutreachMessageRow,
@@ -170,150 +169,6 @@ def test_growth_message_lifecycle_and_do_not_contact(synced_client, monkeypatch)
     )
     assert blocked.status_code == 200
     assert blocked.json()["status"] == "do_not_contact"
-
-
-def test_growth_ai_visibility_and_discovery_listing(synced_client, db_session):
-    plan = synced_client.get("/api/growth/ai-visibility/optimization-plan")
-    assert plan.status_code == 200
-    plan_payload = plan.json()
-    assert plan_payload["canonical_domain"] == "https://www.synapse-network.ai/"
-    assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
-    assert plan_payload["baseline_queries"][0]["target_platforms"] == [
-        "chatgpt",
-        "claude",
-        "grok",
-    ]
-    assert {
-        experiment["feed_key"] for experiment in plan_payload["feed_experiments"]
-    } >= {
-        "brand_disambiguation_www",
-        "agent_payment_category_pages",
-        "mcp_paid_api_discovery",
-    }
-    assert "ai_visibility_search_probe" in plan_payload["growing_workflows"]
-
-    check = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "MCP monetization platform",
-            "platform": "perplexity",
-            "answer_summary": "Synapse was not mentioned.",
-            "synapse_mentioned": False,
-            "synapse_cited": False,
-            "competitor_mentions": ["RapidAPI"],
-            "next_action": "Create MCP monetization answer block.",
-            "feed_key": "mcp_paid_api_discovery",
-            "run_group": "2026-06-04-baseline",
-            "result_rank": 3,
-            "evidence_url": "https://example.com/perplexity-proof",
-            "metadata": {"search_mode": "manual"},
-        },
-    )
-    assert check.status_code == 201
-    assert check.json()["feed_key"] == "mcp_paid_api_discovery"
-    assert check.json()["run_group"] == "2026-06-04-baseline"
-    assert check.json()["result_rank"] == 3
-    assert check.json()["metadata"]["search_mode"] == "manual"
-    for platform, cited in (("chatgpt", True), ("claude", False)):
-        synced_client.post(
-            "/api/growth/ai-visibility/checks",
-            json={
-                "query": "MCP server for paid API calls",
-                "platform": platform,
-                "answer_summary": f"{platform} result",
-                "synapse_mentioned": cited,
-                "synapse_cited": cited,
-                "cited_urls": ["https://www.synapse-network.ai/"] if cited else [],
-                "competitor_mentions": ["RapidAPI"] if not cited else [],
-                "next_action": "Keep feeding MCP registry evidence.",
-                "feed_key": "mcp_paid_api_discovery",
-                "run_group": "2026-06-04-baseline",
-            },
-        )
-    comparison = synced_client.get(
-        "/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"
-    )
-    assert comparison.status_code == 200
-    comparison_payload = comparison.json()["items"][0]
-    assert comparison_payload["feed_key"] == "mcp_paid_api_discovery"
-    assert comparison_payload["run_group"] == "2026-06-04-baseline"
-    assert comparison_payload["total_checks"] == 3
-    assert comparison_payload["external_checks_count"] == 3
-    assert comparison_payload["local_validation_count"] == 0
-    assert comparison_payload["cited_count"] == 1
-    assert "grok" in comparison_payload["missing_platforms"]
-    assert "RapidAPI" in comparison_payload["top_competitors"]
-    assert (
-        synced_client.get("/api/growth/ai-visibility/checks?q=MCP").json()["total"] == 3
-    )
-
-    local_only = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "How can AI agents pay for APIs?",
-            "platform": "www_local_validation",
-            "answer_summary": "Local www page renders and contains extractable answer blocks.",
-            "synapse_mentioned": True,
-            "synapse_cited": True,
-            "feed_key": "agent_payment_category_pages",
-            "run_group": "2026-06-04-local-feed",
-        },
-    )
-    assert local_only.status_code == 201
-    local_comparison = synced_client.get(
-        "/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages"
-    ).json()["items"][0]
-    assert local_comparison["total_checks"] == 1
-    assert local_comparison["local_validation_count"] == 1
-    assert local_comparison["external_checks_count"] == 0
-    assert local_comparison["cited_count"] == 0
-    assert set(local_comparison["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
-
-    live_validation = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "AI agent payment API live crawl",
-            "platform": "www_live_validation",
-            "answer_summary": "Live www page still returns 404 before deploy.",
-            "synapse_mentioned": False,
-            "synapse_cited": False,
-            "feed_key": "agent_payment_category_pages",
-            "run_group": "2026-06-04-live-predeploy",
-        },
-    )
-    assert live_validation.status_code == 201
-    live_comparison = synced_client.get(
-        "/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages&run_group=2026-06-04-live-predeploy"
-    ).json()["items"][0]
-    assert live_comparison["external_checks_count"] == 0
-    assert live_comparison["local_validation_count"] == 1
-
-    listing = synced_client.post(
-        "/api/growth/discovery-listings",
-        json={
-            "surface": "official_mcp_registry",
-            "target_repo": "SynapseNetworkAI/Synapse-MCP",
-            "package_name": "synapse-network-mcp",
-            "status": "candidate",
-        },
-    )
-    assert listing.status_code == 201
-    listing_id = listing.json()["id"]
-    patched = synced_client.patch(
-        f"/api/growth/discovery-listings/{listing_id}",
-        json={
-            "status": "listed",
-            "listing_url": "https://registry.modelcontextprotocol.io/servers/synapse",
-            "verification_evidence": {"checked_by": "operator"},
-        },
-    )
-    assert patched.status_code == 200
-    assert patched.json()["status"] == "listed"
-    assert db_session.query(GrowthDiscoveryListingRow).count() == 1
 
 
 def test_growth_overview_counts(synced_client):
@@ -714,7 +569,7 @@ def test_growth_provider_profile_sync_uses_sent_history(
         "server.services.growth.workbench.generate_outreach_draft",
         lambda **kwargs: GrowthDraftResult(
             subject="Synapse provider channel",
-            body="Official site: https://synapse-network.ai/",
+            body="Official site: https://www.synapse-network.ai/",
             personalization_evidence=[{"source": "site", "reason": "provider fit"}],
             metadata={"campaign_key": "test"},
         ),

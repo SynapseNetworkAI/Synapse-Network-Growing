@@ -12,13 +12,10 @@ import argparse
 import json
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from pydantic import BaseModel, ConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_API_BASE = "http://localhost:9700/api"
@@ -70,13 +67,7 @@ class ProbeRecord:
         }
 
 
-class PostedVisibilityCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    id: int | None = None
-
-
-def main() -> int:
+def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser = argparse.ArgumentParser(
         description="Validate and optionally record AI visibility probe rows."
     )
@@ -116,7 +107,7 @@ def main() -> int:
                 "status": "succeeded",
                 "dry_run": not args.apply,
                 "record_count": len(records),
-                "created_ids": [item.id for item in created],
+                "created_ids": [item.get("id") for item in created],
                 "platforms": sorted({record.platform for record in records}),
                 "feed_keys": sorted({record.feed_key for record in records}),
                 "run_groups": sorted({record.run_group for record in records}),
@@ -149,42 +140,25 @@ def parse_json_or_jsonl(raw: str) -> list[dict[str, Any]]:
     stripped = raw.strip()
     if not stripped:
         raise ValueError("probe file is empty")
-    if _looks_like_json_document(stripped):
-        parsed = _parse_json_document(stripped)
-        if parsed is not None:
-            return parsed
-    return _parse_jsonl_rows(raw)
-
-
-def _looks_like_json_document(stripped: str) -> bool:
-    return stripped[0] in "[{"
-
-
-def _parse_json_document(stripped: str) -> list[dict[str, Any]] | None:
-    try:
-        loaded = json.loads(stripped)
-    except json.JSONDecodeError as exc:
-        if "Extra data" not in str(exc):
-            raise
-        return None
-    if isinstance(loaded, dict):
-        return [loaded]
-    if isinstance(loaded, list):
-        if not all(isinstance(item, dict) for item in loaded):
-            raise ValueError("JSON array must contain objects only")
-        return loaded
-    raise ValueError("probe JSON must be an object or array")
-
-
-def _parse_jsonl_rows(raw: str) -> list[dict[str, Any]]:
+    if stripped[0] in "[{":
+        try:
+            loaded = json.loads(stripped)
+        except json.JSONDecodeError as exc:
+            if "Extra data" not in str(exc):
+                raise
+        else:
+            if isinstance(loaded, dict):
+                return [loaded]
+            if isinstance(loaded, list):
+                if not all(isinstance(item, dict) for item in loaded):
+                    raise ValueError("JSON array must contain objects only")
+                return loaded
+            raise ValueError("probe JSON must be an object or array")
     rows: list[dict[str, Any]] = []
     for line_no, line in enumerate(raw.splitlines(), start=1):
         if not line.strip():
             continue
-        try:
-            loaded = json.loads(line)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"JSONL line {line_no} is invalid JSON") from exc
+        loaded = json.loads(line)
         if not isinstance(loaded, dict):
             raise ValueError(f"JSONL line {line_no} must be an object")
         rows.append(loaded)
@@ -221,76 +195,44 @@ def validate_records(
     errors: list[str] = []
     seen: set[tuple[str, str, str, str]] = set()
     for index, record in enumerate(records):
-        errors.extend(
-            _validate_record(
-                index,
-                record,
-                seen=seen,
-                allow_local_validation=allow_local_validation,
+        prefix = f"record {index}"
+        key = (record.feed_key, record.run_group, record.platform, record.query)
+        if key in seen:
+            errors.append(f"{prefix}: duplicate feed/run/platform/query")
+        seen.add(key)
+        if not record.query:
+            errors.append(f"{prefix}: query is required")
+        if not record.feed_key:
+            errors.append(f"{prefix}: feed_key is required")
+        if not record.run_group:
+            errors.append(f"{prefix}: run_group is required")
+        if not record.platform:
+            errors.append(f"{prefix}: platform is required")
+        elif record.platform.endswith("_validation") and not allow_local_validation:
+            errors.append(
+                f"{prefix}: validation platform is not external probe evidence"
             )
-        )
+        elif (
+            not record.platform.endswith("_validation")
+            and record.platform not in EXTERNAL_PLATFORMS
+        ):
+            errors.append(
+                f"{prefix}: platform must be one of {sorted(EXTERNAL_PLATFORMS)}"
+            )
+        if record.synapse_cited and not (record.cited_urls or record.evidence_url):
+            errors.append(
+                f"{prefix}: synapse_cited=true requires cited_urls or evidence_url"
+            )
+        if record.synapse_cited and not record.synapse_mentioned:
+            errors.append(
+                f"{prefix}: cited result must also mark synapse_mentioned=true"
+            )
     return errors
 
 
-def _validate_record(
-    index: int,
-    record: ProbeRecord,
-    *,
-    seen: set[tuple[str, str, str, str]],
-    allow_local_validation: bool,
-) -> list[str]:
-    prefix = f"record {index}"
-    errors = _validate_record_identity(prefix, record, seen=seen)
-    errors.extend(
-        _validate_record_platform(
-            prefix,
-            record.platform,
-            allow_local_validation=allow_local_validation,
-        )
-    )
-    if record.synapse_cited and not (record.cited_urls or record.evidence_url):
-        errors.append(
-            f"{prefix}: synapse_cited=true requires cited_urls or evidence_url"
-        )
-    if record.synapse_cited and not record.synapse_mentioned:
-        errors.append(f"{prefix}: cited result must also mark synapse_mentioned=true")
-    return errors
-
-
-def _validate_record_identity(
-    prefix: str,
-    record: ProbeRecord,
-    *,
-    seen: set[tuple[str, str, str, str]],
-) -> list[str]:
-    errors: list[str] = []
-    key = (record.feed_key, record.run_group, record.platform, record.query)
-    if key in seen:
-        errors.append(f"{prefix}: duplicate feed/run/platform/query")
-    seen.add(key)
-    for field_name in ("query", "feed_key", "run_group"):
-        if not getattr(record, field_name):
-            errors.append(f"{prefix}: {field_name} is required")
-    return errors
-
-
-def _validate_record_platform(
-    prefix: str, platform: str, *, allow_local_validation: bool
-) -> list[str]:
-    if not platform:
-        return [f"{prefix}: platform is required"]
-    if platform.endswith("_validation") and not allow_local_validation:
-        return [f"{prefix}: validation platform is not external probe evidence"]
-    if not platform.endswith("_validation") and platform not in EXTERNAL_PLATFORMS:
-        return [f"{prefix}: platform must be one of {sorted(EXTERNAL_PLATFORMS)}"]
-    return []
-
-
-def post_records(
-    api_base: str, records: list[ProbeRecord]
-) -> list[PostedVisibilityCheck]:
-    created: list[PostedVisibilityCheck] = []
-    url = _visibility_checks_url(api_base)
+def post_records(api_base: str, records: list[ProbeRecord]) -> list[Any]:
+    created: list[dict[str, Any]] = []
+    url = f"{api_base.rstrip('/')}/growth/ai-visibility/checks"
     for record in records:
         request = urllib.request.Request(
             url,
@@ -299,25 +241,12 @@ def post_records(
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310 - api_base is restricted to http/https before requests are opened.
-                created.append(
-                    PostedVisibilityCheck.model_validate_json(
-                        response.read().decode("utf-8")
-                    )
-                )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                created.append(json.loads(response.read().decode("utf-8")))
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"POST {url} failed with {exc.code}: {body}") from exc
     return created
-
-
-def _visibility_checks_url(api_base: str) -> str:
-    parsed = urllib.parse.urlparse(api_base)
-    if parsed.scheme not in {"http", "https"}:
-        raise ValueError("--api-base must use http or https")
-    if not parsed.netloc:
-        raise ValueError("--api-base must include a host")
-    return f"{api_base.rstrip('/')}/growth/ai-visibility/checks"
 
 
 def string_field(

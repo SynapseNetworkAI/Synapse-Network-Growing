@@ -27,6 +27,7 @@ from server.routers import (
     deployments,
     errors,
     growth,
+    growth_ai_visibility,
     local_ci,
     mcp_server_releases,
     optimization_signals,
@@ -188,6 +189,7 @@ app.include_router(workflows.router)
 app.include_router(planning.router)
 app.include_router(social.router)
 app.include_router(growth.router)
+app.include_router(growth_ai_visibility.router)
 
 
 @app.middleware("http")

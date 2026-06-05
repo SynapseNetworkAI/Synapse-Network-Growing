@@ -7,11 +7,6 @@ from sqlalchemy.orm import Session
 
 from server.database import get_db
 from server.schemas_growth import (
-    GrowthAIVisibilityCheckCreate,
-    GrowthAIVisibilityCheckListOut,
-    GrowthAIVisibilityCheckOut,
-    GrowthAIVisibilityComparisonListOut,
-    GrowthAIVisibilityOptimizationPlanOut,
     GrowthDiscoveryListingCreate,
     GrowthDiscoveryListingListOut,
     GrowthDiscoveryListingOut,
@@ -38,7 +33,6 @@ from server.schemas_growth import (
     GrowthSourceRunRequest,
 )
 from server.services.growth import (
-    ai_visibility_plan,
     discovery,
     gmail_drafts,
     provider_profiles,
@@ -327,56 +321,6 @@ def growth_do_not_contact(
             summary=body.summary,
             metadata=body.metadata,
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get(
-    "/ai-visibility/optimization-plan",
-    response_model=GrowthAIVisibilityOptimizationPlanOut,
-)
-def get_ai_visibility_optimization_plan():
-    return ai_visibility_plan.ai_visibility_optimization_plan()
-
-
-@router.get(
-    "/ai-visibility/comparisons",
-    response_model=GrowthAIVisibilityComparisonListOut,
-)
-def list_ai_visibility_comparisons(
-    feed_key: str | None = None,
-    run_group: str | None = None,
-    limit: int = 20,
-    db: Session = Depends(get_db),
-):
-    return discovery.list_ai_comparisons(
-        db, feed_key=feed_key, run_group=run_group, limit=limit
-    )
-
-
-@router.get("/ai-visibility/checks", response_model=GrowthAIVisibilityCheckListOut)
-def list_ai_visibility_checks(
-    q: str | None = None,
-    platform: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-    db: Session = Depends(get_db),
-):
-    return discovery.list_ai_checks(
-        db, q=q, platform=platform, limit=limit, offset=offset
-    )
-
-
-@router.post(
-    "/ai-visibility/checks",
-    response_model=GrowthAIVisibilityCheckOut,
-    status_code=201,
-)
-def create_ai_visibility_check(
-    body: GrowthAIVisibilityCheckCreate, db: Session = Depends(get_db)
-):
-    try:
-        return discovery.create_ai_check(db, body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

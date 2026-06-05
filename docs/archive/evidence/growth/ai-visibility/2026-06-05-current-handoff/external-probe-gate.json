@@ -1,0 +1,55 @@
+{
+  "api_execute_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude,grok --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-external-probes.jsonl --execute",
+  "api_keys_ready": false,
+  "api_readiness_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude,grok",
+  "blockers": [
+    "Docs /mcp/paid-api-calls page must be live.",
+    "Docs /mcp/paid-api-calls must expose MCP paid API answer text and tool names.",
+    "www llms.txt must include the MCP paid API calls guide and Remote MCP endpoint.",
+    "Publish /mcp/paid-api-calls and www llms.txt MCP feed updates before external answer-engine probes.",
+    "grok missing XAI_API_KEY."
+  ],
+  "compare_command": "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-05-current-external-probe' | python -m json.tool",
+  "feed_key": "mcp_paid_api_discovery",
+  "feed_ready": false,
+  "feed_validation_command": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-feed-validation.jsonl",
+  "generated_at": "2026-06-05T02:12:54.799697Z",
+  "missing_platforms": [
+    "grok"
+  ],
+  "module_key": "ai_visibility",
+  "partial_api_execute_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-external-probes.jsonl --execute",
+  "partial_api_readiness_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude",
+  "partial_ready_to_execute": false,
+  "provider_readiness": [
+    {
+      "configured": true,
+      "env_key": "OPENAI_API_KEY",
+      "platform": "chatgpt"
+    },
+    {
+      "configured": true,
+      "env_key": "ANTHROPIC_API_KEY",
+      "platform": "claude"
+    },
+    {
+      "configured": false,
+      "env_key": "XAI_API_KEY",
+      "platform": "grok"
+    }
+  ],
+  "ready_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "ready_to_execute": false,
+  "record_probe_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-external-probes.jsonl --apply",
+  "record_readiness_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-feed-validation.jsonl --allow-local-validation --apply",
+  "run_group": "2026-06-05-current-external-probe",
+  "status": "blocked_until_feed_ready",
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok"
+  ]
+}

@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   api,
-  GrowthAIVisibilityCheck,
-  GrowthAIVisibilityComparison,
-  GrowthAIVisibilityOptimizationPlan,
   GrowthDiscoveryListing,
   GrowthLead,
   GrowthLeadDetail,
@@ -12,12 +9,14 @@ import {
   GrowthResearchRun,
   GrowthSourceConfig,
 } from '../api'
-import { EmptyPane, OverlayModal, StateBadge, useToast } from '../components/workbench'
+import { EmptyPane, StateBadge, useToast } from '../components/workbench'
 import { LeadCreateModal, RecordCreateModal, SourceConfigModal, SourceRunsModal } from './growthModals'
 import { GrowthAIVisibilityPanel } from './GrowthAIVisibilityPanel'
 import { GrowthProviderProfilesPanel } from './GrowthProviderProfilesPanel'
 import { GrowthProviderReplyInboxPanel } from './GrowthProviderReplyInboxPanel'
+import { LeadDetailModal, LeadPanel } from './GrowthLeadPanels'
 import { SourcesPanel } from './GrowthSourcesPanel'
+import { useGrowthAIVisibilityData } from './useGrowthAIVisibilityData'
 
 type TabKey = 'sources' | 'investors' | 'providers' | 'ai' | 'mcp'
 
@@ -29,17 +28,32 @@ const tabs: Array<{ key: TabKey; label: string; description: string }> = [
   { key: 'mcp', label: 'MCP Discovery', description: 'Registry and directory listings' },
 ]
 const LEAD_PAGE_SIZE = 10
+const tabAliases: Record<string, TabKey> = {
+  sources: 'sources',
+  investors: 'investors',
+  providers: 'providers',
+  ai: 'ai',
+  'ai-visibility': 'ai',
+  mcp: 'mcp',
+  'mcp-discovery': 'mcp',
+}
+
+function tabFromSearch(search: string): TabKey {
+  const value = new URLSearchParams(search).get('tab')?.trim() || ''
+  return tabAliases[value] || 'sources'
+}
+
+function tabSearchValue(tab: TabKey) {
+  if (tab === 'ai') return 'ai-visibility'
+  if (tab === 'mcp') return 'mcp-discovery'
+  return tab
+}
 
 function tone(value: string) {
   if (['sent', 'listed', 'verified', 'interested'].includes(value)) return 'delivered'
   if (['approved', 'queued', 'researched', 'drafted'].includes(value)) return 'running'
   if (['needs_fix', 'failed', 'do_not_contact', 'invalid'].includes(value)) return 'blocked'
   return 'muted'
-}
-
-function time(value: string | null) {
-  if (!value) return '-'
-  return new Date(value.endsWith('Z') ? value : `${value}Z`).toLocaleString('zh-CN')
 }
 
 function metric(values: Array<[string, number]>) {
@@ -53,7 +67,7 @@ function metric(values: Array<[string, number]>) {
 
 export default function GrowthPage() {
   const toast = useToast()
-  const [active, setActive] = useState<TabKey>('sources')
+  const [active, setActive] = useState<TabKey>(() => tabFromSearch(window.location.search))
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [leads, setLeads] = useState<GrowthLead[]>([])
@@ -61,9 +75,7 @@ export default function GrowthPage() {
   const [leadOffset, setLeadOffset] = useState(0)
   const [providerProfiles, setProviderProfiles] = useState<GrowthProviderProfile[]>([])
   const [providerReplies, setProviderReplies] = useState<GrowthProviderReply[]>([])
-  const [aiChecks, setAiChecks] = useState<GrowthAIVisibilityCheck[]>([])
-  const [aiComparisons, setAiComparisons] = useState<GrowthAIVisibilityComparison[]>([])
-  const [aiPlan, setAiPlan] = useState<GrowthAIVisibilityOptimizationPlan | null>(null)
+  const aiVisibility = useGrowthAIVisibilityData()
   const [listings, setListings] = useState<GrowthDiscoveryListing[]>([])
   const [overview, setOverview] = useState({ leads: 0, messages: 0, citations: 0, listings: 0 })
   const [detail, setDetail] = useState<GrowthLeadDetail | null>(null)
@@ -81,23 +93,42 @@ export default function GrowthPage() {
     seed_urls: 'https://github.com/firecrawl/firecrawl-mcp-server',
     queries: 'mcp server search api\nmodel-context-protocol web scraping API\nagent tools API',
   })
-  const [aiDraft, setAiDraft] = useState({ query: '', platform: 'chatgpt', answer_summary: '', next_action: '' })
+  const defaultRunGroup = new Date().toISOString().slice(0, 10)
+  const [aiDraft, setAiDraft] = useState({
+    query: '',
+    platform: 'chatgpt',
+    answer_summary: '',
+    next_action: '',
+    feed_key: 'agent_payment_category_pages',
+    run_group: `${defaultRunGroup}-baseline`,
+    synapse_mentioned: false,
+    synapse_cited: false,
+    cited_urls: '',
+    competitor_mentions: '',
+    missing_facts: '',
+    evidence_url: '',
+  })
   const [listingDraft, setListingDraft] = useState({ surface: 'official_mcp_registry', package_name: '', target_repo: '', listing_url: '' })
 
   const leadType = active === 'providers' ? 'provider' : 'investor'
 
+  const setActiveTab = (tab: TabKey) => {
+    setActive(tab)
+    const nextUrl = new URL(window.location.href)
+    nextUrl.searchParams.set('tab', tabSearchValue(tab))
+    window.history.replaceState(null, '', nextUrl.toString())
+  }
+
   const load = async (nextLeadOffset = leadOffset) => {
-    const [summary, leadPayload, profilePayload, replyPayload, aiPlanPayload, aiComparisonPayload, aiPayload, listingPayload] = await Promise.all([
+    const [summary, leadPayload, profilePayload, replyPayload, listingPayload, sourcePayload] = await Promise.all([
       api.getGrowthOverview(),
       api.getGrowthLeads({ lead_type: leadType, q: search || undefined, status: status || undefined, limit: LEAD_PAGE_SIZE, offset: nextLeadOffset }),
       api.getGrowthProviderProfiles({ q: active === 'providers' ? search || undefined : undefined, limit: 50 }),
       api.getGrowthProviderReplies({ q: active === 'providers' ? search || undefined : undefined, limit: 20 }),
-      api.getGrowthAIVisibilityOptimizationPlan(),
-      api.getGrowthAIVisibilityComparisons({ limit: 10 }),
-      api.getGrowthAIVisibilityChecks({ q: search || undefined, limit: 100 }),
       api.getGrowthDiscoveryListings({ status: status || undefined, limit: 100 }),
+      api.getGrowthSourceConfigs(),
+      aiVisibility.load({ includeRuntimeEvidence: active === 'ai', search }),
     ])
-    const sourcePayload = await api.getGrowthSourceConfigs()
     setOverview({
       leads: Object.values(summary.lead_counts).reduce((sum, value) => sum + value, 0),
       messages: Object.values(summary.message_counts).reduce((sum, value) => sum + value, 0),
@@ -108,9 +139,6 @@ export default function GrowthPage() {
     setLeadTotal(leadPayload.total)
     setProviderProfiles(profilePayload.items)
     setProviderReplies(replyPayload.items)
-    setAiPlan(aiPlanPayload)
-    setAiComparisons(aiComparisonPayload.items)
-    setAiChecks(aiPayload.items)
     setListings(listingPayload.items)
     setSourceConfigs(sourcePayload.items)
   }
@@ -168,8 +196,29 @@ export default function GrowthPage() {
   }
 
   const createAiCheck = async () => {
-    await action(() => api.createGrowthAIVisibilityCheck(aiDraft), 'AI visibility check 已记录')
-    setAiDraft({ query: '', platform: 'chatgpt', answer_summary: '', next_action: '' })
+    await action(
+      () => api.createGrowthAIVisibilityCheck({
+        ...aiDraft,
+        cited_urls: splitLines(aiDraft.cited_urls),
+        competitor_mentions: splitLines(aiDraft.competitor_mentions),
+        missing_facts: splitLines(aiDraft.missing_facts),
+      }),
+      'AI visibility check 已记录',
+    )
+    setAiDraft({
+      query: '',
+      platform: 'chatgpt',
+      answer_summary: '',
+      next_action: '',
+      feed_key: 'agent_payment_category_pages',
+      run_group: `${defaultRunGroup}-baseline`,
+      synapse_mentioned: false,
+      synapse_cited: false,
+      cited_urls: '',
+      competitor_mentions: '',
+      missing_facts: '',
+      evidence_url: '',
+    })
     setRecordModal(null)
   }
 
@@ -254,7 +303,7 @@ export default function GrowthPage() {
               key={tab.key}
               type="button"
               className={`rounded-2xl border px-4 py-2 text-sm ${active === tab.key ? 'border-cyan-300/40 bg-cyan-300/[0.12] text-cyan-100' : 'border-[color:var(--ops-stroke-strong)] text-[color:var(--ops-text-muted)]'}`}
-              onClick={() => setActive(tab.key)}
+              onClick={() => setActiveTab(tab.key)}
             >
               {tab.label}
             </button>
@@ -309,7 +358,27 @@ export default function GrowthPage() {
           )}
         </>
       )}
-      {active === 'ai' && <GrowthAIVisibilityPanel items={aiChecks} comparisons={aiComparisons} plan={aiPlan} onCreate={() => setRecordModal('ai')} />}
+      {active === 'ai' && (
+        <GrowthAIVisibilityPanel
+          items={aiVisibility.items}
+          comparisons={aiVisibility.comparisons}
+          feedPackages={aiVisibility.feedPackages}
+          feedCycles={aiVisibility.feedCycles}
+          feedScorecard={aiVisibility.feedScorecard}
+          docsBlueprint={aiVisibility.docsBlueprint}
+          designHandoff={aiVisibility.designHandoff}
+          weeklyReport={aiVisibility.weeklyReport}
+          nextCycle={aiVisibility.nextCycle}
+          releasePlan={aiVisibility.releasePlan}
+          releaseSnapshot={aiVisibility.releaseSnapshot}
+          handoffBundle={aiVisibility.handoffBundle}
+          optimizationBrief={aiVisibility.optimizationBrief}
+          liveReadiness={aiVisibility.liveReadiness}
+          externalProbeGate={aiVisibility.externalProbeGate}
+          plan={aiVisibility.plan}
+          onCreate={() => setRecordModal('ai')}
+        />
+      )}
       {active === 'mcp' && <McpDiscoveryPanel items={listings} onCreate={() => setRecordModal('mcp')} />}
 
       <LeadDetailModal detail={detail} busy={busy} onClose={() => setDetail(null)} action={action} />
@@ -330,138 +399,11 @@ export default function GrowthPage() {
   )
 }
 
-function LeadPanel(props: Readonly<{
-  leadType: string
-  search: string
-  status: string
-  setSearch: (value: string) => void
-  setStatus: (value: string) => void
-  leads: GrowthLead[]
-  total: number
-  offset: number
-  limit: number
-  onSearch: () => void
-  onPrevious: () => void
-  onNext: () => void
-  onCreate: () => void
-  onOpen: (lead: GrowthLead) => void
-}>) {
-  const end = Math.min(props.total, props.offset + props.limit)
-  return (
-    <section className="rounded-[var(--ops-radius-panel)] border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-5 py-5">
-      <div className="grid gap-3 md:grid-cols-6">
-        <input className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm md:col-span-2" placeholder="搜索 name / org / source" value={props.search} onChange={(event) => props.setSearch(event.target.value)} />
-        <select className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2.5 text-sm" value={props.status} onChange={(event) => props.setStatus(event.target.value)}>
-          <option value="">全部状态</option>
-          {['new', 'researched', 'drafted', 'approved', 'queued', 'sent', 'replied', 'interested', 'do_not_contact'].map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-        <button type="button" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm text-white" onClick={props.onSearch}>查询</button>
-      </div>
-      <div className="mt-4 flex justify-end">
-        <button type="button" className="rounded-xl border border-cyan-300/35 px-4 py-2.5 text-sm text-cyan-100" onClick={props.onCreate}>新增 Lead</button>
-      </div>
-      <div className="mt-5 overflow-hidden rounded-2xl border border-[color:var(--ops-stroke-soft)]">
-        {props.leads.length ? props.leads.map((lead) => (
-          <button key={lead.id} type="button" className="flex w-full items-center justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-5 py-4 text-left last:border-b-0 hover:bg-[color:var(--ops-panel-subtle)]" onClick={() => props.onOpen(lead)}>
-            <span>
-              <span className="block font-semibold text-[color:var(--ops-text-title)]">{lead.name}</span>
-              <span className="mt-1 block text-sm text-[color:var(--ops-text-muted)]">{lead.organization || '-'} · score {lead.fit_score} · {lead.next_action || 'no next action'}</span>
-            </span>
-            <StateBadge tone={tone(lead.status)}>{lead.status}</StateBadge>
-          </button>
-        )) : <div className="p-6"><EmptyPane>No leads in this view.</EmptyPane></div>}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-[color:var(--ops-text-muted)]">
-        <span>{props.total ? `${props.offset + 1}-${end} / ${props.total}` : '0 / 0'}</span>
-        <span className="flex gap-2">
-          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={props.offset <= 0} onClick={props.onPrevious}>上一页</button>
-          <button type="button" className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-3 py-2 disabled:opacity-40" disabled={props.offset + props.limit >= props.total} onClick={props.onNext}>下一页</button>
-        </span>
-      </div>
-    </section>
-  )
-}
-
-function LeadDetailModal({ detail, busy, onClose, action }: Readonly<{
-  detail: GrowthLeadDetail | null
-  busy: boolean
-  onClose: () => void
-  action: (fn: () => Promise<unknown>, message: string) => Promise<void>
-}>) {
-  const firstMessage = detail?.messages[0]
-  const contactEmail = contactEmailFrom(detail)
-  const contactProvenance = firstMessage?.metadata?.contact_provenance || detail?.lead.metadata?.contact_provenance
-  const draftUrl = typeof firstMessage?.metadata?.draft_url === 'string' ? firstMessage.metadata.draft_url : ''
-  const hasGmailDraft = Boolean(firstMessage?.metadata?.gmail_draft_id)
-  return (
-    <OverlayModal open={Boolean(detail)} eyebrow="Growth Lead" title={detail?.lead.name || ''} description={detail?.lead.organization || ''} onClose={onClose}>
-      {detail && (
-        <div className="space-y-5">
-          <div className="grid gap-3 md:grid-cols-4">
-            <Info label="Status" value={detail.lead.status} />
-            <Info label="Fit score" value={String(detail.lead.fit_score)} />
-            <Info label="Contact" value={contactEmail || 'no trusted email'} />
-            <Info label="Updated" value={time(detail.lead.updated_at)} />
-          </div>
-          <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Provider Evidence</div>
-            <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
-              <div>source: {detail.lead.source_url || '-'}</div>
-              <div>why: {String(detail.lead.metadata.why_this_provider || detail.lead.next_action || '-')}</div>
-              <div>contact provenance: {formatContactProvenance(contactProvenance)}</div>
-            </div>
-          </div>
-          <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Messages</div>
-            {detail.messages.length ? detail.messages.map((message) => (
-              <div key={message.id} className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <strong>{message.subject}</strong>
-                  <StateBadge tone={tone(message.status)}>{message.status}</StateBadge>
-                </div>
-                <div className="mt-2 text-xs text-[color:var(--ops-text-muted)]">
-                  Gmail: {String(message.metadata.gmail_status || 'not_created')}
-                  {message.metadata.contact_email ? ` · ${String(message.metadata.contact_email)}` : ''}
-                </div>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[color:var(--ops-text-muted)]">{message.body}</p>
-              </div>
-            )) : <EmptyPane>No outreach messages yet.</EmptyPane>}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button disabled={busy || detail.lead.status === 'do_not_contact'} className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm text-cyan-100" onClick={() => action(() => api.draftGrowthMessage(detail.lead.id, { actor: 'codex' }), 'Agent 已生成草稿')}>生成草稿</button>
-            {firstMessage && <button disabled={busy || firstMessage.status !== 'needs_review'} className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => action(() => api.approveGrowthMessage(firstMessage.id, { actor: 'operator' }), 'Message 已批准')}>批准</button>}
-            {firstMessage && <button disabled={busy || firstMessage.status !== 'approved' || hasGmailDraft} className="rounded-xl border border-cyan-300/35 px-4 py-2 text-sm text-cyan-100" onClick={() => action(() => api.createGrowthGmailDraft(firstMessage.id, { actor: 'operator', metadata: { human_gate: true } }), 'Gmail 草稿已创建，未自动发送')}>创建 Gmail Draft</button>}
-            {draftUrl && <a className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" href={draftUrl} target="_blank" rel="noreferrer">打开 Gmail 草稿</a>}
-            {firstMessage && <button disabled={busy || firstMessage.status !== 'approved'} className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => action(() => api.queueGrowthMessage(firstMessage.id, { actor: 'operator' }), 'Message 已进入 operator/runner 队列')}>加入待发送队列</button>}
-            {firstMessage && <button disabled={busy || !['approved', 'queued'].includes(firstMessage.status)} className="rounded-xl border border-[color:var(--ops-stroke-strong)] px-4 py-2 text-sm" onClick={() => action(() => api.markGrowthMessageSent(firstMessage.id, { actor: 'operator', metadata: { manual_confirmation: true } }), '已记录为人工发送')}>标记已人工发送</button>}
-            <button disabled={busy} className="rounded-xl border border-red-300/35 px-4 py-2 text-sm text-red-100" onClick={() => action(() => api.doNotContactGrowthLead(detail.lead.id, { actor: 'operator', summary: 'Stopped by operator.' }), '已设为 do-not-contact')}>Do not contact</button>
-          </div>
-          <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] p-4">
-            <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Events</div>
-            {detail.events.map((event) => <div key={event.id} className="mt-3 text-sm text-[color:var(--ops-text-muted)]">{event.event_type} · {event.to_status || '-'} · {time(event.created_at)}</div>)}
-          </div>
-        </div>
-      )}
-    </OverlayModal>
-  )
-}
-
-function contactEmailFrom(detail: GrowthLeadDetail | null) {
-  const fromMessage = detail?.messages[0]?.metadata?.contact_email
-  if (typeof fromMessage === 'string' && fromMessage) return fromMessage
-  for (const channel of detail?.lead.contact_channels || []) {
-    if (typeof channel.value === 'string' && channel.value.includes('@')) return channel.value
-  }
-  return ''
-}
-
-function formatContactProvenance(value: unknown) {
-  if (!Array.isArray(value) || !value.length) return '-'
-  return value.map((item) => {
-    if (!item || typeof item !== 'object') return ''
-    const record = item as Record<string, unknown>
-    return String(record.source_url || record.provenance || record.reason || '')
-  }).filter(Boolean).join(' · ') || '-'
+function splitLines(value: string) {
+  return value
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 }
 
 function McpDiscoveryPanel({ items, onCreate }: Readonly<{
@@ -485,8 +427,4 @@ function RecordPanel({ title, actionLabel, children, onCreate }: Readonly<{ titl
 
 function Row({ title, meta, status }: Readonly<{ title: string; meta: string; status: string }>) {
   return <div className="flex items-center justify-between gap-4 border-b border-[color:var(--ops-stroke-soft)] px-5 py-4 last:border-b-0"><span><strong>{title}</strong><span className="mt-1 block text-sm text-[color:var(--ops-text-muted)]">{meta}</span></span><StateBadge tone={tone(status)}>{status}</StateBadge></div>
-}
-
-function Info({ label, value }: Readonly<{ label: string; value: string }>) {
-  return <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4"><div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">{label}</div><div className="mt-2 text-sm text-[color:var(--ops-text-title)]">{value}</div></div>
 }

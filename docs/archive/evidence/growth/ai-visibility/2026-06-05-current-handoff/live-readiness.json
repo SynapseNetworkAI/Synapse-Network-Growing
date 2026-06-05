@@ -1,0 +1,84 @@
+{
+  "apply_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-current-live-readiness-feed-validation.jsonl --allow-local-validation --apply",
+  "blocked_count": 1,
+  "canonical_homepage": "https://www.synapse-network.ai/",
+  "generated_at": "2026-06-05T02:12:53.165730Z",
+  "items": [
+    {
+      "answer_summary": "Live feed validation blocked: www_homepage=200; docs_mcp_paid_api_calls=404; www_llms_mcp=200; mcp_readyz=200; mcp_unauth_post=401",
+      "checked_urls": [
+        "https://www.synapse-network.ai/",
+        "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "https://www.synapse-network.ai/llms.txt",
+        "https://mcp.synapse-network.ai/readyz",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "checks": [
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/",
+          "label": "www_homepage",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "label": "docs_mcp_paid_api_calls",
+          "ok": false,
+          "status": 404,
+          "url": "https://docs.synapse-network.ai/mcp/paid-api-calls"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/llms.txt",
+          "label": "www_llms_mcp",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/llms.txt"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://mcp.synapse-network.ai/readyz",
+          "label": "mcp_readyz",
+          "ok": true,
+          "status": 200,
+          "url": "https://mcp.synapse-network.ai/readyz"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://mcp.synapse-network.ai/mcp",
+          "label": "mcp_unauth_post",
+          "ok": true,
+          "status": 401,
+          "url": "https://mcp.synapse-network.ai/mcp"
+        }
+      ],
+      "external_probe_ready": false,
+      "feed_key": "mcp_paid_api_discovery",
+      "feed_ready": false,
+      "missing_facts": [
+        "Docs /mcp/paid-api-calls page must be live.",
+        "Docs /mcp/paid-api-calls must expose MCP paid API answer text and tool names.",
+        "www llms.txt must include the MCP paid API calls guide and Remote MCP endpoint."
+      ],
+      "next_action": "Publish /mcp/paid-api-calls and www llms.txt MCP feed updates before external answer-engine probes.",
+      "platform": "mcp_live_validation",
+      "query": "Remote MCP live readiness",
+      "run_group": "2026-06-05-current-live-readiness",
+      "status": "blocked"
+    }
+  ],
+  "module_key": "ai_visibility",
+  "ready_count": 0,
+  "run_group": "2026-06-05-current-live-readiness",
+  "status": "blocked",
+  "total": 1,
+  "validation_command": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-live-readiness --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-live-readiness-feed-validation.jsonl"
+}

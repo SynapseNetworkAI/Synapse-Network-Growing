@@ -1,6 +1,21 @@
 import { GrowthResearchRun, GrowthSourceConfig } from '../api'
 import { EmptyPane, OverlayModal, StateBadge } from '../components/workbench'
 
+type AiVisibilityDraft = {
+  query: string
+  platform: string
+  answer_summary: string
+  next_action: string
+  feed_key: string
+  run_group: string
+  synapse_mentioned: boolean
+  synapse_cited: boolean
+  cited_urls: string
+  competitor_mentions: string
+  missing_facts: string
+  evidence_url: string
+}
+
 export function SourceConfigModal({ open, draft, setDraft, onClose, onCreate }: Readonly<{
   open: boolean
   draft: { name: string; config_type: string; seed_urls: string; queries: string }
@@ -56,8 +71,8 @@ export function LeadCreateModal({ open, leadType, draft, setDraft, onClose, onCr
 
 export function RecordCreateModal(props: Readonly<{
   kind: null | 'ai' | 'mcp'
-  aiDraft: { query: string; platform: string; answer_summary: string; next_action: string }
-  setAiDraft: (value: { query: string; platform: string; answer_summary: string; next_action: string }) => void
+  aiDraft: AiVisibilityDraft
+  setAiDraft: (value: AiVisibilityDraft) => void
   listingDraft: { surface: string; package_name: string; target_repo: string; listing_url: string }
   setListingDraft: (value: { surface: string; package_name: string; target_repo: string; listing_url: string }) => void
   onClose: () => void
