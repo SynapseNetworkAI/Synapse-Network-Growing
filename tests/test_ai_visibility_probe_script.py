@@ -11,7 +11,9 @@ from scripts.growth.record_ai_visibility_probe import (
 )
 from scripts.growth.generate_ai_visibility_probe_template import (
     CANONICAL_HOMEPAGE,
+    default_queries_for_feed,
     generate_records,
+    official_source_urls_for_feed,
     parse_platforms,
 )
 from scripts.growth import run_ai_visibility_api_probe as api_probe
@@ -227,6 +229,30 @@ def test_generate_probe_template_custom_platform_and_query(tmp_path: Path):
     assert validate_records(parsed) == []
 
 
+def test_generate_probe_template_defaults_to_feed_queries_and_sources(tmp_path: Path):
+    records = generate_records(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-after-registry",
+        platforms=["chatgpt"],
+        queries=default_queries_for_feed("mcp_paid_api_discovery"),
+        mode="after-feed",
+    )
+    probe_path = write_probe_jsonl(tmp_path, [record.__dict__ for record in records])
+
+    parsed = parse_probe_file(probe_path)
+
+    assert [record.query for record in parsed] == [
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments",
+    ]
+    source_urls = official_source_urls_for_feed("mcp_paid_api_discovery")
+    assert "https://www.synapse-network.ai/" in source_urls
+    assert "https://mcp.synapse-network.ai/mcp" in source_urls
+    assert "https://docs.synapse-network.ai/mcp/paid-api-calls" in source_urls
+    assert parsed[0].metadata["official_source_urls"] == source_urls
+    assert validate_records(parsed) == []
+
+
 def test_generate_probe_template_cli_writes_jsonl(tmp_path: Path):
     output_path = tmp_path / "probe-template.jsonl"
 
@@ -256,6 +282,40 @@ def test_generate_probe_template_cli_writes_jsonl(tmp_path: Path):
     assert len(records) == 1
     assert records[0].platform == "grok"
     assert records[0].metadata["canonical_homepage"] == CANONICAL_HOMEPAGE
+    assert validate_records(records) == []
+
+
+def test_generate_probe_template_cli_defaults_to_feed_queries(tmp_path: Path):
+    output_path = tmp_path / "probe-template.jsonl"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/generate_ai_visibility_probe_template.py",
+            "--feed-key",
+            "mcp_paid_api_discovery",
+            "--run-group",
+            "2026-06-18-after-registry",
+            "--platforms",
+            "chatgpt",
+            "--output",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    records = parse_probe_file(output_path)
+    assert [record.query for record in records] == [
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments",
+    ]
+    assert records[0].metadata["official_source_urls"] == official_source_urls_for_feed(
+        "mcp_paid_api_discovery"
+    )
     assert validate_records(records) == []
 
 

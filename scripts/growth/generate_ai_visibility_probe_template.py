@@ -26,18 +26,14 @@ from scripts.growth.ai_visibility_cli import (  # noqa: E402
     write_text_or_stdout,
 )
 from scripts.growth.record_ai_visibility_probe import EXTERNAL_PLATFORMS  # noqa: E402
+from server.services.growth.ai_visibility_official_sources import (  # noqa: E402
+    ai_visibility_official_sources,
+)
 from server.services.growth.ai_visibility_plan import (  # noqa: E402
     ai_visibility_optimization_plan,
 )
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
-OFFICIAL_SOURCE_URLS = [
-    CANONICAL_HOMEPAGE,
-    "https://docs.synapse-network.ai/",
-    "https://github.com/SynapseNetworkAI",
-    "https://mcp.synapse-network.ai/mcp",
-    "https://registry.modelcontextprotocol.io/",
-]
 KNOWN_COLLISION_DOMAINS = [
     "synapsenetwork.xyz",
     "synapse.network",
@@ -107,7 +103,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
 
     try:
         platforms = parse_platforms(args.platforms)
-        queries = args.queries or baseline_queries()
+        queries = args.queries or default_queries_for_feed(args.feed_key)
         rows = generate_records(
             feed_key=args.feed_key,
             run_group=args.run_group,
@@ -139,6 +135,28 @@ def baseline_queries() -> list[str]:
     return [item.query for item in ai_visibility_optimization_plan().baseline_queries]
 
 
+def default_queries_for_feed(feed_key: str) -> list[str]:
+    safe_feed_key = (feed_key or "").strip()
+    plan = ai_visibility_optimization_plan()
+    for experiment in plan.feed_experiments:
+        if experiment.feed_key == safe_feed_key:
+            return list(experiment.target_queries)
+    return baseline_queries()
+
+
+def official_source_urls_for_feed(feed_key: str) -> list[str]:
+    safe_feed_key = (feed_key or "").strip()
+    sources = ai_visibility_official_sources().items
+    matched = [
+        source.canonical_url
+        for source in sources
+        if safe_feed_key in source.feed_keys
+    ]
+    if matched:
+        return sorted(set(matched))
+    return sorted({source.canonical_url for source in sources})
+
+
 def generate_records(
     *,
     feed_key: str,
@@ -157,12 +175,14 @@ def generate_records(
         queries=normalized_queries,
         platforms=normalized_platforms,
     )
+    official_source_urls = official_source_urls_for_feed(feed_key)
     return _template_records(
         feed_key=feed_key.strip(),
         run_group=run_group.strip(),
         platforms=normalized_platforms,
         queries=normalized_queries,
         mode=mode,
+        official_source_urls=official_source_urls,
     )
 
 
@@ -190,6 +210,7 @@ def _template_records(
     platforms: list[str],
     queries: list[str],
     mode: str,
+    official_source_urls: list[str],
 ) -> list[ProbeTemplateRecord]:
     generated_at = date.today().isoformat()
     return [
@@ -200,6 +221,7 @@ def _template_records(
             run_group=run_group,
             mode=mode,
             generated_at=generated_at,
+            official_source_urls=official_source_urls,
         )
         for query in queries
         for platform in platforms
@@ -214,6 +236,7 @@ def template_record(
     run_group: str,
     mode: str,
     generated_at: str,
+    official_source_urls: list[str],
 ) -> ProbeTemplateRecord:
     return ProbeTemplateRecord(
         query=query,
@@ -241,7 +264,7 @@ def template_record(
             "generated_at": generated_at,
             "platform_entry_url": PLATFORM_ENTRY_URLS.get(platform, ""),
             "question_to_ask": query,
-            "official_source_urls": OFFICIAL_SOURCE_URLS,
+            "official_source_urls": official_source_urls,
             "known_collision_domains": KNOWN_COLLISION_DOMAINS,
             "success_decision_rule": (
                 "Success requires the answer to mention Synapse Network and cite "

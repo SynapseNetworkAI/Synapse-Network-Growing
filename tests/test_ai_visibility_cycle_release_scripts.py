@@ -64,7 +64,10 @@ def test_probe_template_includes_official_sources_and_collision_domains():
     metadata = rows[0].metadata
     assert metadata["canonical_homepage"] == "https://www.synapse-network.ai/"
     assert "https://www.synapse-network.ai/" in metadata["official_source_urls"]
-    assert "https://docs.synapse-network.ai/" in metadata["official_source_urls"]
+    assert "https://github.com/SynapseNetworkAI" in metadata["official_source_urls"]
+    assert "https://www.synapse-network.ai/llms.txt" in metadata[
+        "official_source_urls"
+    ]
     assert "synapsenetwork.xyz" in metadata["known_collision_domains"]
     assert "synapse.network" in metadata["known_collision_domains"]
     assert "known collision domains" in metadata["evidence_capture"]
