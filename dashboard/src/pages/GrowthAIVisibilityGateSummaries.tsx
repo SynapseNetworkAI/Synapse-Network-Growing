@@ -199,6 +199,7 @@ export function NextCycleSummary({ nextCycle }: Readonly<{ nextCycle: GrowthAIVi
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <CommandBlock label="Feed validation" value={nextCycle.feed_validation_command} />
         <CommandBlock label="Manual template" value={nextCycle.manual_probe_template_command} />
+        <CommandBlock label="External gate" value={nextCycle.external_probe_gate_command} />
         <CommandBlock label="API readiness" value={nextCycle.api_readiness_command} />
         <CommandBlock label="API execute" value={nextCycle.api_execute_command} />
         <CommandBlock label="Probe matrix" value={nextCycle.probe_matrix_command} />

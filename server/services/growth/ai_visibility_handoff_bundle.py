@@ -203,6 +203,7 @@ def _handoff_commands(
         ),
         "feed_validation": live_readiness.get("validation_command", ""),
         "record_readiness": live_readiness.get("apply_command", ""),
+        "external_probe_gate": next_cycle.get("external_probe_gate_command", ""),
         "api_readiness": external_gate.get("api_readiness_command", ""),
         "partial_api_readiness": external_gate.get(
             "partial_api_readiness_command",

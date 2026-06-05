@@ -482,6 +482,12 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert next_cycle_payload["manual_probe_template_command"].startswith(
         "python scripts/growth/generate_ai_visibility_probe_template.py"
     )
+    assert next_cycle_payload["external_probe_gate_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_external_probe_gate.py"
+    )
+    assert next_cycle_payload["external_probe_gate_command"].endswith(
+        "-brand_disambiguation_www-weekly-external-probe-gate.json"
+    )
     assert (
         "run_ai_visibility_feed_validation.py"
         in next_cycle_payload["feed_validation_command"]

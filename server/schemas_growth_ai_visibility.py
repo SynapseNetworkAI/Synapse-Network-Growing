@@ -121,6 +121,7 @@ class GrowthAIVisibilityNextCycleOut(BaseModel):
     validation_commands: list[str] = Field(default_factory=list)
     feed_validation_command: str
     manual_probe_template_command: str
+    external_probe_gate_command: str
     api_readiness_command: str
     api_execute_command: str
     apply_command: str

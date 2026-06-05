@@ -231,6 +231,7 @@ function nextCycle() {
     validation_commands: [],
     feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py',
     manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py',
+    external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py',
     api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py',
     api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
     apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply',

@@ -399,6 +399,7 @@ function installFetch() {
         validation_commands: ['curl -fsS https://www.synapse-network.ai/llms.txt'],
         feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-feed-validation.jsonl',
         manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --mode after-feed',
+        external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-external-probe-gate.json',
         api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API"',
         api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API" --execute',
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
@@ -890,7 +891,6 @@ describe('GrowthPage', () => {
   it('renders source configs and can run provider acquisition', async () => {
     const calls = installFetch()
     render(<GrowthPage />)
-
     await screen.findByText('Provider Source Configs')
     expect(screen.getByText('Provider Discovery: MCP + API Services')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dry Run' }))

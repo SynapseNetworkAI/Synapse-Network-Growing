@@ -104,12 +104,8 @@ def test_validation_rejects_validation_platforms_and_missing_citation_evidence(
     errors = validate_records(records)
 
     assert "record 0: validation platform is not external probe evidence" in errors
-    assert (
-        "record 1: validation platform is not external probe evidence" in errors
-    )
-    assert (
-        "record 2: synapse_cited=true requires cited_urls or evidence_url" in errors
-    )
+    assert "record 1: validation platform is not external probe evidence" in errors
+    assert "record 2: synapse_cited=true requires cited_urls or evidence_url" in errors
 
 
 def test_validation_rejects_collision_domain_as_synapse_citation(tmp_path: Path):
@@ -341,16 +337,17 @@ def test_generate_probe_matrix_cli_writes_json(tmp_path: Path):
     assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
     assert payload["total"] == 9
     mcp_rows = [
-        row
-        for row in payload["rows"]
-        if row["feed_key"] == "mcp_paid_api_discovery"
+        row for row in payload["rows"] if row["feed_key"] == "mcp_paid_api_discovery"
     ]
     assert {row["platform"] for row in mcp_rows} == {
         "chatgpt",
         "claude",
         "grok",
     }
-    assert all("record_ai_visibility_probe.py" in row["record_probe_command"] for row in mcp_rows)
+    assert all(
+        "record_ai_visibility_probe.py" in row["record_probe_command"]
+        for row in mcp_rows
+    )
     assert any(
         "https://mcp.synapse-network.ai/mcp" in row["official_source_urls"]
         for row in mcp_rows
@@ -532,9 +529,9 @@ def test_validate_probe_matrix_cli_requires_evidence_url(tmp_path: Path):
 
     assert result.returncode == 2
     payload = json.loads(result.stdout)
-    assert "record 0: evidence_url is required for matrix validation" in payload[
-        "errors"
-    ]
+    assert (
+        "record 0: evidence_url is required for matrix validation" in payload["errors"]
+    )
 
 
 def test_generate_feed_package_cli_writes_json(tmp_path: Path):
@@ -561,7 +558,9 @@ def test_generate_feed_package_cli_writes_json(tmp_path: Path):
     package = payload["items"][0]
     assert package["feed_key"] == "agent_payment_category_pages"
     assert package["canonical_domain"] == CANONICAL_HOMEPAGE
-    assert "--feed-key agent_payment_category_pages" in package["probe_template_command"]
+    assert (
+        "--feed-key agent_payment_category_pages" in package["probe_template_command"]
+    )
     assert {asset["surface"] for asset in package["publish_assets"]} >= {
         "www",
         "docs",
@@ -597,8 +596,9 @@ def test_generate_mcp_feed_package_includes_paid_api_docs(tmp_path: Path):
     assert CANONICAL_HOMEPAGE in {
         asset["target"] for asset in package["publish_assets"]
     }
-    assert "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls" in (
-        package["validation_commands"]
+    assert (
+        "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls"
+        in (package["validation_commands"])
     )
     assert any(
         "https://www.synapse-network.ai/" in command
@@ -668,7 +668,9 @@ def test_generate_design_handoff_cli_writes_json(tmp_path: Path):
 
     assert result.returncode == 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["figma_file_name"] == "Synapse AI Agent Payments Docs - AI Visibility"
+    assert (
+        payload["figma_file_name"] == "Synapse AI Agent Payments Docs - AI Visibility"
+    )
     assert payload["source_tool"] == "Stitch"
     assert payload["target_tool"] == "Figma"
     assert len(payload["frames"]) == 3
@@ -849,6 +851,7 @@ def test_post_json_redacts_secret_values_on_http_error(monkeypatch):
 
     assert "secret-openai-value" not in message
     assert "[REDACTED]" in message
+
 
 def write_probe_jsonl(tmp_path: Path, payloads: list[dict]) -> Path:
     probe_path = tmp_path / "generated.jsonl"

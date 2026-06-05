@@ -100,6 +100,7 @@ export interface GrowthAIVisibilityNextCycle {
   validation_commands: string[]
   feed_validation_command: string
   manual_probe_template_command: string
+  external_probe_gate_command: string
   api_readiness_command: string
   api_execute_command: string
   apply_command: string

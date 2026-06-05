@@ -244,6 +244,10 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
     validation_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-feed-validation.jsonl"
     )
+    external_gate_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/"
+        f"{run_group}-external-probe-gate.json"
+    )
     packages = ai_visibility_feed_packages(feed_key).items
     validation_commands = packages[0].validation_commands if packages else []
     manual_command = (
@@ -275,6 +279,12 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
             f"--output {validation_output_path}"
         ),
         manual_probe_template_command=manual_command,
+        external_probe_gate_command=(
+            "python scripts/growth/generate_ai_visibility_external_probe_gate.py "
+            f"--feed-key {feed_key} "
+            f"--run-group {run_group} "
+            f"--output {external_gate_output_path}"
+        ),
         api_readiness_command=api_base,
         api_execute_command=f"{api_base} --output {output_path} --execute",
         apply_command=(

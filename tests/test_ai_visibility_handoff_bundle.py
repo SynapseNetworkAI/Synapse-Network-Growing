@@ -60,6 +60,10 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
     assert "Docs /mcp/paid-api-calls page must be live." in manifest["blockers"]
     assert "--platforms chatgpt,claude" in manifest["commands"]["partial_api_readiness"]
     assert (
+        "generate_ai_visibility_external_probe_gate.py"
+        in manifest["commands"]["external_probe_gate"]
+    )
+    assert (
         "generate_ai_visibility_probe_matrix.py" in manifest["commands"]["probe_matrix"]
     )
     assert (
@@ -196,6 +200,12 @@ class FakeNextCycle:
                 "python scripts/growth/validate_ai_visibility_probe_matrix.py "
                 "docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl "
                 "--matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-probe-matrix.json"
+            ),
+            "external_probe_gate_command": (
+                "python scripts/growth/generate_ai_visibility_external_probe_gate.py "
+                "--feed-key mcp_paid_api_discovery "
+                "--run-group 2026-06-05-mcp-weekly "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-external-probe-gate.json"
             ),
             "cycle_summary_command": (
                 "python scripts/growth/summarize_ai_visibility_cycle.py "
