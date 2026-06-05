@@ -14,6 +14,11 @@ from server.schemas_growth import (
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
+KNOWN_BRAND_COLLISION_COMPETITORS = {
+    "synapsenetwork.xyz",
+    "synapse.network",
+    "forbes.com/digital-assets/assets/synapse-network-zksnp",
+}
 
 
 def _comparison_out(
@@ -208,6 +213,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
+        and not _known_collision_mentions(item.top_competitors)
     )
 
 
@@ -229,6 +235,12 @@ def _weekly_blockers(
         blockers.append(
             "Fewer than three stable positive external runs have been recorded."
         )
+    collision_mentions = _comparison_collision_mentions(comparisons)
+    if collision_mentions:
+        blockers.append(
+            "Known Synapse brand collision results still appear in external "
+            f"probe evidence: {', '.join(collision_mentions)}."
+        )
     if not any(item.cited_count > 0 for item in comparisons):
         blockers.append("No answer-engine citation to Synapse has been recorded.")
     return unique_strings(blockers)
@@ -239,8 +251,10 @@ def _weekly_next_actions(
     missing_platforms: list[str],
     *,
     validation_blockers: list[str],
+    collision_mentions: list[str] | None = None,
 ) -> list[str]:
     actions: list[str] = []
+    collision_mentions = collision_mentions or []
     if validation_blockers:
         actions.append(
             "Resolve latest validation blockers before the next external probe."
@@ -252,9 +266,33 @@ def _weekly_next_actions(
     for report in feed_reports:
         if report.comparison_status in {"needs_external_probe", "regressed", "flat"}:
             actions.extend(report.next_actions[:2])
+    if collision_mentions:
+        actions.append(
+            "Add or strengthen disambiguation copy for known collision domains: "
+            f"{', '.join(collision_mentions)}."
+        )
     if not actions:
         actions.append("Schedule the next weekly GPT/Claude/Grok stability probe.")
     return unique_strings(actions)[:6]
+
+
+def _comparison_collision_mentions(
+    comparisons: list[GrowthAIVisibilityComparisonOut],
+) -> list[str]:
+    collisions: set[str] = set()
+    for item in comparisons:
+        collisions.update(_known_collision_mentions(item.top_competitors))
+    return sorted(collisions)
+
+
+def _known_collision_mentions(values: list[str]) -> list[str]:
+    collisions: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip().lower()
+        for collision in KNOWN_BRAND_COLLISION_COMPETITORS:
+            if collision in normalized:
+                collisions.add(collision)
+    return sorted(collisions)
 
 
 def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:

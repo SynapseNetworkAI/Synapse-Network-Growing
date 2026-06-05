@@ -16,6 +16,7 @@ from server.schemas_growth import (
 )
 from server.services.growth.serializer import ai_check_out, json_dumps
 from server.services.growth.ai_visibility_comparison_helpers import (
+    _comparison_collision_mentions,
     _comparison_out,
     _feed_report,
     _latest_comparison_by_feed,
@@ -153,6 +154,7 @@ def ai_visibility_weekly_report(db: Session) -> GrowthAIVisibilityWeeklyReportOu
         stable_positive_runs=stable_positive_runs,
         validation_blockers=validation_blockers,
     )
+    collision_mentions = _comparison_collision_mentions(comparisons)
     goal_achieved = not blockers
     recommended_feed_key = _recommended_feed_key(feed_reports)
     return GrowthAIVisibilityWeeklyReportOut(
@@ -178,6 +180,7 @@ def ai_visibility_weekly_report(db: Session) -> GrowthAIVisibilityWeeklyReportOu
             feed_reports,
             missing_platforms,
             validation_blockers=validation_blockers,
+            collision_mentions=collision_mentions,
         ),
         recommended_feed_key=recommended_feed_key,
         recommended_probe_template_command=_probe_template_command(

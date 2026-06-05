@@ -595,6 +595,42 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert "record_ai_visibility_probe.py" in payload["record_probe_command"]
 
 
+def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client):
+    for platform in ("chatgpt", "claude", "grok"):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "What is Synapse Network for AI agents?",
+                "platform": platform,
+                "answer_summary": f"{platform} cites Synapse but also surfaces a collision.",
+                "synapse_mentioned": True,
+                "synapse_cited": True,
+                "cited_urls": ["https://www.synapse-network.ai/"],
+                "competitor_mentions": ["synapsenetwork.xyz"]
+                if platform == "chatgpt"
+                else [],
+                "next_action": "Strengthen brand disambiguation copy.",
+                "feed_key": "brand_disambiguation_www",
+                "run_group": "2026-06-05-brand-collision-check",
+            },
+        )
+        assert response.status_code == 201
+
+    report = synced_client.get("/api/growth/ai-visibility/weekly-report")
+
+    assert report.status_code == 200
+    payload = report.json()
+    assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["stable_positive_runs"] == 0
+    assert any(
+        "synapsenetwork.xyz" in blocker for blocker in payload["blockers"]
+    )
+    assert any(
+        "disambiguation copy" in action and "synapsenetwork.xyz" in action
+        for action in payload["next_actions"]
+    )
+
+
 def test_growth_ai_visibility_external_probe_gate_partial_ready(
     monkeypatch,
     synced_client,
