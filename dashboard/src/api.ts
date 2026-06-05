@@ -26,9 +26,6 @@ import { createBugsApi } from './apiBugs'
 export type { BugAgentContext, BugClaimResult, BugDetail, BugEvent, BugFixAttempt, BugList, BugRecord } from './apiBugs'
 import { createGrowthApi } from './apiGrowth'
 export type {
-  GrowthAIVisibilityCheck,
-  GrowthAIVisibilityComparison,
-  GrowthAIVisibilityOptimizationPlan,
   GrowthDiscoveryListing,
   GrowthLead,
   GrowthLeadDetail,
@@ -43,6 +40,30 @@ export type {
   GrowthResearchRun,
   GrowthSourceConfig,
 } from './apiGrowth'
+export type {
+  GrowthAIVisibilityCheck,
+  GrowthAIVisibilityComparison,
+  GrowthAIVisibilityDesignHandoff,
+  GrowthAIVisibilityDocsBlueprint,
+  GrowthAIVisibilityExternalProbeGate,
+  GrowthAIVisibilityExternalProbeProvider,
+  GrowthAIVisibilityFeedPackage,
+  GrowthAIVisibilityFeedScore,
+  GrowthAIVisibilityFeedScorecard,
+  GrowthAIVisibilityFeedCycle,
+  GrowthAIVisibilityFeedCycleList,
+  GrowthAIVisibilityHandoffBundle,
+  GrowthAIVisibilityLiveReadiness,
+  GrowthAIVisibilityLiveReadinessCheck,
+  GrowthAIVisibilityLiveReadinessItem,
+  GrowthAIVisibilityNextCycle,
+  GrowthAIVisibilityOptimizationBrief,
+  GrowthAIVisibilityReleaseCommandGroup,
+  GrowthAIVisibilityReleaseSnapshot,
+  GrowthAIVisibilityReleaseUnblockPlan,
+  GrowthAIVisibilityWeeklyReport,
+  GrowthAIVisibilityOptimizationPlan,
+} from './apiGrowthAiVisibility'
 import { createReleaseScheduledJobsApi } from './apiReleaseScheduledJobs'
 import { createSchedulesApi } from './apiSchedules'
 import type { RecurringWorkflowRunResult } from './apiSchedules'

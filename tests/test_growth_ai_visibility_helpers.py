@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, inspect, text
 
 from server.database_growth_ai_visibility import migrate_growth_ai_visibility_schema
-from server.services.growth.discovery import (
+from server.services.growth.ai_visibility_comparison_helpers import (
     _is_external_visibility_platform,
     _json_list,
 )

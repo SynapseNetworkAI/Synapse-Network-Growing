@@ -24,11 +24,11 @@ The planned route is `/growth`. It is a Human-Agent Control Plane, not an autono
 
 ## Current Production Facts
 
-1. `https://www.synapse-network.ai/` is the production marketing site and should be the canonical homepage in metadata, `robots.txt`, `llms.txt`, sitemap, docs, and distribution copy.
+1. `https://www.synapse-network.ai/` is the production marketing site and should be the canonical homepage in metadata, `robots.txt`, `llms.txt`, sitemap, docs, and distribution copy. `https://synapse-network.ai/*` should permanently redirect to the matching `www` URL so answer engines see one canonical host.
 2. `https://www.synapse-network.ai/llms.txt` exists and should remain the canonical machine-readable product explainer.
 3. Current public positioning should stay consistent with the product marketing context: Synapse is the settlement layer for AI agents, a way for agents to discover, invoke, and pay for APIs with budget isolation and USDC settlement.
 4. Current robots policy broadly allows crawling while disallowing dashboard, provider, API, and Next.js data paths. The next production-site iteration should make AI crawler policy explicit instead of accidental.
-5. Live baseline on 2026-06-04 found a P0 discovery gap: `www` is the confirmed official homepage, but the production sitemap was effectively empty and some canonical / `llms.txt` links still pointed at non-`www`. AI Visibility must track this as a feed experiment until fixed and rechecked.
+5. Live baseline on 2026-06-04 found a P0 discovery gap: `www` is the confirmed official homepage, but the production sitemap was effectively empty, some canonical / `llms.txt` links still pointed at non-`www`, and the bare domain did not permanently redirect to `www`. AI Visibility must track this as a feed experiment until fixed and rechecked.
 
 ## Operating Boundary
 
@@ -511,9 +511,20 @@ define query set
 
 ### AI Visibility Optimization Plan
 
-Growing exposes `GET /api/growth/ai-visibility/optimization-plan` as the operator-facing plan source for continuous agent SEO. It is a structured read-only plan, while `AIVisibilityCheck` remains the run ledger. `GET /api/growth/ai-visibility/comparisons` groups checks by `feed_key + run_group` so the operator can compare GPT, Claude, and Grok search outcomes after each feed experiment.
+Growing exposes `GET /api/growth/ai-visibility/optimization-plan` as the operator-facing plan source for continuous agent SEO. It is a structured read-only plan, while `AIVisibilityCheck` remains the run ledger. `GET /api/growth/ai-visibility/docs-blueprint` exports the page-level `AI Agent Payments` docs blueprint with titles, canonical URLs, definition blocks, fact tables, FAQ prompts, schema types, Stitch/Figma component notes, MDX skeletons, and validation commands. `GET /api/growth/ai-visibility/design-handoff` exports the Stitch-to-Figma handoff with Figma file name, frame prompts, reusable component specs, design tokens, import steps, implementation notes, and acceptance checks. `GET /api/growth/ai-visibility/feed-package` turns each planned feed experiment into an executable operator package: publish assets, Stitch/Figma design prompt, local validation commands, probe-template command, success metrics, and next actions. `GET /api/growth/ai-visibility/comparisons` groups checks by `feed_key + run_group` so the operator can compare GPT, Claude, and Grok search outcomes after each feed experiment. `GET /api/growth/ai-visibility/weekly-report` is the continuous optimization gate: it summarizes coverage, blockers, stable positive run count, recommended feed key, and the next probe-template command. It must keep `goal_achieved=false` until external GPT/Claude/Grok evidence and stability requirements pass.
 
-Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
+Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, bare-domain redirect state, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
+
+This should be a dedicated Growth submodule, not a one-off docs task. The operator surface is `Growth -> AI Visibility`, with data stored as:
+
+1. Product docs blueprint: `AI Agent Payments` page specs, reusable docs-front components, MDX skeletons, schema types, Stitch notes, Figma components, and validation commands.
+2. Stitch/Figma handoff: Figma file name, frame-specific Stitch prompts, reusable component specs, design tokens, import steps, and acceptance checks.
+3. Product feed packages: docs, www pages, `llms.txt`, sitemap, robots policy, schema, GitHub READMEs, MCP listings, public social/source posts, validation commands, and a probe-template command.
+4. Search probes: one `AIVisibilityCheck` row per platform/query/run group.
+5. Comparisons: grouped by `feed_key + run_group`, separating local feed validation from GPT, Claude, Grok, Perplexity, Google AI, or Bing/Copilot search truth.
+6. Delta scoring: each run group compares against the previous run group for the same `feed_key`, exposing mention delta, citation delta, comparison status, and whether the feed was effective.
+7. Weekly report gate: `goal_achieved`, stable positive runs, missing platforms, blockers, and the recommended next probe command.
+8. Next actions: content, docs, MCP registry, GitHub, social distribution, or crawler-access tasks that the operator can turn into requirements.
 
 Optimization loop:
 
@@ -521,6 +532,7 @@ Optimization loop:
 live baseline
 -> fix crawl/canonical/source docs
 -> create feed experiment
+-> export feed package
 -> publish docs/site/GitHub/MCP registry assets
 -> probe ChatGPT, Claude, and Grok
 -> record AIVisibilityCheck evidence
@@ -530,7 +542,7 @@ live baseline
 
 P0 feed experiments:
 
-1. `brand_disambiguation_www`: make `https://www.synapse-network.ai/` and docs show up for brand queries and distinguish Synapse Network from unrelated `synapse.network` results.
+1. `brand_disambiguation_www`: make `https://www.synapse-network.ai/` and docs show up for brand queries, permanently redirect the bare domain to `www`, and distinguish Synapse Network from unrelated `synapse.network` results.
 2. `agent_payment_category_pages`: publish answer-ready docs and homepage pages for AI agent payment APIs, paid API calls, USDC settlement, receipts, and budget isolation.
 3. `mcp_paid_api_discovery`: make the Remote MCP endpoint and package visible in MCP Registry, Smithery, Glama, docs, and GitHub surfaces.
 
@@ -541,20 +553,43 @@ Comparison rules:
 3. Record one `AIVisibilityCheck` per platform/query result, including evidence URL or screenshot path when available.
 4. Treat missing GPT, Claude, or Grok rows as missing platform evidence, not as a pass.
 5. Only mark an experiment effective when the comparison shows improved mention/citation counts against the previous run group.
-6. Use `docs/ops/11_AI_Visibility_Probe_Runbook.md` and `scripts/growth/record_ai_visibility_probe.py` to validate and record manual ChatGPT, Claude, and Grok probe rows.
+6. Use `GET /api/growth/ai-visibility/feed-package` or `scripts/growth/generate_ai_visibility_feed_package.py` to export the bounded feed package before publishing assets.
+7. Use `docs/ops/11_AI_Visibility_Probe_Runbook.md`, `scripts/growth/generate_ai_visibility_probe_template.py`, and `scripts/growth/record_ai_visibility_probe.py` to generate, validate, and record manual ChatGPT, Claude, and Grok probe rows.
+
+Comparison statuses:
+
+1. `needs_external_probe`: local feed evidence exists, but no real answer-engine rows exist for the run group.
+2. `baseline`: first external run for a feed key.
+3. `improved`: mention or citation count increased against the previous run group.
+4. `flat`: external results did not move.
+5. `regressed`: mention or citation count decreased and needs immediate diagnosis.
+
+Agent search optimization is continuous. A single sitemap or docs deploy only proves that we fed better source material. It does not prove answer engines have crawled, selected, cited, and retained the new facts. Each feed experiment should run through:
+
+1. Baseline: record current GPT, Claude, and Grok answers before a feed.
+2. Feed: publish one bounded asset bundle, such as `agent_payment_category_pages`.
+3. Local validation: confirm `www`, bare-domain redirect, docs, schema, sitemap, `llms.txt`, and robots access.
+4. External probe: rerun the same query set in the same platforms.
+5. Comparison: check mention/citation deltas, missing platforms, competitors, and missing facts.
+6. Weekly report: review blockers and recommended next feed/probe command.
+7. Follow-up: create the next content or distribution requirement only from evidence, not from guesses.
+8. Stability: require three weekly positive runs before calling a visibility goal achieved.
 
 Product documentation design:
 
 1. Add a major docs category named `AI Agent Payments`.
 2. Create citation-ready pages for `/ai-agent-payments`, `/agent-payment-api`, `/agent-pays-for-llm-calls`, `/provider-monetization`, `/receipts-and-budget-isolation`, `/synapse-vs-x402`, and `/faq`.
 3. Every page should include a 40-60 word standalone definition, machine-readable facts table, user path, payment flow, comparison block, FAQ, schema markup, last updated date, and links to source surfaces.
+4. Use `GET /api/growth/ai-visibility/docs-blueprint` or `scripts/growth/generate_ai_visibility_docs_blueprint.py` to export the current page-level implementation blueprint before editing `Synapse-Network` docs-front.
 
 Stitch and Figma workflow:
 
 1. Use Stitch to design the docs landing page and comparison blocks from the plan's `design_plan.stitch_prompt`.
-2. Import the Stitch exploration into Figma as visual guidance.
-3. Normalize typography, spacing, and reusable docs-front components in Figma.
-4. Implement the final source of truth in MDX / production site code, `llms.txt`, sitemap, and schema. Figma must not become the canonical content source.
+2. Export `GET /api/growth/ai-visibility/design-handoff` or `scripts/growth/generate_ai_visibility_design_handoff.py` before generating the Stitch exploration so the frame names, component specs, and acceptance checks stay stable.
+3. Import the Stitch exploration into Figma as visual guidance.
+4. Normalize typography, spacing, and reusable docs-front components in Figma.
+5. Implement the final source of truth in MDX / production site code, `llms.txt`, sitemap, and schema. Figma must not become the canonical content source.
+6. After implementation, record the feed as local validation rows first, then run external GPT / Claude / Grok probes after the content is live.
 
 Success requires repeated external evidence, not a one-off local change: brand queries should cite `www`, docs, GitHub, or MCP registry; at least half of the priority category queries should mention Synapse on two target platforms; and results should hold for three weekly runs.
 
@@ -816,9 +851,10 @@ External validation:
 
 1. `curl https://www.synapse-network.ai/llms.txt` returns current product facts and uses `www` links.
 2. `curl https://www.synapse-network.ai/robots.txt` shows intentional crawler policy and a non-empty `www` sitemap URL.
-3. Official MCP Registry can search or resolve the Synapse MCP server after submission.
-4. At least one third-party MCP directory shows a verified Synapse listing.
-5. Outreach metrics record real sends and replies only.
+3. `curl -I https://synapse-network.ai/` returns a permanent redirect whose `Location` starts with `https://www.synapse-network.ai/`.
+4. Official MCP Registry can search or resolve the Synapse MCP server after submission.
+5. At least one third-party MCP directory shows a verified Synapse listing.
+6. Outreach metrics record real sends and replies only.
 
 ## References
 

@@ -5,6 +5,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from server.schemas_growth_ai_visibility import *  # noqa: F401,F403
+
 
 class GrowthLeadCreate(BaseModel):
     lead_type: str
@@ -226,103 +228,6 @@ class GrowthMessageActionRequest(BaseModel):
 class GrowthReplyRequest(GrowthMessageActionRequest):
     reply_summary: str
     interested: bool = False
-
-
-class GrowthAIVisibilityCheckCreate(BaseModel):
-    query: str
-    platform: str
-    answer_summary: str = ""
-    synapse_mentioned: bool = False
-    synapse_cited: bool = False
-    cited_urls: list[str] = Field(default_factory=list)
-    competitor_mentions: list[str] = Field(default_factory=list)
-    missing_facts: list[str] = Field(default_factory=list)
-    next_action: str = ""
-    feed_key: str = ""
-    run_group: str = ""
-    result_rank: int = 0
-    evidence_url: str = ""
-    metadata: dict[str, object] = Field(default_factory=dict)
-
-
-class GrowthAIVisibilityCheckOut(GrowthAIVisibilityCheckCreate):
-    id: int
-    run_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-
-class GrowthAIVisibilityCheckListOut(BaseModel):
-    items: list[GrowthAIVisibilityCheckOut] = Field(default_factory=list)
-    total: int = 0
-    limit: int = 50
-    offset: int = 0
-
-
-class GrowthAIVisibilityComparisonOut(BaseModel):
-    feed_key: str
-    run_group: str
-    platforms: list[str] = Field(default_factory=list)
-    external_platforms: list[str] = Field(default_factory=list)
-    total_checks: int = 0
-    external_checks_count: int = 0
-    local_validation_count: int = 0
-    mentioned_count: int = 0
-    cited_count: int = 0
-    missing_platforms: list[str] = Field(default_factory=list)
-    top_competitors: list[str] = Field(default_factory=list)
-    next_actions: list[str] = Field(default_factory=list)
-    evidence_urls: list[str] = Field(default_factory=list)
-    latest_run_at: Optional[datetime] = None
-
-
-class GrowthAIVisibilityComparisonListOut(BaseModel):
-    items: list[GrowthAIVisibilityComparisonOut] = Field(default_factory=list)
-    total: int = 0
-
-
-class GrowthAIVisibilityQueryOut(BaseModel):
-    query: str
-    intent: str
-    target_platforms: list[str] = Field(default_factory=list)
-    success_signal: str
-
-
-class GrowthAIVisibilityFeedExperimentOut(BaseModel):
-    feed_key: str
-    surfaces: list[str] = Field(default_factory=list)
-    content_assets: list[str] = Field(default_factory=list)
-    target_queries: list[str] = Field(default_factory=list)
-    measurement_window_days: int = 14
-
-
-class GrowthAIVisibilityDocsPlanOut(BaseModel):
-    canonical_domain: str = "https://www.synapse-network.ai/"
-    docs_category: str
-    pages: list[str] = Field(default_factory=list)
-    required_blocks: list[str] = Field(default_factory=list)
-    schema_types: list[str] = Field(default_factory=list)
-
-
-class GrowthAIVisibilityDesignPlanOut(BaseModel):
-    stitch_prompt: str
-    figma_handoff: list[str] = Field(default_factory=list)
-    implementation_targets: list[str] = Field(default_factory=list)
-
-
-class GrowthAIVisibilityOptimizationPlanOut(BaseModel):
-    module_key: str = "ai_visibility"
-    objective: str
-    canonical_domain: str = "https://www.synapse-network.ai/"
-    critical_fixes: list[str] = Field(default_factory=list)
-    baseline_queries: list[GrowthAIVisibilityQueryOut] = Field(default_factory=list)
-    feed_experiments: list[GrowthAIVisibilityFeedExperimentOut] = Field(
-        default_factory=list
-    )
-    product_docs: GrowthAIVisibilityDocsPlanOut
-    design_plan: GrowthAIVisibilityDesignPlanOut
-    growing_workflows: list[str] = Field(default_factory=list)
-    success_criteria: list[str] = Field(default_factory=list)
 
 
 class GrowthDiscoveryListingCreate(BaseModel):

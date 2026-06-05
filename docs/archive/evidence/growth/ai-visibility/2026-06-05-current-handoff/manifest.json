@@ -1,0 +1,59 @@
+{
+  "blockers": [
+    "GCloud auth fails non-interactively until a human runs gcloud auth login.",
+    "docs-front production is behind the merged MCP paid API feed commits.",
+    "user-front staging and production are behind the merged MCP paid API feed commits.",
+    "Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.",
+    "Production homepage https://www.synapse-network.ai/ is reachable, but https://www.synapse-network.ai/llms.txt does not expose the MCP paid API guide and Remote MCP endpoint yet.",
+    "External GPT/Claude/Grok probe evidence is not valid until production feed validation passes.",
+    "Docs /mcp/paid-api-calls page must be live.",
+    "Docs /mcp/paid-api-calls must expose MCP paid API answer text and tool names.",
+    "www llms.txt must include the MCP paid API calls guide and Remote MCP endpoint.",
+    "staging GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "production GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "grok external probe key missing: XAI_API_KEY.",
+    "Publish /mcp/paid-api-calls and www llms.txt MCP feed updates before external answer-engine probes.",
+    "grok missing XAI_API_KEY."
+  ],
+  "bundle_type": "operator_handoff",
+  "commands": {
+    "api_execute": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude,grok --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-external-probes.jsonl --execute",
+    "api_readiness": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude,grok",
+    "compare": "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-05-current-external-probe' | python -m json.tool",
+    "feed_validation": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-live-readiness --output docs/archive/evidence/growth/ai-visibility/2026-06-05-current-live-readiness-feed-validation.jsonl",
+    "partial_api_readiness": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current-external-probe --platforms chatgpt,claude",
+    "record_probe": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-current-external-probe-external-probes.jsonl --apply",
+    "record_readiness": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-current-live-readiness-feed-validation.jsonl --allow-local-validation --apply",
+    "rerun_handoff": "python scripts/growth/generate_ai_visibility_handoff_bundle.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-current --target-commit d8b5371e11fea2d962dcc656b9b8d08d0c1379d9 --output-dir docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff"
+  },
+  "external_probe_gate_status": "blocked_until_feed_ready",
+  "feed_key": "mcp_paid_api_discovery",
+  "files": {
+    "external_probe_gate": "docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/external-probe-gate.json",
+    "live_readiness": "docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/live-readiness.json",
+    "manifest": "docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/manifest.json",
+    "operator_brief": "docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/operator-brief.md",
+    "release_snapshot": "docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/release-snapshot.json"
+  },
+  "generated_at": "2026-06-05T02:12:50.183858+00:00",
+  "live_readiness_status": "blocked",
+  "missing_platforms": [
+    "grok"
+  ],
+  "module_key": "ai_visibility",
+  "next_actions": [
+    "Run gcloud auth login, then rerun this snapshot before creating release tasks.",
+    "Deploy docs-front and user-front target commit through Growing release tasks.",
+    "Rerun live readiness and external GPT/Claude/Grok probes only after feed validation passes.",
+    "Run full GPT/Claude/Grok probes only after production feed validation passes."
+  ],
+  "official_homepage": "https://www.synapse-network.ai/",
+  "ready_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "release_status": "blocked",
+  "run_group": "2026-06-05-current",
+  "status": "blocked",
+  "target_commit_sha": "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9"
+}

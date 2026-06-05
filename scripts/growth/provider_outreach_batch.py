@@ -32,7 +32,7 @@ from scripts.growth.local_env import load_dotenv
 from server.services.growth import workbench
 from server.services.growth.serializer import json_dumps, json_loads
 
-OFFICIAL_SITE = "https://synapse-network.ai/"
+OFFICIAL_SITE = "https://www.synapse-network.ai/"
 OFFICIAL_SENDER = "cliff@synapse-network.ai"
 CAMPAIGN_KEY = "provider-outreach-2026-06-02"
 CONFIRM_PHRASE = "SEND_PROVIDER_OUTREACH_20260602"

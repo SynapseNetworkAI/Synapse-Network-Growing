@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-06-05T01:04:55.273395Z",
+  "goal": "AI visibility feed target-branch predeploy readiness",
+  "target_repo": "Synapse-Network",
+  "target_worktree": "/private/tmp/synapse-mcp-paid-api-docs-feed",
+  "branch": "main",
+  "commit": "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
+  "commit_subject": "Expose MCP endpoint in docs llms feed (#204)",
+  "source_prs": [
+    203,
+    204
+  ],
+  "status": "target_branch_ready_live_prod_blocked",
+  "canonical_homepage": "https://www.synapse-network.ai/",
+  "validation": [
+    {
+      "command": "node scripts/ci/ai_visibility_assets_check.mjs",
+      "result": "passed"
+    },
+    {
+      "command": "node scripts/ci/seo_public_assets_check.mjs",
+      "result": "passed"
+    },
+    {
+      "command": "cd services/docs-front && yarn build",
+      "result": "passed"
+    },
+    {
+      "command": "rg 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp|discover_services|invoke_and_pay|get_receipt' services/docs-front/src/app/llms.txt/route.ts services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+      "result": "passed",
+      "matched": [
+        "MCP Server for Paid API Calls",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ]
+    },
+    {
+      "command": "rg 'MCP Server for Paid API Calls|Remote MCP endpoint|https://mcp.synapse-network.ai/mcp' services/user-front/public/llms.txt",
+      "result": "passed",
+      "matched": [
+        "MCP Server for Paid API Calls",
+        "Remote MCP endpoint",
+        "https://mcp.synapse-network.ai/mcp"
+      ]
+    },
+    {
+      "command": "Playwright local UI check for /growth?tab=ai-visibility release unblock plan",
+      "result": "passed",
+      "matched": [
+        "Confirmed facts",
+        "Official homepage canonical is https://www.synapse-network.ai/.",
+        "blocked_until_gcloud_auth",
+        "docs-front: production_behind_target",
+        "Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet."
+      ]
+    }
+  ],
+  "screenshots": [
+    "/Users/cliff/workspace/agent/Synapse-Network/docs/archive/evidence/ai-seo/mcp-paid-api-calls-docs-local-20260605.png",
+    "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/growth/ai-visibility-release-gap-panel-20260605.png",
+    "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/growth/ai-visibility-confirmed-facts-release-blocker-20260605.png"
+  ],
+  "live_production_blockers": [
+    "https://docs.synapse-network.ai/mcp/paid-api-calls still returns 404 until docs-front is deployed.",
+    "https://www.synapse-network.ai/llms.txt is live but does not yet expose the target branch MCP paid API feed until user-front is deployed.",
+    "GCloud CLI credentials need interactive refresh before Growing local release runner can deploy staging and promote production."
+  ],
+  "files": [
+    {
+      "path": "services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+      "sha256": "b7d015b2c8756e83a830444220a7d8368610bea203a93485aa7da45894811ef6"
+    },
+    {
+      "path": "services/docs-front/content/docs/mcp/meta.json",
+      "sha256": "8ad96a6248026c34a113013c98ede2b15d48fc65c54b19d0102f15252b99fbb0"
+    },
+    {
+      "path": "services/docs-front/src/app/sitemap.ts",
+      "sha256": "c6f3bdeb83fc121f55cb71096c7d9c1864659c263c7e659e2860ca930f715173"
+    },
+    {
+      "path": "services/docs-front/src/app/llms.txt/route.ts",
+      "sha256": "419d1ec7a5f6e6038a974129ecf7b681cffdf14471506a020bb0efe9c8c7dd8d"
+    },
+    {
+      "path": "services/user-front/public/llms.txt",
+      "sha256": "c49b047187728018382ff278708140cd5baefceee1e56c4380dfed48f38da438"
+    },
+    {
+      "path": "scripts/ci/ai_visibility_assets_check.mjs",
+      "sha256": "581c01493dd5c6f500df797e25db2d64f2a620f17e51779e2b655251f7ffe940"
+    },
+    {
+      "path": "scripts/ci/seo_public_assets_check.mjs",
+      "sha256": "ce33f858dc9aabfe4710546c57030a968b7a7d29f875df1e61db9d091bdf96d6"
+    }
+  ]
+}
