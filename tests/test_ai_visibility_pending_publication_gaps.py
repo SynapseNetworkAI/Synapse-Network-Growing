@@ -48,6 +48,18 @@ def test_release_unblock_plan_exposes_pending_pr_and_publication_gaps():
     assert "FAQPage" in validation_commands
     assert "SoftwareApplication" in validation_commands
     assert any("JSON-LD FAQPage" in item for item in payload["success_criteria"])
+    indexnow_group = next(
+        group
+        for group in payload["command_groups"]
+        if group["key"] == "post_publish_indexnow_submission"
+    )
+    indexnow_commands = "\n".join(indexnow_group["commands"])
+    assert "submit_indexnow_ai_visibility.mjs" in indexnow_commands
+    assert "--execute" in indexnow_commands
+    assert "2026-06-05-after-prod-indexnow.json" in indexnow_commands
+    assert "www.synapse-network.ai" in indexnow_commands
+    assert "docs.synapse-network.ai" in indexnow_commands
+    assert any("IndexNow submission" in item for item in payload["success_criteria"])
 
 
 def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):

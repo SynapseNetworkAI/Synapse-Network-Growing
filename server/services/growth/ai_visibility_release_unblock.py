@@ -85,11 +85,7 @@ PENDING_SOURCE_PRS = [
         "head_ref": "codex/add-mcp-search-landing-pages",
         "base_ref": "main",
         "head_commit": "dc93e2f60d7aced44acaea3e87fb2e97576a64c3",
-        "purpose": (
-            "Add MCP search landing pages, Synapse vs paid MCP comparison, "
-            "Synapse Protocol disambiguation feed assets, and JSON-LD "
-            "WebPage/SoftwareApplication/FAQPage extraction signals."
-        ),
+        "purpose": "Add MCP search landing pages, Synapse vs paid MCP comparison, Synapse Protocol disambiguation feed assets, and JSON-LD WebPage/SoftwareApplication/FAQPage extraction signals.",
     },
 ]
 PENDING_PUBLICATION_GAPS = [
@@ -196,6 +192,7 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             _production_group("docs-front", actor),
             _production_group("user-front", actor),
             _production_validation_group(),
+            _indexnow_submission_group(),
             _answer_engine_probe_group(),
         ],
         "success_criteria": [
@@ -207,6 +204,7 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
             "https://www.synapse-network.ai/llms.txt includes MCP Server for Paid API Calls and https://mcp.synapse-network.ai/mcp.",
             "https://mcp.synapse-network.ai/readyz returns 200 and unauthenticated /mcp returns 401.",
+            "IndexNow submission runs after production validation and includes the new www and docs AI visibility URLs.",
             "Only after production validation passes, run unchanged ChatGPT, Claude, and Grok probes and record evidence.",
         ],
 }
@@ -328,6 +326,13 @@ def _production_validation_group() -> dict[str, Any]:
             "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-cycle-summary.json",
         ],
     }
+
+
+def _indexnow_submission_group() -> dict[str, Any]:
+    script = "node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs"
+    output = "docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json"
+    validate = "python - <<'PY'\nimport json\nfrom pathlib import Path\npath = Path('docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json')\npayload = json.loads(path.read_text())\nassert payload.get('execute') is True\nhosts = {item.get('host') for item in payload.get('results', [])}\nassert {'www.synapse-network.ai', 'docs.synapse-network.ai'} <= hosts\nassert all(item.get('ok') for item in payload.get('results', []))\nPY"
+    return {"key": "post_publish_indexnow_submission", "purpose": "Submit the newly published AI visibility URLs after production validation passes.", "commands": [script, f"{script} --execute | tee {output}", validate], "notes": ["Run only after production validation proves the URLs return 200.", "The first command is a dry-run preview of the submitted URL batches.", "The evidence file records response status only; it must not include credentials."]}
 
 
 def _answer_engine_probe_group() -> dict[str, Any]:
@@ -481,10 +486,7 @@ def _load_predeploy_evidence() -> dict[str, Any]:
     }
 
 
-def _deploy_readiness_status(
-    predeploy_evidence: dict[str, Any],
-    target_commit: str,
-) -> str:
+def _deploy_readiness_status(predeploy_evidence: dict[str, Any], target_commit: str) -> str:
     if SOURCE_PR.get("state") != "MERGED":
         return "blocked_until_pr_merged"
     if predeploy_evidence.get("status") != "target_branch_ready_live_prod_blocked":

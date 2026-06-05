@@ -487,6 +487,9 @@ def test_release_unblock_plan_generates_safe_release_commands():
     assert "YES" in rendered
     assert "https://www.synapse-network.ai/llms.txt" in rendered
     assert "https://docs.synapse-network.ai/mcp/paid-api-calls" in rendered
+    assert "post_publish_indexnow_submission" in rendered
+    assert "submit_indexnow_ai_visibility.mjs --execute" in rendered
+    assert "2026-06-05-after-prod-indexnow.json" in rendered
     commands = [
         command
         for group in payload["command_groups"]
@@ -581,6 +584,10 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     )
     assert any(
         group["key"] == "production_validation" for group in payload["command_groups"]
+    )
+    assert any(
+        group["key"] == "post_publish_indexnow_submission"
+        for group in payload["command_groups"]
     )
 
 
