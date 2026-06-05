@@ -30,6 +30,9 @@ def test_growth_ai_visibility_and_discovery_listing(
         "Redirect https://synapse-network.ai/*" in fix
         for fix in plan_payload["critical_fixes"]
     )
+    assert any(
+        "synapsenetwork.xyz" in fix for fix in plan_payload["critical_fixes"]
+    )
     assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
     assert plan_payload["baseline_queries"][0]["target_platforms"] == [
         "chatgpt",
@@ -60,6 +63,13 @@ def test_growth_ai_visibility_and_discovery_listing(
         "https://synapse-network.ai/" in command
         and "https://www.synapse-network.ai/" in command
         for command in package_by_key["brand_disambiguation_www"]["validation_commands"]
+    )
+    assert "Synapse Network AI agents" in package_by_key[
+        "brand_disambiguation_www"
+    ]["target_queries"]
+    assert any(
+        "synapsenetwork.xyz" in action
+        for action in package_by_key["brand_disambiguation_www"]["next_actions"]
     )
     assert (
         "--feed-key agent_payment_category_pages"

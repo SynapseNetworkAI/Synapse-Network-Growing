@@ -86,7 +86,10 @@ One optimization cycle should use a single `feed_key` and at least two
 Examples:
 
 1. `brand_disambiguation_www`: homepage metadata, About answer block, GitHub
-   org README, X profile bio, and canonical `llms.txt`.
+   org README, X profile bio, and canonical `llms.txt`. Treat
+   `synapsenetwork.xyz` and unrelated `synapse.network` results as
+   brand-collision competitors in `competitor_mentions` until ChatGPT, Claude,
+   and Grok prefer `https://www.synapse-network.ai/`.
 2. `agent_payment_category_pages`: AI Agent Payments docs category, `/ai-agent-payments`,
    `/agent-payment-api`, FAQ, schema, and sitemap.
 3. `mcp_paid_api_discovery`: MCP Registry, Smithery, Glama, GitHub README,
