@@ -319,6 +319,44 @@ def test_generate_probe_template_cli_defaults_to_feed_queries(tmp_path: Path):
     assert validate_records(records) == []
 
 
+def test_generate_probe_matrix_cli_writes_json(tmp_path: Path):
+    output_path = tmp_path / "probe-matrix.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/generate_ai_visibility_probe_matrix.py",
+            "--output",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["module_key"] == "ai_visibility"
+    assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["total"] == 9
+    mcp_rows = [
+        row
+        for row in payload["rows"]
+        if row["feed_key"] == "mcp_paid_api_discovery"
+    ]
+    assert {row["platform"] for row in mcp_rows} == {
+        "chatgpt",
+        "claude",
+        "grok",
+    }
+    assert all("record_ai_visibility_probe.py" in row["record_probe_command"] for row in mcp_rows)
+    assert any(
+        "https://mcp.synapse-network.ai/mcp" in row["official_source_urls"]
+        for row in mcp_rows
+    )
+
+
 def test_generate_feed_package_cli_writes_json(tmp_path: Path):
     output_path = tmp_path / "feed-package.json"
 
