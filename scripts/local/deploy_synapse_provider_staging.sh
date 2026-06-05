@@ -171,6 +171,9 @@ run_with_timeout 8m gcloud run jobs update synapse-staging-provider-schema-migra
   --project "${PROJECT_ID}" \
   --region "${REGION}" \
   --image "${image}" \
+  --network synapse-staging-vpc \
+  --subnet synapse-staging-subnet \
+  --vpc-egress private-ranges-only \
   --quiet
 
 echo "[local-deploy] executing provider schema migration job"
@@ -192,6 +195,9 @@ run_with_timeout 8m gcloud run deploy synapse-staging-provider \
   --project "${PROJECT_ID}" \
   --region "${REGION}" \
   --image "${image}" \
+  --network synapse-staging-vpc \
+  --subnet synapse-staging-subnet \
+  --vpc-egress private-ranges-only \
   --quiet
 
 provider_url="$(cloud_run_url)"
