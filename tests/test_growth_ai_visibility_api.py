@@ -575,6 +575,10 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
+    assert "generate_ai_visibility_probe_template.py" in payload[
+        "manual_probe_template_command"
+    ]
+    assert "--mode after-feed" in payload["manual_probe_template_command"]
     assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
     assert "--execute" in payload["api_execute_command"]
     assert "record_ai_visibility_probe.py" in payload["record_probe_command"]
@@ -628,6 +632,9 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert "--platforms chatgpt,claude" in payload["partial_api_readiness_command"]
     assert "--platforms chatgpt,claude" in payload["partial_api_execute_command"]
     assert "--platforms chatgpt,claude,grok" in payload["api_readiness_command"]
+    assert "--platforms chatgpt,claude,grok" in payload[
+        "manual_probe_template_command"
+    ]
     assert "grok missing XAI_API_KEY." in payload["blockers"]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
@@ -679,6 +686,9 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert payload["ready_platforms"] == ["chatgpt", "claude", "grok"]
     assert payload["missing_platforms"] == []
     assert all(item["configured"] for item in payload["provider_readiness"])
+    assert "generate_ai_visibility_probe_template.py" in payload[
+        "manual_probe_template_command"
+    ]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
     assert "xai-test-secret" not in rendered
