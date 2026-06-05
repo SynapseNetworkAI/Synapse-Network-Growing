@@ -369,14 +369,8 @@ function installFetch() {
         latest_run_group: '2026-06-18-after-docs-launch',
         latest_comparison_status: 'improved',
         feed_reports: [],
-        blockers: [
-          'Fewer than three stable positive external runs have been recorded.',
-          'Production docs page https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.',
-        ],
-        next_actions: [
-          'Run and record missing platform probes: grok.',
-          'Publish MCP paid API docs and www llms feed.',
-        ],
+        blockers: ['Fewer than three stable positive external runs have been recorded.', 'Production docs page https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.'],
+        next_actions: ['Run and record missing platform probes: grok.', 'Publish MCP paid API docs and www llms feed.'],
         recommended_feed_key: 'agent_payment_category_pages',
         recommended_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-weekly --mode after-feed',
       })
@@ -402,6 +396,7 @@ function installFetch() {
         external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-external-probe-gate.json',
         api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API"',
         api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API" --execute',
+        public_web_search_import_command: 'python scripts/growth/import_ai_visibility_public_search_snapshot.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-public-web-search-snapshot.json --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-public-web-search.jsonl',
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
         probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json',
         validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly',

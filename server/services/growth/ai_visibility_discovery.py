@@ -251,6 +251,14 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         f"docs/archive/evidence/growth/ai-visibility/"
         f"{run_group}-external-probe-gate.json"
     )
+    public_search_snapshot_path = (
+        f"docs/archive/evidence/growth/ai-visibility/"
+        f"{run_group}-public-web-search-snapshot.json"
+    )
+    public_search_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/"
+        f"{run_group}-public-web-search.jsonl"
+    )
     packages = ai_visibility_feed_packages(feed_key).items
     validation_commands = packages[0].validation_commands if packages else []
     manual_command = (
@@ -290,6 +298,11 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         ),
         api_readiness_command=api_base,
         api_execute_command=f"{api_base} --output {output_path} --execute",
+        public_web_search_import_command=(
+            "python scripts/growth/import_ai_visibility_public_search_snapshot.py "
+            f"{public_search_snapshot_path} "
+            f"--output {public_search_output_path}"
+        ),
         apply_command=(
             f"python scripts/growth/record_ai_visibility_probe.py {output_path} --apply"
         ),

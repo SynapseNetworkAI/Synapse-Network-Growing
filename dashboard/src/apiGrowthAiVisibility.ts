@@ -103,6 +103,7 @@ export interface GrowthAIVisibilityNextCycle {
   external_probe_gate_command: string
   api_readiness_command: string
   api_execute_command: string
+  public_web_search_import_command: string
   apply_command: string
   probe_matrix_command: string
   validate_matrix_command: string

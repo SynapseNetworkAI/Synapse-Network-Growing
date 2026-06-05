@@ -124,6 +124,7 @@ class GrowthAIVisibilityNextCycleOut(BaseModel):
     external_probe_gate_command: str
     api_readiness_command: str
     api_execute_command: str
+    public_web_search_import_command: str = ""
     apply_command: str
     probe_matrix_command: str
     validate_matrix_command: str

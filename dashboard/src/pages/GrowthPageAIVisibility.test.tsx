@@ -238,6 +238,7 @@ function nextCycle() {
     external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py',
     api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py',
     api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
+    public_web_search_import_command: 'python scripts/growth/import_ai_visibility_public_search_snapshot.py snapshot.json --output public-web-search.jsonl',
     apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply',
     probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json',
     validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/run.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json',

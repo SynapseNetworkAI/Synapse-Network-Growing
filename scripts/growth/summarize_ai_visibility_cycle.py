@@ -330,6 +330,11 @@ def commands_for(*, feed_key: str, run_group: str) -> Any:
             f"--run-group {safe_run_group} "
             "--platforms chatgpt,claude,grok"
         ),
+        "public_web_search_import": (
+            "python scripts/growth/import_ai_visibility_public_search_snapshot.py "
+            f"{output_base}-public-web-search-snapshot.json "
+            f"--output {output_base}-public-web-search.jsonl"
+        ),
         "record_evidence": (
             f"python scripts/growth/record_ai_visibility_probe.py {output_base}.jsonl --apply"
         ),

@@ -197,6 +197,14 @@ def _execution_commands(package, commands: dict[str, Any]) -> list[tuple[str, st
             or "python scripts/growth/record_ai_visibility_probe.py <probe.jsonl> --apply",
         ),
         (
+            "Import public web search snapshot",
+            commands.get("public_web_search_import")
+            or (
+                "python scripts/growth/import_ai_visibility_public_search_snapshot.py "
+                "<public-web-search-snapshot.json> --output <public-web-search.jsonl>"
+            ),
+        ),
+        (
             "Compare",
             commands.get("compare")
             or "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/comparisons' | python -m json.tool",
