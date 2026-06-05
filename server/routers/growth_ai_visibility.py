@@ -17,6 +17,7 @@ from server.schemas_growth import (
     GrowthAIVisibilityFeedCycleListOut,
     GrowthAIVisibilityFeedPackageListOut,
     GrowthAIVisibilityFeedScorecardOut,
+    GrowthAIVisibilityGoalAuditOut,
     GrowthAIVisibilityHandoffBundleOut,
     GrowthAIVisibilityLiveReadinessOut,
     GrowthAIVisibilityNextCycleOut,
@@ -34,6 +35,7 @@ from server.services.growth import (
     ai_visibility_design_handoff,
     ai_visibility_docs_blueprint,
     ai_visibility_external_probe_gate,
+    ai_visibility_goal_audit,
     ai_visibility_handoff_bundle,
     ai_visibility_live_readiness,
     ai_visibility_official_sources,
@@ -94,6 +96,14 @@ def get_ai_visibility_weekly_report(db: Session = Depends(get_db)):
 )
 def get_ai_visibility_next_cycle(db: Session = Depends(get_db)):
     return ai_visibility_discovery.ai_visibility_next_cycle(db)
+
+
+@router.get(
+    "/ai-visibility/goal-audit",
+    response_model=GrowthAIVisibilityGoalAuditOut,
+)
+def get_ai_visibility_goal_audit(db: Session = Depends(get_db)):
+    return ai_visibility_goal_audit.ai_visibility_goal_audit(db)
 
 
 @router.get(

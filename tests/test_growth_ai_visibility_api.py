@@ -528,10 +528,33 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert next_cycle_payload["operator_brief_command"].endswith(
         "-brand_disambiguation_www-weekly-operator-brief.md"
     )
+    assert next_cycle_payload["goal_audit_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_goal_audit.py"
+    )
+    assert next_cycle_payload["goal_audit_command"].endswith(
+        "-brand_disambiguation_www-weekly-goal-audit.json"
+    )
     assert (
         "comparisons?feed_key=brand_disambiguation_www"
         in next_cycle_payload["compare_command"]
     )
+    goal_audit = synced_client.get("/api/growth/ai-visibility/goal-audit")
+    assert goal_audit.status_code == 200
+    goal_payload = goal_audit.json()
+    assert goal_payload["goal_achieved"] is False
+    assert goal_payload["status"] == "incomplete"
+    assert goal_payload["official_homepage"] == "https://www.synapse-network.ai/"
+    assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert goal_payload["completed_count"] < goal_payload["total_required"]
+    requirement_by_key = {
+        item["key"]: item for item in goal_payload["requirements"]
+    }
+    assert requirement_by_key["strategy"]["status"] == "completed"
+    assert requirement_by_key["product_docs"]["status"] == "completed"
+    assert requirement_by_key["stitch_figma"]["status"] == "completed"
+    assert requirement_by_key["stable_positive_runs"]["status"] == "blocked"
+    assert any("Stable positive runs" in item for item in goal_payload["blockers"])
+    assert "generate_ai_visibility_goal_audit.py" in goal_payload["export_command"]
 
     local_only = synced_client.post(
         "/api/growth/ai-visibility/checks",

@@ -108,8 +108,32 @@ export interface GrowthAIVisibilityNextCycle {
   validate_matrix_command: string
   cycle_summary_command: string
   operator_brief_command: string
+  goal_audit_command: string
   compare_command: string
   weekly_report_command: string
+}
+export interface GrowthAIVisibilityGoalAuditRequirement {
+  key: string
+  title: string
+  status: string
+  required: boolean
+  evidence: string
+  blocker: string
+  next_action: string
+}
+export interface GrowthAIVisibilityGoalAudit {
+  module_key: string
+  generated_at: string
+  status: string
+  goal_achieved: boolean
+  official_homepage: string
+  target_platforms: string[]
+  completed_count: number
+  total_required: number
+  requirements: GrowthAIVisibilityGoalAuditRequirement[]
+  blockers: string[]
+  next_actions: string[]
+  export_command: string
 }
 export interface GrowthAIVisibilityReleaseCommandGroup {
   key: string
@@ -173,6 +197,8 @@ export interface GrowthAIVisibilityHandoffBundle {
   release_status: string
   live_readiness_status: string
   external_probe_gate_status: string
+  goal_audit_status?: string
+  goal_achieved?: boolean
   ready_platforms: string[]
   missing_platforms: string[]
   blockers: string[]
@@ -395,6 +421,8 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilityWeeklyReport>('/growth/ai-visibility/weekly-report'),
     getGrowthAIVisibilityNextCycle: () =>
       request<GrowthAIVisibilityNextCycle>('/growth/ai-visibility/next-cycle'),
+    getGrowthAIVisibilityGoalAudit: () =>
+      request<GrowthAIVisibilityGoalAudit>('/growth/ai-visibility/goal-audit'),
     getGrowthAIVisibilityReleaseUnblockPlan: () =>
       request<GrowthAIVisibilityReleaseUnblockPlan>('/growth/ai-visibility/release-unblock-plan'),
     getGrowthAIVisibilityReleaseSnapshot: () =>

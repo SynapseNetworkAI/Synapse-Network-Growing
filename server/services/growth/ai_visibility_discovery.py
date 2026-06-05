@@ -241,6 +241,9 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
     operator_brief_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-operator-brief.md"
     )
+    goal_audit_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/{run_group}-goal-audit.json"
+    )
     validation_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-feed-validation.jsonl"
     )
@@ -311,6 +314,10 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
             f"--feed-key {feed_key} "
             f"--cycle-summary {cycle_summary_output_path} "
             f"--output {operator_brief_output_path}"
+        ),
+        goal_audit_command=(
+            "python scripts/growth/generate_ai_visibility_goal_audit.py "
+            f"--output {goal_audit_output_path}"
         ),
         compare_command=(
             "curl -fsS "

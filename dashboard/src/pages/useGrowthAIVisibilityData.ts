@@ -9,6 +9,7 @@ import {
   type GrowthAIVisibilityFeedCycle,
   type GrowthAIVisibilityFeedPackage,
   type GrowthAIVisibilityFeedScorecard,
+  type GrowthAIVisibilityGoalAudit,
   type GrowthAIVisibilityHandoffBundle,
   type GrowthAIVisibilityLiveReadiness,
   type GrowthAIVisibilityNextCycle,
@@ -31,6 +32,7 @@ export function useGrowthAIVisibilityData() {
   const [designHandoff, setDesignHandoff] = useState<GrowthAIVisibilityDesignHandoff | null>(null)
   const [weeklyReport, setWeeklyReport] = useState<GrowthAIVisibilityWeeklyReport | null>(null)
   const [nextCycle, setNextCycle] = useState<GrowthAIVisibilityNextCycle | null>(null)
+  const [goalAudit, setGoalAudit] = useState<GrowthAIVisibilityGoalAudit | null>(null)
   const [releasePlan, setReleasePlan] = useState<GrowthAIVisibilityReleaseUnblockPlan | null>(null)
   const [releaseSnapshot, setReleaseSnapshot] = useState<GrowthAIVisibilityReleaseSnapshot | null>(null)
   const [handoffBundle, setHandoffBundle] = useState<GrowthAIVisibilityHandoffBundle | null>(null)
@@ -54,6 +56,7 @@ export function useGrowthAIVisibilityData() {
       designHandoffPayload,
       weeklyReportPayload,
       nextCyclePayload,
+      goalAuditPayload,
       releasePlanPayload,
       releaseSnapshotPayload,
       handoffBundlePayload,
@@ -73,6 +76,7 @@ export function useGrowthAIVisibilityData() {
       api.getGrowthAIVisibilityDesignHandoff(),
       api.getGrowthAIVisibilityWeeklyReport(),
       api.getGrowthAIVisibilityNextCycle(),
+      api.getGrowthAIVisibilityGoalAudit(),
       api.getGrowthAIVisibilityReleaseUnblockPlan(),
       includeRuntimeEvidence ? api.getGrowthAIVisibilityReleaseSnapshot() : Promise.resolve(null),
       includeRuntimeEvidence ? api.getGrowthAIVisibilityHandoffBundle() : Promise.resolve(null),
@@ -92,6 +96,7 @@ export function useGrowthAIVisibilityData() {
     setDesignHandoff(designHandoffPayload)
     setWeeklyReport(weeklyReportPayload)
     setNextCycle(nextCyclePayload)
+    setGoalAudit(goalAuditPayload)
     setReleasePlan(releasePlanPayload)
     setReleaseSnapshot(releaseSnapshotPayload)
     setHandoffBundle(handoffBundlePayload)
@@ -113,6 +118,7 @@ export function useGrowthAIVisibilityData() {
     releaseSnapshot,
     releasePlan,
     nextCycle,
+    goalAudit,
     weeklyReport,
     designHandoff,
     docsBlueprint,

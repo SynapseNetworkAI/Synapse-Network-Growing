@@ -1,5 +1,5 @@
 import { StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityWeeklyReport } from '../api'
 import { CommandBlock, EvidenceList, Info, signed } from './GrowthAIVisibilityPanelParts'
 
 export function LiveReadinessSummary({ readiness }: Readonly<{ readiness: GrowthAIVisibilityLiveReadiness | null }>) {
@@ -129,6 +129,46 @@ export function OptimizationBriefSummary({ brief }: Readonly<{ brief: GrowthAIVi
         <EvidenceList title="Brief next actions" empty="No next actions." items={brief.next_actions} />
       </div>
       <CommandBlock label="Export brief" value={brief.export_command} />
+    </div>
+  )
+}
+
+export function GoalAuditSummary({ audit }: Readonly<{ audit: GrowthAIVisibilityGoalAudit | null }>) {
+  if (!audit) return null
+  return (
+    <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-goal-audit">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Goal completion audit</div>
+          <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">
+            {audit.goal_achieved ? 'GPT/Claude/Grok visibility proven' : 'Objective still requires external evidence'}
+          </div>
+        </div>
+        <StateBadge tone={audit.goal_achieved ? 'delivered' : 'blocked'}>{audit.status}</StateBadge>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+        <Info label="Homepage" value={audit.official_homepage} />
+        <Info label="Platforms" value={audit.target_platforms.join(', ') || '-'} />
+        <Info label="Completed" value={`${audit.completed_count}/${audit.total_required}`} />
+        <Info label="Export" value={audit.export_command} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <EvidenceList title="Goal blockers" empty="No blockers." items={audit.blockers} />
+        <EvidenceList title="Goal next actions" empty="No next actions." items={audit.next_actions} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {audit.requirements.map((item) => (
+          <div key={item.key} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.title}</span>
+              <StateBadge tone={item.status === 'completed' ? 'delivered' : 'blocked'}>{item.status}</StateBadge>
+            </div>
+            <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-muted)]">
+              {item.evidence || item.blocker || item.next_action || '-'}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

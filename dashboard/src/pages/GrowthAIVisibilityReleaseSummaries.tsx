@@ -68,7 +68,7 @@ export function ReleaseSnapshotSummary({ snapshot }: Readonly<{ snapshot: Growth
         <Info label="Deploy readiness" value={snapshot.deploy_readiness_status} />
         <Info label="Run group" value={snapshot.run_group} />
       </div>
-      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+      <div className="mt-3 grid gap-3 lg:grid-cols-4">
         <EvidenceList title="GCloud checks" empty="No GCloud checks." items={snapshotCheckLines(snapshot.gcloud)} />
         <EvidenceList title="External probe keys" empty="No key checks." items={snapshotCheckLines(snapshot.external_probe_keys)} />
         <EvidenceList title="Snapshot next actions" empty="No next actions." items={snapshot.next_actions} />
@@ -104,6 +104,7 @@ export function HandoffBundleSummary({ bundle }: Readonly<{ bundle: GrowthAIVisi
         <Info label="Release status" value={bundle.release_status} />
         <Info label="Live readiness" value={bundle.live_readiness_status} />
         <Info label="External probe gate" value={bundle.external_probe_gate_status} />
+        <Info label="Goal audit" value={`${bundle.goal_audit_status || 'unknown'} · ${bundle.goal_achieved ? 'achieved' : 'not achieved'}`} />
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <EvidenceList title="Ready platforms" empty="No platform ready." items={bundle.ready_platforms} />
@@ -113,7 +114,7 @@ export function HandoffBundleSummary({ bundle }: Readonly<{ bundle: GrowthAIVisi
       </div>
       <EvidenceList className="mt-3" title="Evidence files" empty="No files." items={fileEntries} />
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
-        {commandEntries.slice(0, 8).map(([key, value]) => (
+        {commandEntries.slice(0, 12).map(([key, value]) => (
           <CommandBlock key={key} label={key} value={value} />
         ))}
       </div>
