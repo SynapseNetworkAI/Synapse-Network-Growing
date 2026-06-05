@@ -1,0 +1,82 @@
+{
+  "snapshot_type": "public_web_search_visibility",
+  "observed_at": "2026-06-05T21:41:05Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-06-www-homepage-after-disambiguation",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "summary": "General public web search still does not surface official Synapse Network pages in the first returned result set for paid MCP and ChatGPT MCP API-payment queries. The visible result set shifted toward MySynap, Latch, Dock0, MCPay, Apiosk, Magpie, and other adjacent paid MCP or near-name surfaces, so the next feed pass should include both competitor comparison and brand-collision disambiguation.",
+  "queries": [
+    {
+      "query": "Synapse Network MCP server paid API calls",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MySynap MCP",
+          "url": "https://www.mysynap.com/product/mcp"
+        },
+        {
+          "name": "Latch MCP payments",
+          "url": "https://docs.latchmcp.app/"
+        },
+        {
+          "name": "Dock0 paid MCP tools",
+          "url": "https://www.dock0.dev/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        }
+      ]
+    },
+    {
+      "query": "ChatGPT MCP app API payments Synapse Network",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "BankSync ChatGPT MCP",
+          "url": "https://banksync.io/chatgpt-mcp-banking"
+        },
+        {
+          "name": "MCP Directory Stripe MCP",
+          "url": "https://mcp.directory/mcp/details/32/stripe"
+        },
+        {
+          "name": "Teleport MCP payments",
+          "url": "https://teleport.ltd/mcp"
+        }
+      ]
+    },
+    {
+      "query": "site:synapse-network.ai \"MCP Server for Paid API Calls\"",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Synapse SDK docs collision",
+          "url": "https://docs.synapse.sh/operations/cli-usage/"
+        },
+        {
+          "name": "susheel synapse-mcp collision",
+          "url": "https://playbooks.com/mcp/susheel/synapse-mcp"
+        }
+      ]
+    }
+  ],
+  "next_actions": [
+    "Keep https://www.synapse-network.ai/ as the canonical homepage.",
+    "Add MySynap, Dock0, Latch, Apiosk, Teleport, MCPay, and Stripe MCP directory names to comparison/feed copy only as factual adjacent-result evidence.",
+    "Treat MySynap, docs.synapse.sh, and susheel synapse-mcp as near-name collisions rather than Synapse success.",
+    "After the product PR is merged and deployed, rerun public web search plus ChatGPT, Claude, and Grok answer-engine probes and compare against this run_group."
+  ]
+}
