@@ -76,6 +76,8 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByTestId('ai-visibility-release-unblock-plan')).toBeInTheDocument()
     expect(screen.getAllByText('blocked_until_gcloud_auth').length).toBeGreaterThan(0)
     expect(screen.getByTestId('ai-visibility-feed-cycle-matrix')).toBeInTheDocument()
+    expect(screen.getByText('Probe matrix')).toBeInTheDocument()
+    expect(screen.getByText('Validate matrix')).toBeInTheDocument()
     expect(screen.getAllByText('mcp_paid_api_discovery').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
   })
@@ -218,7 +220,7 @@ function weeklyReport() {
 }
 
 function nextCycle() {
-  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl', missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], validation_commands: [], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"', weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py' }
+  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl', missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], validation_commands: [], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply', probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/run.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"', weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py' }
 }
 
 function releasePlan() {

@@ -230,6 +230,9 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
     feed_key = report.recommended_feed_key or "agent_payment_category_pages"
     run_group = f"{_utcnow().date().isoformat()}-{feed_key}-weekly"
     output_path = f"docs/archive/evidence/growth/ai-visibility/{run_group}.jsonl"
+    matrix_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/{run_group}-probe-matrix.json"
+    )
     validation_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-feed-validation.jsonl"
     )
@@ -268,6 +271,17 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         api_execute_command=f"{api_base} --output {output_path} --execute",
         apply_command=(
             f"python scripts/growth/record_ai_visibility_probe.py {output_path} --apply"
+        ),
+        probe_matrix_command=(
+            "python scripts/growth/generate_ai_visibility_probe_matrix.py "
+            f"--output {matrix_output_path}"
+        ),
+        validate_matrix_command=(
+            "python scripts/growth/validate_ai_visibility_probe_matrix.py "
+            f"{output_path} "
+            f"--matrix-file {matrix_output_path} "
+            f"--feed-key {feed_key} "
+            f"--run-group {run_group}"
         ),
         compare_command=(
             "curl -fsS "

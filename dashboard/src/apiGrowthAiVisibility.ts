@@ -99,6 +99,8 @@ export interface GrowthAIVisibilityNextCycle {
   api_readiness_command: string
   api_execute_command: string
   apply_command: string
+  probe_matrix_command: string
+  validate_matrix_command: string
   compare_command: string
   weekly_report_command: string
 }

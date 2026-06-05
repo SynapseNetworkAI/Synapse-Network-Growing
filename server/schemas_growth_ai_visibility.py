@@ -124,6 +124,8 @@ class GrowthAIVisibilityNextCycleOut(BaseModel):
     api_readiness_command: str
     api_execute_command: str
     apply_command: str
+    probe_matrix_command: str
+    validate_matrix_command: str
     compare_command: str
     weekly_report_command: str
 

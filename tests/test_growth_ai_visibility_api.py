@@ -485,6 +485,19 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert next_cycle_payload["apply_command"].startswith(
         "python scripts/growth/record_ai_visibility_probe.py"
     )
+    assert next_cycle_payload["probe_matrix_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_probe_matrix.py"
+    )
+    assert next_cycle_payload["probe_matrix_command"].endswith(
+        "-brand_disambiguation_www-weekly-probe-matrix.json"
+    )
+    assert next_cycle_payload["validate_matrix_command"].startswith(
+        "python scripts/growth/validate_ai_visibility_probe_matrix.py"
+    )
+    assert "--matrix-file" in next_cycle_payload["validate_matrix_command"]
+    assert "--feed-key brand_disambiguation_www" in next_cycle_payload[
+        "validate_matrix_command"
+    ]
     assert (
         "comparisons?feed_key=brand_disambiguation_www"
         in next_cycle_payload["compare_command"]
