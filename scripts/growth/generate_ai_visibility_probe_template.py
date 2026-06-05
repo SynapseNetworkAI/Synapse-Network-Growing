@@ -31,6 +31,18 @@ from server.services.growth.ai_visibility_plan import (  # noqa: E402
 )
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
+OFFICIAL_SOURCE_URLS = [
+    CANONICAL_HOMEPAGE,
+    "https://docs.synapse-network.ai/",
+    "https://github.com/SynapseNetworkAI",
+    "https://mcp.synapse-network.ai/mcp",
+    "https://registry.modelcontextprotocol.io/",
+]
+KNOWN_COLLISION_DOMAINS = [
+    "synapsenetwork.xyz",
+    "synapse.network",
+    "forbes.com/digital-assets/assets/synapse-network-zksnp",
+]
 DEFAULT_FEED_KEY = "agent_payment_category_pages"
 DEFAULT_PLATFORMS = ["chatgpt", "claude", "grok"]
 DEFAULT_MODE = "manual_template"
@@ -60,7 +72,7 @@ class ProbeTemplateRecord:
     next_action: str
     result_rank: int
     evidence_url: str
-    metadata: dict[str, str]
+    metadata: dict[str, object]
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
@@ -229,10 +241,19 @@ def template_record(
             "generated_at": generated_at,
             "platform_entry_url": PLATFORM_ENTRY_URLS.get(platform, ""),
             "question_to_ask": query,
+            "official_source_urls": OFFICIAL_SOURCE_URLS,
+            "known_collision_domains": KNOWN_COLLISION_DOMAINS,
+            "success_decision_rule": (
+                "Success requires the answer to mention Synapse Network and cite "
+                "at least one official_source_urls host. Known collision domains "
+                "must be recorded in competitor_mentions, not counted as Synapse "
+                "success."
+            ),
             "evidence_capture": (
                 "Capture a screenshot of the full answer, cited/source URLs, "
-                "competitor names, and whether the official www/docs/GitHub/MCP "
-                "surface appears. Do not edit the question between platforms."
+                "competitor names, known collision domains, and whether an "
+                "official_source_urls surface appears. Do not edit the question "
+                "between platforms."
             ),
         },
     )
