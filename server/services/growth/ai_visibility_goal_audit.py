@@ -244,7 +244,10 @@ def _external_gate_feed_ready(external_gate: dict[str, Any] | None) -> bool:
 
 def _external_probe_requirement(weekly) -> GrowthAIVisibilityGoalAuditRequirementOut:
     covered = set(weekly.covered_platforms)
-    missing = [item for item in AI_VISIBILITY_TARGET_PLATFORMS if item not in covered]
+    missing = unique_strings(
+        [item for item in AI_VISIBILITY_TARGET_PLATFORMS if item not in covered]
+        + _latest_feed_missing_platforms(weekly)
+    )
     cited = weekly.total_cited_count
     passed = not missing and cited >= len(AI_VISIBILITY_TARGET_PLATFORMS)
     blocker = (
@@ -264,6 +267,18 @@ def _external_probe_requirement(weekly) -> GrowthAIVisibilityGoalAuditRequiremen
         blocker="" if passed else blocker,
         next_action="" if passed else "Run full external probes and record evidence.",
     )
+
+
+def _latest_feed_missing_platforms(weekly) -> list[str]:
+    latest_feed_key = getattr(weekly, "latest_feed_key", "")
+    latest_run_group = getattr(weekly, "latest_run_group", "")
+    for report in weekly.feed_reports:
+        if (
+            report.feed_key == latest_feed_key
+            and report.latest_run_group == latest_run_group
+        ):
+            return list(report.missing_platforms)
+    return []
 
 
 def _stable_runs_requirement(weekly) -> GrowthAIVisibilityGoalAuditRequirementOut:

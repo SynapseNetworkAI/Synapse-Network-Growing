@@ -192,9 +192,14 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
                     "missing_facts": answer["missing_facts"],
                     "next_action": answer["next_action"],
                     "result_rank": answer["result_rank"],
+                    "evidence_url": "",
                     "metadata": {
                         **payload["metadata"],
                         "mode": "api_probe",
+                        "evidence_capture": (
+                            "API probe evidence is this JSONL row plus "
+                            "api_request_id; no screenshot was captured."
+                        ),
                         "api_model": answer["model"],
                         "api_request_id": answer["request_id"],
                         "source_url_count": str(len(answer["source_urls"])),

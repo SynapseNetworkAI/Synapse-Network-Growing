@@ -780,7 +780,9 @@ def test_run_api_probes_generates_valid_records(monkeypatch):
 
     assert len(records) == 3
     assert validate_records(records) == []
+    assert records[0].evidence_url == ""
     assert records[0].metadata["mode"] == "api_probe"
+    assert "api_request_id" in records[0].metadata["evidence_capture"]
     assert records[0].metadata["source_url_count"] == "2"
     assert records[0].metadata["synapse_cited_url_count"] == "1"
 
