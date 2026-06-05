@@ -877,7 +877,6 @@ describe('GrowthPage', () => {
     fireEvent.click(within(mcpDialog).getByRole('button', { name: '记录 Listing' }))
     await waitFor(() => expect(calls.some((call) => call === 'POST /api/growth/discovery-listings')).toBe(true))
   })
-
   it('opens AI visibility from the tab query string', async () => {
     window.history.pushState({}, '', '/growth?tab=ai-visibility')
 

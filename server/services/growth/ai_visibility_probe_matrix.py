@@ -84,7 +84,9 @@ def _next_actions(*, cycle, platform: str) -> list[str]:
     if cycle.blockers:
         return cycle.next_actions[:4]
     if platform in cycle.external_platforms:
-        return ["Keep the same query phrasing and rerun this platform in the next stability window."]
+        return [
+            "Keep the same query phrasing and rerun this platform in the next stability window."
+        ]
     return [
         f"Run the {platform} probe with unchanged query wording.",
         "Capture screenshot evidence, cited URLs, competitors, and missing facts.",

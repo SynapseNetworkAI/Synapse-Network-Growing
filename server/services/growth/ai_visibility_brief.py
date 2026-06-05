@@ -161,6 +161,18 @@ def _render_markdown(
     lines.extend(_bullets(blockers or ["No blockers recorded."]))
     lines.extend(["", "## Next Actions", ""])
     lines.extend(_bullets(next_actions or ["Run the next weekly external probe."]))
+    lines.extend(["", "## Operator Execution Sequence", ""])
+    lines.extend(
+        _execution_sequence_markdown_lines(
+            feed_key=(
+                release_snapshot.get("feed_key")
+                or cycles.recommended_feed_key
+                or report.recommended_feed_key
+            ),
+        )
+    )
+    lines.extend(["", "## Fail-Closed Success Rules", ""])
+    lines.extend(_fail_closed_markdown_lines())
     lines.extend(["", "## Feed Cycle Matrix", ""])
     lines.extend(_cycle_markdown_lines(cycles.items))
     lines.extend(
@@ -207,6 +219,53 @@ def _cycle_markdown_lines(items) -> list[str]:
             ]
         )
     return lines
+
+
+def _execution_sequence_markdown_lines(*, feed_key: str) -> list[str]:
+    return [
+        (
+            "- Validate production feed readiness: "
+            f"`python scripts/growth/run_ai_visibility_feed_validation.py --feed-key {feed_key}`."
+        ),
+        (
+            "- Export the GPT/Claude/Grok probe matrix: "
+            f"`python scripts/growth/generate_ai_visibility_probe_matrix.py --feed-key {feed_key}`."
+        ),
+        (
+            "- Generate the feed-specific manual or API probe payloads; do not replace "
+            "the matrix with one-off `--query` diagnostics."
+        ),
+        (
+            "- Record every external probe with screenshot or artifact evidence before "
+            "running comparison."
+        ),
+        (
+            "- Validate matrix coverage: "
+            f"`python scripts/growth/validate_ai_visibility_probe_matrix.py --feed-key {feed_key}`."
+        ),
+        "- Run comparison and weekly report only after the matrix validator passes.",
+    ]
+
+
+def _fail_closed_markdown_lines() -> list[str]:
+    return [
+        (
+            f"- The canonical product homepage is {CANONICAL_HOMEPAGE}; "
+            "bare-domain results only count as redirect evidence, not as the canonical citation."
+        ),
+        (
+            "- Successful GPT/Claude/Grok evidence must cite an official source prefix "
+            "from the official source map."
+        ),
+        (
+            "- Stable positive runs require complete matrix coverage, external platform "
+            "evidence URLs, official citations, and no known brand-collision competitor."
+        ),
+        (
+            "- Partial API readiness is diagnostic only; it cannot close the AI visibility "
+            "goal or count as full cross-platform success."
+        ),
+    ]
 
 
 def _bullets(items: list[str]) -> list[str]:

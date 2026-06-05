@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -24,12 +26,31 @@ from server.services.growth.ai_visibility_probe_matrix import (  # noqa: E402
 )
 
 
+class ProbeMatrixValidationReport(BaseModel):
+    status: str
+    record_count: int = 0
+    expected_count: int = 0
+    matched_count: int = 0
+    missing_count: int = 0
+    unexpected_count: int = 0
+    platforms: list[str] = Field(default_factory=list)
+    feed_keys: list[str] = Field(default_factory=list)
+    run_groups: list[str] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser = argparse.ArgumentParser(
         description="Validate probe JSON/JSONL rows against the AI visibility probe matrix."
     )
-    parser.add_argument("probe_file", help="JSON array/object or JSONL probe result file.")
-    parser.add_argument("--matrix-file", help="Optional matrix JSON. Defaults to current DB-derived matrix.")
+    parser.add_argument(
+        "probe_file", help="JSON array/object or JSONL probe result file."
+    )
+    parser.add_argument(
+        "--matrix-file",
+        help="Optional matrix JSON. Defaults to current DB-derived matrix.",
+    )
     parser.add_argument("--feed-key", default="", help="Validate only one feed.")
     parser.add_argument("--run-group", default="", help="Validate only one run group.")
     parser.add_argument(
@@ -49,8 +70,9 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
             run_group=args.run_group,
             require_evidence=not args.allow_missing_evidence,
         )
-        print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-        return 0 if report["status"] == "succeeded" else 2
+        payload = report.model_dump(mode="json")
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+        return 0 if report.status == "succeeded" else 2
     except Exception as exc:
         print(
             json.dumps(
@@ -74,7 +96,7 @@ def validate_probe_matrix(
     feed_key: str = "",
     run_group: str = "",
     require_evidence: bool = True,
-) -> dict[str, Any]:
+) -> ProbeMatrixValidationReport:
     scoped_matrix = _scoped_matrix_rows(
         matrix_rows=matrix_rows,
         records=records,
@@ -104,19 +126,19 @@ def validate_probe_matrix(
     platforms = sorted({platform for _, _, platform, _ in actual})
     feeds = sorted({feed for feed, _, _, _ in actual})
     run_groups = sorted({run for _, run, _, _ in actual})
-    return {
-        "status": "failed" if errors else "succeeded",
-        "record_count": len(records),
-        "expected_count": len(expected),
-        "matched_count": len(expected & actual),
-        "missing_count": len(missing),
-        "unexpected_count": len(unexpected),
-        "platforms": platforms,
-        "feed_keys": feeds,
-        "run_groups": run_groups,
-        "errors": errors,
-        "warnings": warnings,
-    }
+    return ProbeMatrixValidationReport(
+        status="failed" if errors else "succeeded",
+        record_count=len(records),
+        expected_count=len(expected),
+        matched_count=len(expected & actual),
+        missing_count=len(missing),
+        unexpected_count=len(unexpected),
+        platforms=platforms,
+        feed_keys=feeds,
+        run_groups=run_groups,
+        errors=errors,
+        warnings=warnings,
+    )
 
 
 def _load_matrix_rows(matrix_file: str | None) -> list[dict[str, Any]]:
@@ -141,25 +163,48 @@ def _scoped_matrix_rows(
     feed_key: str,
     run_group: str,
 ) -> list[dict[str, Any]]:
-    safe_feed_key = feed_key.strip()
-    safe_run_group = run_group.strip()
-    if not safe_feed_key:
-        feed_keys = {record.feed_key for record in records if record.feed_key}
-        if len(feed_keys) == 1:
-            safe_feed_key = next(iter(feed_keys))
-    if not safe_run_group:
-        run_groups = {record.run_group for record in records if record.run_group}
-        if len(run_groups) == 1:
-            safe_run_group = next(iter(run_groups))
+    safe_feed_key = feed_key.strip() or _single_record_value(
+        records,
+        "feed_key",
+    )
+    safe_run_group = run_group.strip() or _single_record_value(
+        records,
+        "run_group",
+    )
     rows = [
         row
         for row in matrix_rows
-        if (not safe_feed_key or str(row.get("feed_key", "")) == safe_feed_key)
-        and (not safe_run_group or str(row.get("run_group", "")) == safe_run_group)
+        if _matrix_row_matches_scope(
+            row,
+            feed_key=safe_feed_key,
+            run_group=safe_run_group,
+        )
     ]
     if not rows:
         raise ValueError("no probe matrix rows matched the requested scope")
     return rows
+
+
+def _single_record_value(records: list[ProbeRecord], field_name: str) -> str:
+    values = {
+        str(getattr(record, field_name, "")).strip()
+        for record in records
+        if str(getattr(record, field_name, "")).strip()
+    }
+    return next(iter(values)) if len(values) == 1 else ""
+
+
+def _matrix_row_matches_scope(
+    row: dict[str, Any],
+    *,
+    feed_key: str,
+    run_group: str,
+) -> bool:
+    if feed_key and str(row.get("feed_key", "")) != feed_key:
+        return False
+    if run_group and str(row.get("run_group", "")) != run_group:
+        return False
+    return True
 
 
 def _expected_keys(matrix_rows: list[dict[str, Any]]) -> set[tuple[str, str, str, str]]:
