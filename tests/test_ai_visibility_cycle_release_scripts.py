@@ -16,6 +16,9 @@ from scripts.growth import (
     generate_ai_visibility_release_unblock_plan as release_unblock_plan,
 )
 from scripts.growth import summarize_ai_visibility_cycle as cycle_summary
+from server.services.growth import (
+    ai_visibility_release_unblock as release_unblock_service,
+)
 
 
 def test_ai_visibility_cli_helpers_cover_payload_output_and_failure(
@@ -435,17 +438,23 @@ def test_operator_brief_renders_executable_mcp_package(tmp_path: Path):
 
 def test_release_unblock_plan_generates_safe_release_commands():
     payload = release_unblock_plan.build_release_unblock_plan(
-        target_commit="d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
+        target_commit=release_unblock_plan.DEFAULT_TARGET_COMMIT,
         actor="codex/test-ai-visibility",
     )
     rendered = json.dumps(payload)
 
     assert payload["status"] == "blocked_until_gcloud_auth"
     assert payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert payload["target_commit_sha"] == ("d8b5371e11fea2d962dcc656b9b8d08d0c1379d9")
-    assert payload["source_pr"]["number"] == 204
+    assert payload["target_commit_sha"] == release_unblock_plan.DEFAULT_TARGET_COMMIT
+    assert payload["source_pr"]["number"] == 214
     assert payload["source_pr"]["state"] == "MERGED"
-    assert {item["number"] for item in payload["source_prs"]} == {203, 204}
+    assert {item["number"] for item in payload["source_prs"]} == {
+        203,
+        204,
+        212,
+        213,
+        214,
+    }
     assert payload["deployment_gaps"][0]["service_key"] == "docs-front"
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
@@ -482,6 +491,51 @@ def test_release_unblock_plan_generates_safe_release_commands():
     assert "OPS_AGENT_DEPLOY_API_TOKEN=" not in rendered
 
 
+def test_release_unblock_plan_blocks_stale_target_commit():
+    payload = release_unblock_plan.build_release_unblock_plan(
+        target_commit="d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
+        actor="codex/test-ai-visibility",
+    )
+
+    assert payload["status"] == "blocked_until_target_commit_matches"
+    assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
+    assert any(
+        "does not match current predeploy evidence commit" in blocker
+        for blocker in payload["known_blockers"]
+    )
+
+
+def test_release_unblock_plan_predeploy_evidence_fail_closed(monkeypatch, tmp_path: Path):
+    missing_path = tmp_path / "missing-predeploy.json"
+    monkeypatch.setattr(
+        release_unblock_service,
+        "PREDEPLOY_EVIDENCE_PATH",
+        str(missing_path),
+    )
+
+    missing = release_unblock_service._load_predeploy_evidence()
+
+    assert missing["status"] == "missing"
+    assert "has not been generated" in missing["summary"]
+
+
+def test_release_unblock_plan_invalid_predeploy_evidence_fail_closed(
+    monkeypatch, tmp_path: Path
+):
+    invalid_path = tmp_path / "invalid-predeploy.json"
+    invalid_path.write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(
+        release_unblock_service,
+        "PREDEPLOY_EVIDENCE_PATH",
+        str(invalid_path),
+    )
+
+    invalid = release_unblock_service._load_predeploy_evidence()
+
+    assert invalid["status"] == "invalid_json"
+    assert "invalid" in invalid["summary"].lower()
+
+
 def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     output_path = tmp_path / "release-unblock-plan.json"
 
@@ -490,7 +544,7 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
             sys.executable,
             "scripts/growth/generate_ai_visibility_release_unblock_plan.py",
             "--target-commit",
-            "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
+            release_unblock_plan.DEFAULT_TARGET_COMMIT,
             "--output",
             str(output_path),
         ],
@@ -504,8 +558,14 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["module_key"] == "ai_visibility"
     assert payload["environment_defaults"]["ops_base_url"] == "http://localhost:9700"
-    assert payload["source_pr"]["number"] == 204
-    assert {item["number"] for item in payload["source_prs"]} == {203, 204}
+    assert payload["source_pr"]["number"] == 214
+    assert {item["number"] for item in payload["source_prs"]} == {
+        203,
+        204,
+        212,
+        213,
+        214,
+    }
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )

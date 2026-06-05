@@ -1,100 +1,88 @@
 {
-  "generated_at": "2026-06-05T01:04:55.273395Z",
+  "generated_at": "2026-06-05T19:16:30Z",
   "goal": "AI visibility feed target-branch predeploy readiness",
   "target_repo": "Synapse-Network",
-  "target_worktree": "/private/tmp/synapse-mcp-paid-api-docs-feed",
+  "target_worktree": "/private/tmp/synapse-network-ai-visibility-deploy-main",
   "branch": "main",
-  "commit": "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
-  "commit_subject": "Expose MCP endpoint in docs llms feed (#204)",
+  "commit": "6a1571c136c564e8c8a6202ce6bf9c4c5f491846",
+  "commit_subject": "docs: add Synapse MCP collision feed (#214)",
   "source_prs": [
     203,
-    204
+    204,
+    212,
+    213,
+    214
   ],
   "status": "target_branch_ready_live_prod_blocked",
   "canonical_homepage": "https://www.synapse-network.ai/",
   "validation": [
     {
-      "command": "node scripts/ci/ai_visibility_assets_check.mjs",
+      "command": "npm run ci:ai-visibility-assets",
       "result": "passed"
     },
     {
-      "command": "node scripts/ci/seo_public_assets_check.mjs",
+      "command": "npm run ci:seo-public-assets",
       "result": "passed"
     },
     {
-      "command": "cd services/docs-front && yarn build",
+      "command": "npm run ci:llms-links",
       "result": "passed"
     },
     {
-      "command": "rg 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp|discover_services|invoke_and_pay|get_receipt' services/docs-front/src/app/llms.txt/route.ts services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+      "command": "cd services/docs-front && yarn install --frozen-lockfile && yarn build",
+      "result": "passed"
+    },
+    {
+      "command": "rg 'Protodex|mcpsynapse.dev|MySynap|Synaps3|Synapse Layer|SynapBus|https://mcp.synapse-network.ai/mcp|discover_services|invoke_and_pay|get_receipt' services/docs-front/src/app/llms.txt/route.ts services/docs-front/content/docs/mcp/paid-api-calls.mdx services/user-front/public/llms.txt services/user-front/public/llms-full.txt",
       "result": "passed",
       "matched": [
-        "MCP Server for Paid API Calls",
+        "Protodex",
+        "mcpsynapse.dev",
+        "MySynap",
+        "Synaps3",
+        "Synapse Layer",
+        "SynapBus",
         "https://mcp.synapse-network.ai/mcp",
         "discover_services",
         "invoke_and_pay",
         "get_receipt"
       ]
-    },
-    {
-      "command": "rg 'MCP Server for Paid API Calls|Remote MCP endpoint|https://mcp.synapse-network.ai/mcp' services/user-front/public/llms.txt",
-      "result": "passed",
-      "matched": [
-        "MCP Server for Paid API Calls",
-        "Remote MCP endpoint",
-        "https://mcp.synapse-network.ai/mcp"
-      ]
-    },
-    {
-      "command": "Playwright local UI check for /growth?tab=ai-visibility release unblock plan",
-      "result": "passed",
-      "matched": [
-        "Confirmed facts",
-        "Official homepage canonical is https://www.synapse-network.ai/.",
-        "blocked_until_gcloud_auth",
-        "docs-front: production_behind_target",
-        "Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet."
-      ]
     }
   ],
   "screenshots": [
-    "/Users/cliff/workspace/agent/Synapse-Network/docs/archive/evidence/ai-seo/mcp-paid-api-calls-docs-local-20260605.png",
     "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/growth/ai-visibility-release-gap-panel-20260605.png",
     "/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/growth/ai-visibility-confirmed-facts-release-blocker-20260605.png"
   ],
   "live_production_blockers": [
-    "https://docs.synapse-network.ai/mcp/paid-api-calls still returns 404 until docs-front is deployed.",
-    "https://www.synapse-network.ai/llms.txt is live but does not yet expose the target branch MCP paid API feed until user-front is deployed.",
-    "GCloud CLI credentials need interactive refresh before Growing local release runner can deploy staging and promote production."
+    "https://docs.synapse-network.ai/llms.txt is live but does not yet expose the Protodex and near-name collision feed from commit 6a1571c136c564e8c8a6202ce6bf9c4c5f491846.",
+    "https://www.synapse-network.ai/llms.txt is live but does not yet expose the Protodex and near-name collision feed from commit 6a1571c136c564e8c8a6202ce6bf9c4c5f491846.",
+    "GCloud CLI credentials need interactive refresh before Growing local release runner can deploy staging and promote production.",
+    "ChatGPT, Claude, and Grok API probe keys are not present in the current environment."
   ],
   "files": [
     {
       "path": "services/docs-front/content/docs/mcp/paid-api-calls.mdx",
-      "sha256": "b7d015b2c8756e83a830444220a7d8368610bea203a93485aa7da45894811ef6"
-    },
-    {
-      "path": "services/docs-front/content/docs/mcp/meta.json",
-      "sha256": "8ad96a6248026c34a113013c98ede2b15d48fc65c54b19d0102f15252b99fbb0"
-    },
-    {
-      "path": "services/docs-front/src/app/sitemap.ts",
-      "sha256": "c6f3bdeb83fc121f55cb71096c7d9c1864659c263c7e659e2860ca930f715173"
+      "sha256": "b8bb1e37ce91a8ff61330cb813f1700f98c49c357de4461bc2bcab94bd301a00"
     },
     {
       "path": "services/docs-front/src/app/llms.txt/route.ts",
-      "sha256": "419d1ec7a5f6e6038a974129ecf7b681cffdf14471506a020bb0efe9c8c7dd8d"
+      "sha256": "018d6d791f7a00622bd198ff92e2fdcc41797c5a6896749205fb3d5151368c1d"
     },
     {
       "path": "services/user-front/public/llms.txt",
-      "sha256": "c49b047187728018382ff278708140cd5baefceee1e56c4380dfed48f38da438"
+      "sha256": "53d5ac0a98daef2f35db15b158be10c36e100a6ccb0b7a89e4961bb8ca95195d"
+    },
+    {
+      "path": "services/user-front/public/llms-full.txt",
+      "sha256": "b14d3c123c4a9adb0851027268f1d540b120870ba88b7c73f1f46fc4f827fc9c"
     },
     {
       "path": "scripts/ci/ai_visibility_assets_check.mjs",
-      "sha256": "581c01493dd5c6f500df797e25db2d64f2a620f17e51779e2b655251f7ffe940"
+      "sha256": "bbc8fffaf3dab48bf196955c7286157943d854606f2190d1ccf6769f17d71711"
     },
     {
       "path": "scripts/ci/seo_public_assets_check.mjs",
-      "sha256": "ce33f858dc9aabfe4710546c57030a968b7a7d29f875df1e61db9d091bdf96d6"
+      "sha256": "89afa3f3241dec9e3bff9c6f1ea3eab23c9bc797bb19869dc30fa0286d93f904"
     }
   ]
 }

@@ -140,11 +140,17 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert release_payload["official_homepage"] == "https://www.synapse-network.ai/"
     assert release_payload["services"] == ["docs-front", "user-front"]
     assert release_payload["target_commit_sha"] == (
-        "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9"
+        "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
     )
-    assert release_payload["source_pr"]["number"] == 204
+    assert release_payload["source_pr"]["number"] == 214
     assert release_payload["source_pr"]["state"] == "MERGED"
-    assert {item["number"] for item in release_payload["source_prs"]} == {203, 204}
+    assert {item["number"] for item in release_payload["source_prs"]} == {
+        203,
+        204,
+        212,
+        213,
+        214,
+    }
     assert release_payload["deployment_gaps"][0]["service_key"] == "docs-front"
     assert release_payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"

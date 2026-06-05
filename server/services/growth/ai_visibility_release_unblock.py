@@ -9,7 +9,7 @@ from typing import Any
 
 from server.services.growth.ai_visibility_plan import CANONICAL_HOMEPAGE
 
-DEFAULT_TARGET_COMMIT = "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9"
+DEFAULT_TARGET_COMMIT = "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
 DEFAULT_ACTOR = "codex/ai-visibility-release-unblock"
 PROJECT_KEY = "synapse-network"
 SERVICES = ("docs-front", "user-front")
@@ -17,13 +17,13 @@ STAGING_PROJECT_ID = "fabled-archive-494108-k5"
 PRODUCTION_PROJECT_ID = "synapse-network-prod"
 REGION = "us-central1"
 SOURCE_PR = {
-    "number": 204,
-    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/204",
+    "number": 214,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/214",
     "state": "MERGED",
-    "head_ref": "codex/ai-visibility-docs-llms-endpoint",
+    "head_ref": "codex/ai-visibility-synapse-mcp-collision-feed",
     "base_ref": "main",
-    "merged_at": "2026-06-05T00:54:23Z",
-    "merge_commit": "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
+    "merged_at": "2026-06-05T19:09:16Z",
+    "merge_commit": DEFAULT_TARGET_COMMIT,
 }
 SOURCE_PRS = [
     {
@@ -46,27 +46,53 @@ SOURCE_PRS = [
         "merge_commit": "d8b5371e11fea2d962dcc656b9b8d08d0c1379d9",
         "purpose": "Expose the MCP paid API docs URL and Remote MCP endpoint in docs-front llms.txt.",
     },
+    {
+        "number": 212,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/212",
+        "state": "MERGED",
+        "head_ref": "codex/ai-visibility-mcp-competitor-feed",
+        "base_ref": "main",
+        "merged_at": "2026-06-05T18:57:18Z",
+        "merge_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+        "purpose": "Add the observed paid MCP competitor set to public answer-engine feeds.",
+    },
+    {
+        "number": 213,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/213",
+        "state": "MERGED",
+        "head_ref": "codex/ai-visibility-protodex-disambiguation-feed",
+        "base_ref": "main",
+        "merged_at": "2026-06-05T19:05:54Z",
+        "merge_commit": "cc3560a8fd99bf128d3dd5147c321761c8ccd1f5",
+        "purpose": "Add Protodex directory visibility and Synapse-looking MCP disambiguation feed.",
+    },
+    {
+        "number": 214,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/214",
+        "state": "MERGED",
+        "head_ref": "codex/ai-visibility-synapse-mcp-collision-feed",
+        "base_ref": "main",
+        "merged_at": "2026-06-05T19:09:16Z",
+        "merge_commit": DEFAULT_TARGET_COMMIT,
+        "purpose": "Add near-name Synapse/Synap MCP collision handling for current search results.",
+    },
 ]
-DEPLOYMENT_GAPS = [
+DEPLOYMENT_GAP_BASES = [
     {
         "service_key": "docs-front",
-        "staging_commit": "04c6cfd4477f86569c83322a1119580dcf01091e",
-        "production_commit": "6af377ba8199193ad12a1fbc27d20ea64f0e3e18",
-        "target_commit": DEFAULT_TARGET_COMMIT,
-        "latest_staging_record_id": 218,
-        "latest_production_record_id": 205,
-        "status": "production_behind_target",
-        "next_action": "Re-run staging for d8b5371e, then promote docs-front production.",
+        "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+        "production_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+        "latest_staging_record_id": 244,
+        "latest_production_record_id": 246,
+        "status": "staging_and_production_behind_target",
     },
     {
         "service_key": "user-front",
-        "staging_commit": "36a9a1a2bb5f0113daf8ddb5e3e742920c72dc07",
-        "production_commit": "36a9a1a2bb5f0113daf8ddb5e3e742920c72dc07",
-        "target_commit": DEFAULT_TARGET_COMMIT,
-        "latest_staging_record_id": 216,
-        "latest_production_record_id": 217,
-        "status": "staging_and_production_behind_target",
-        "next_action": "Re-run user-front staging for d8b5371e, then promote production.",
+        "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+        "production_commit": "",
+        "latest_staging_record_id": 245,
+        "latest_production_record_id": 247,
+        "status": "production_failed_for_previous_target",
     },
 ]
 PREDEPLOY_EVIDENCE_PATH = (
@@ -99,7 +125,7 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
         "source_prs": SOURCE_PRS,
         "predeploy_evidence": predeploy_evidence,
         "deploy_readiness_status": deploy_readiness,
-        "deployment_gaps": DEPLOYMENT_GAPS,
+        "deployment_gaps": _deployment_gaps(target_commit),
         "confirmed_facts": _confirmed_facts(target_commit),
         "hard_boundaries": [
             "Do not run gcloud run deploy directly.",
@@ -107,7 +133,9 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             "Production must promote the successful staging digest for the same commit.",
             "Do not paste OPS_AGENT_DEPLOY_API_TOKEN, cookies, GCP credentials, or API keys into evidence.",
         ],
-        "known_blockers": _known_blockers(deploy_readiness),
+        "known_blockers": _known_blockers(
+            deploy_readiness, predeploy_evidence, target_commit
+        ),
         "environment_defaults": {
             "ops_base_url": "http://localhost:9700",
             "staging_gcp_project": STAGING_PROJECT_ID,
@@ -135,7 +163,7 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             "https://mcp.synapse-network.ai/readyz returns 200 and unauthenticated /mcp returns 401.",
             "Only after production validation passes, run unchanged ChatGPT, Claude, and Grok probes and record evidence.",
         ],
-    }
+}
 
 
 def _gcloud_preflight_group(target_commit: str) -> dict[str, Any]:
@@ -148,7 +176,7 @@ def _gcloud_preflight_group(target_commit: str) -> dict[str, Any]:
             f"gcloud projects describe {PRODUCTION_PROJECT_ID} --format='value(projectId)'",
             "git -C /private/tmp/synapse-ai-visibility-publish fetch origin main",
             "git -C /private/tmp/synapse-ai-visibility-publish rev-parse origin/main",
-            f'test "$(git -C /private/tmp/synapse-ai-visibility-publish rev-parse origin/main)" = "{target_commit}"',
+            f"test \"$(git -C /private/tmp/synapse-ai-visibility-publish rev-parse origin/main)\" = \"{target_commit}\"",
             "node /private/tmp/synapse-ai-visibility-publish/scripts/ci/ai_visibility_assets_check.mjs",
             "node /private/tmp/synapse-ai-visibility-publish/scripts/ci/seo_public_assets_check.mjs",
         ],
@@ -161,8 +189,8 @@ def _growing_preflight_group() -> dict[str, Any]:
         "purpose": "Ensure Growing API is reachable and the deploy token exists before creating release tasks.",
         "commands": [
             "export OPS_BASE_URL=${OPS_BASE_URL:-http://localhost:9700}",
-            'test -n "$OPS_AGENT_DEPLOY_API_TOKEN"',
-            'curl -fsS "$OPS_BASE_URL/api/health" || curl -fsS "$OPS_BASE_URL/api/releases/tasks?limit=1"',
+            "test -n \"$OPS_AGENT_DEPLOY_API_TOKEN\"",
+            "curl -fsS \"$OPS_BASE_URL/api/health\" || curl -fsS \"$OPS_BASE_URL/api/releases/tasks?limit=1\"",
         ],
     }
 
@@ -172,8 +200,8 @@ def _task_status_group() -> dict[str, Any]:
         "key": "inspect_existing_release_tasks",
         "purpose": "Check existing tasks before creating fresh attempts for the same services.",
         "commands": [
-            'curl -fsS "$OPS_BASE_URL/api/releases/tasks?project_key=synapse-network&service_key=docs-front" | python -m json.tool',
-            'curl -fsS "$OPS_BASE_URL/api/releases/tasks?project_key=synapse-network&service_key=user-front" | python -m json.tool',
+            "curl -fsS \"$OPS_BASE_URL/api/releases/tasks?project_key=synapse-network&service_key=docs-front\" | python -m json.tool",
+            "curl -fsS \"$OPS_BASE_URL/api/releases/tasks?project_key=synapse-network&service_key=user-front\" | python -m json.tool",
         ],
         "notes": [
             "If an older task is stuck in deploying, reset it only through the release-task reset API/UI with confirmation phrase RESET_LOCAL_DEPLOY.",
@@ -196,7 +224,7 @@ def _staging_group(service_key: str, actor: str) -> dict[str, Any]:
             _request_staging_command(task_var, actor),
             f"export {record_var}=<deployment_record_id_from_deploy_response>",
             f"PYTHONPATH=. .venv/bin/python scripts/local/run_deploy_worker.py --once --deployment-record-id ${record_var}",
-            f'curl -fsS "$OPS_BASE_URL/api/releases/tasks/${task_var}" | python -m json.tool',
+            f"curl -fsS \"$OPS_BASE_URL/api/releases/tasks/${task_var}\" | python -m json.tool",
         ],
     }
 
@@ -215,7 +243,7 @@ def _production_group(service_key: str, actor: str) -> dict[str, Any]:
             _request_production_command(task_var, actor),
             f"export {record_var}=<deployment_record_id_from_deploy_response>",
             f"PYTHONPATH=. .venv/bin/python scripts/local/run_deploy_worker.py --once --deployment-record-id ${record_var}",
-            f'curl -fsS "$OPS_BASE_URL/api/releases/tasks/${task_var}" | python -m json.tool',
+            f"curl -fsS \"$OPS_BASE_URL/api/releases/tasks/${task_var}\" | python -m json.tool",
         ],
         "notes": [
             "If the production deploy response reports staging_digest_missing, inspect the matching staging task metadata before retrying.",
@@ -243,7 +271,7 @@ def _production_validation_group() -> dict[str, Any]:
             "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
             "curl -fsS https://www.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
             "curl -fsS https://mcp.synapse-network.ai/readyz",
-            'test "$(curl -o /tmp/synapse-mcp-unauth.out -sS -w \'%{http_code}\' -X POST https://mcp.synapse-network.ai/mcp)" = "401"',
+            "test \"$(curl -o /tmp/synapse-mcp-unauth.out -sS -w '%{http_code}' -X POST https://mcp.synapse-network.ai/mcp)\" = \"401\"",
             "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-after-prod --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl",
             "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-cycle-summary.json",
         ],
@@ -267,7 +295,7 @@ def _answer_engine_probe_group() -> dict[str, Any]:
     }
 
 
-def _known_blockers(deploy_readiness: str) -> list[str]:
+def _known_blockers(deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str) -> list[str]:
     blockers = [
         "GCloud auth fails non-interactively until a human runs gcloud auth login.",
         "docs-front production is behind the merged MCP paid API feed commits.",
@@ -277,20 +305,42 @@ def _known_blockers(deploy_readiness: str) -> list[str]:
         "External GPT/Claude/Grok probe evidence is not valid until production feed validation passes.",
     ]
     if deploy_readiness == "blocked_until_target_commit_matches":
+        evidence_commit = _clean(str(predeploy_evidence.get("commit") or ""))
         blockers.insert(
             1,
-            "Target commit d8b5371e is newer than the current predeploy evidence for 04c6cfd4.",
+            (
+                f"Target commit {target_commit[:12]} does not match current "
+                f"predeploy evidence commit {evidence_commit[:12] or 'missing'}."
+            ),
         )
     return blockers
 
 
 def _confirmed_facts(target_commit: str) -> list[str]:
+    latest_pr = SOURCE_PR.get("number")
     return [
         f"Official homepage canonical is {CANONICAL_HOMEPAGE}.",
-        f"Synapse-Network main is pinned to merged PR #204 commit {target_commit}.",
+        f"Synapse-Network main is pinned to merged PR #{latest_pr} commit {target_commit}.",
         "Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.",
         "Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds.",
     ]
+
+
+def _deployment_gaps(target_commit: str) -> list[dict[str, Any]]:
+    target_short = target_commit[:12]
+    gaps: list[dict[str, Any]] = []
+    for base in DEPLOYMENT_GAP_BASES:
+        service_key = str(base["service_key"])
+        next_action = (
+            f"Re-run {service_key} staging for {target_short}, then promote production."
+        )
+        if base["status"] == "production_failed_for_previous_target":
+            next_action = (
+                f"Re-run {service_key} staging for {target_short}; the previous "
+                "production promotion failed and must not be reused."
+            )
+        gaps.append({**base, "target_commit": target_commit, "next_action": next_action})
+    return gaps
 
 
 def _create_task_command(service_key: str, environment: str, actor: str) -> str:
@@ -304,9 +354,9 @@ def _create_task_command(service_key: str, environment: str, actor: str) -> str:
         "note": "AI visibility MCP paid API feed publication",
     }
     return (
-        'curl -sS -X POST "$OPS_BASE_URL/api/releases/tasks" '
-        '-H "Content-Type: application/json" '
-        '-H "X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN" '
+        "curl -sS -X POST \"$OPS_BASE_URL/api/releases/tasks\" "
+        "-H \"Content-Type: application/json\" "
+        "-H \"X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN\" "
         f"-d '{json.dumps(body, separators=(',', ':'))}'"
     )
 
@@ -314,9 +364,9 @@ def _create_task_command(service_key: str, environment: str, actor: str) -> str:
 def _request_staging_command(task_var: str, actor: str) -> str:
     body = {"actor": actor, "note": "AI visibility staging via local deploy runner"}
     return (
-        f'curl -sS -X POST "$OPS_BASE_URL/api/releases/tasks/${task_var}/deploy-staging" '
-        '-H "Content-Type: application/json" '
-        '-H "X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN" '
+        f"curl -sS -X POST \"$OPS_BASE_URL/api/releases/tasks/${task_var}/deploy-staging\" "
+        "-H \"Content-Type: application/json\" "
+        "-H \"X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN\" "
         f"-d '{json.dumps(body, separators=(',', ':'))}'"
     )
 
@@ -328,9 +378,9 @@ def _request_production_command(task_var: str, actor: str) -> str:
         "note": "Promote successful AI visibility staging digest",
     }
     return (
-        f'curl -sS -X POST "$OPS_BASE_URL/api/releases/tasks/${task_var}/deploy" '
-        '-H "Content-Type: application/json" '
-        '-H "X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN" '
+        f"curl -sS -X POST \"$OPS_BASE_URL/api/releases/tasks/${task_var}/deploy\" "
+        "-H \"Content-Type: application/json\" "
+        "-H \"X-Growing-Agent-Deploy-Token: $OPS_AGENT_DEPLOY_API_TOKEN\" "
         f"-d '{json.dumps(body, separators=(',', ':'))}'"
     )
 
@@ -346,35 +396,21 @@ def _clean(value: str | None) -> str:
 def _load_predeploy_evidence() -> dict[str, Any]:
     evidence_path = Path(__file__).resolve().parents[3] / PREDEPLOY_EVIDENCE_PATH
     if not evidence_path.exists():
-        return _missing_predeploy_evidence()
+        return {
+            "status": "missing",
+            "path": PREDEPLOY_EVIDENCE_PATH,
+            "summary": "Target-branch predeploy evidence has not been generated.",
+        }
     try:
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        return _invalid_predeploy_evidence(exc)
-    return _predeploy_evidence_summary(payload)
-
-
-def _missing_predeploy_evidence() -> dict[str, Any]:
-    return {
-        "status": "missing",
-        "path": PREDEPLOY_EVIDENCE_PATH,
-        "summary": "Target-branch predeploy evidence has not been generated.",
-    }
-
-
-def _invalid_predeploy_evidence(exc: json.JSONDecodeError) -> dict[str, Any]:
-    return {
-        "status": "invalid_json",
-        "path": PREDEPLOY_EVIDENCE_PATH,
-        "summary": f"Target-branch predeploy evidence JSON is invalid: {exc}",
-    }
-
-
-def _predeploy_evidence_summary(payload: object) -> dict[str, Any]:
-    if not isinstance(payload, dict):
-        return _invalid_shape_predeploy_evidence()
-    validation = _list_field(payload, "validation")
-    screenshots = _list_field(payload, "screenshots")
+        return {
+            "status": "invalid_json",
+            "path": PREDEPLOY_EVIDENCE_PATH,
+            "summary": f"Target-branch predeploy evidence JSON is invalid: {exc}",
+        }
+    validation = payload.get("validation") if isinstance(payload, dict) else []
+    screenshots = payload.get("screenshots") if isinstance(payload, dict) else []
     return {
         "status": str(payload.get("status") or "unknown"),
         "path": PREDEPLOY_EVIDENCE_PATH,
@@ -386,19 +422,6 @@ def _predeploy_evidence_summary(payload: object) -> dict[str, Any]:
         "validations": validation if isinstance(validation, list) else [],
         "screenshots": screenshots if isinstance(screenshots, list) else [],
     }
-
-
-def _invalid_shape_predeploy_evidence() -> dict[str, Any]:
-    return {
-        "status": "invalid_shape",
-        "path": PREDEPLOY_EVIDENCE_PATH,
-        "summary": "Target-branch predeploy evidence must be a JSON object.",
-    }
-
-
-def _list_field(payload: dict[str, Any], key: str) -> list[Any]:
-    value = payload.get(key)
-    return value if isinstance(value, list) else []
 
 
 def _deploy_readiness_status(
