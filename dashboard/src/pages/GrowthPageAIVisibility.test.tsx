@@ -28,6 +28,7 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/live-readiness')) return json(liveReadiness())
     if (url.includes('/growth/ai-visibility/external-probe-gate')) return json(externalProbeGate())
     if (url.includes('/growth/ai-visibility/official-sources')) return json(officialSources())
+    if (url.includes('/growth/ai-visibility/probe-matrix')) return json(probeMatrix())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -66,6 +67,9 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('Citation authority surfaces')).toBeInTheDocument()
     expect(screen.getByText('remote_mcp')).toBeInTheDocument()
     expect(screen.getByText('https://mcp.synapse-network.ai/mcp')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-probe-matrix')).toBeInTheDocument()
+    expect(screen.getByText('Answer-engine probe matrix')).toBeInTheDocument()
+    expect(screen.getByText('ready_to_probe')).toBeInTheDocument()
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
     expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
@@ -173,6 +177,31 @@ function officialSources() {
       { surface_key: 'www_homepage', surface: 'www', canonical_url: 'https://www.synapse-network.ai/', citation_role: 'Primary canonical.', feed_keys: ['brand_disambiguation_www'], required_for_success: true, validation_command: 'curl -fsS https://www.synapse-network.ai/', acceptance_signal: 'Homepage has facts.' },
       { surface_key: 'remote_mcp', surface: 'mcp', canonical_url: 'https://mcp.synapse-network.ai/mcp', citation_role: 'Hosted Remote MCP endpoint.', feed_keys: ['mcp_paid_api_discovery'], required_for_success: true, validation_command: 'curl -fsS https://mcp.synapse-network.ai/readyz', acceptance_signal: 'readyz is 200 and /mcp is 401.' },
     ],
+  }
+}
+
+function probeMatrix() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    target_platforms: ['chatgpt', 'claude', 'grok'],
+    recommended_feed_key: 'mcp_paid_api_discovery',
+    total: 1,
+    rows: [{
+      feed_key: 'mcp_paid_api_discovery',
+      platform: 'chatgpt',
+      status: 'ready_to_probe',
+      run_group: '2026-06-05-mcp-weekly',
+      queries: ['MCP server for paid API calls'],
+      official_source_urls: ['https://www.synapse-network.ai/', 'https://mcp.synapse-network.ai/mcp'],
+      success_decision_rule: 'Success requires an official citation.',
+      manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
+      record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl --apply',
+      compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+      evidence_directory: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly',
+      blockers: [],
+      next_actions: ['Run the chatgpt probe with unchanged query wording.'],
+    }],
   }
 }
 

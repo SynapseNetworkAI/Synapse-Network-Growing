@@ -339,6 +339,29 @@ export interface GrowthAIVisibilityOfficialSourceList {
   items: GrowthAIVisibilityOfficialSource[]
   total: number
 }
+export interface GrowthAIVisibilityProbeMatrixRow {
+  feed_key: string
+  platform: string
+  status: string
+  run_group: string
+  queries: string[]
+  official_source_urls: string[]
+  success_decision_rule: string
+  manual_probe_template_command: string
+  record_probe_command: string
+  compare_command: string
+  evidence_directory: string
+  blockers: string[]
+  next_actions: string[]
+}
+export interface GrowthAIVisibilityProbeMatrix {
+  module_key: string
+  generated_at: string
+  target_platforms: string[]
+  recommended_feed_key: string
+  rows: GrowthAIVisibilityProbeMatrixRow[]
+  total: number
+}
 export interface GrowthAIVisibilityQuery {
   query: string
   intent: string
@@ -496,6 +519,8 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilityExternalProbeGate>('/growth/ai-visibility/external-probe-gate'),
     getGrowthAIVisibilityOfficialSources: () =>
       request<GrowthAIVisibilityOfficialSourceList>('/growth/ai-visibility/official-sources'),
+    getGrowthAIVisibilityProbeMatrix: () =>
+      request<GrowthAIVisibilityProbeMatrix>('/growth/ai-visibility/probe-matrix'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }

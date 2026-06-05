@@ -1,5 +1,5 @@
 import { EmptyPane, StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityProbeMatrix, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
 import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
 import { HandoffBundleSummary, ReleaseSnapshotSummary, ReleaseUnblockSummary } from './GrowthAIVisibilityReleaseSummaries'
 import { Info, signed } from './GrowthAIVisibilityPanelParts'
@@ -25,6 +25,7 @@ export function GrowthAIVisibilityPanel({
   liveReadiness,
   externalProbeGate,
   officialSources,
+  probeMatrix,
   plan,
   onCreate,
 }: Readonly<{
@@ -44,6 +45,7 @@ export function GrowthAIVisibilityPanel({
   liveReadiness: GrowthAIVisibilityLiveReadiness | null
   externalProbeGate: GrowthAIVisibilityExternalProbeGate | null
   officialSources: GrowthAIVisibilityOfficialSourceList | null
+  probeMatrix: GrowthAIVisibilityProbeMatrix | null
   plan: GrowthAIVisibilityOptimizationPlan | null
   onCreate: () => void
 }>) {
@@ -87,6 +89,7 @@ export function GrowthAIVisibilityPanel({
           <WeeklyReportSummary report={weeklyReport} />
           <OptimizationBriefSummary brief={optimizationBrief} />
           <OfficialSourceMap sources={officialSources} />
+          <ProbeMatrixSummary matrix={probeMatrix} />
           <ExternalProbeGateSummary gate={externalProbeGate} />
           <LiveReadinessSummary readiness={liveReadiness} />
           <NextCycleSummary nextCycle={nextCycle} />
@@ -140,6 +143,41 @@ export function GrowthAIVisibilityPanel({
         )}
       </div>
     </section>
+  )
+}
+
+function ProbeMatrixSummary({ matrix }: Readonly<{ matrix: GrowthAIVisibilityProbeMatrix | null }>) {
+  if (!matrix) return null
+  return (
+    <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-probe-matrix">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Answer-engine probe matrix</div>
+          <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">{matrix.recommended_feed_key || 'no feed'} next</div>
+        </div>
+        <StateBadge tone={matrix.total ? 'running' : 'muted'}>{matrix.total} probes</StateBadge>
+      </div>
+      <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+        Platforms: {matrix.target_platforms.join(', ')}
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-3">
+        {matrix.rows.slice(0, 9).map((row) => (
+          <div key={`${row.feed_key}-${row.platform}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-[color:var(--ops-text-title)]">{row.platform}</div>
+              <StateBadge tone={row.status === 'covered' ? 'delivered' : row.status === 'ready_to_probe' ? 'running' : 'blocked'}>{row.status}</StateBadge>
+            </div>
+            <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">{row.feed_key} · {row.run_group}</div>
+            <div className="mt-3 text-sm leading-6 text-[color:var(--ops-text-muted)]">Query: {row.queries[0] || '-'}</div>
+            <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Official: {row.official_source_urls.slice(0, 3).join(', ') || '-'}</div>
+            <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
+              {row.record_probe_command}
+            </div>
+            <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">Next: {row.next_actions[0] || row.success_decision_rule}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

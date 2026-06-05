@@ -662,6 +662,35 @@ function installFetch() {
         ],
       })
     }
+    if (url.includes('/growth/ai-visibility/probe-matrix')) {
+      return json({
+        module_key: 'ai_visibility',
+        generated_at: '2026-06-05T00:00:00Z',
+        target_platforms: ['chatgpt', 'claude', 'grok'],
+        recommended_feed_key: 'mcp_paid_api_discovery',
+        total: 1,
+        rows: [
+          {
+            feed_key: 'mcp_paid_api_discovery',
+            platform: 'chatgpt',
+            status: 'ready_to_probe',
+            run_group: '2026-06-05-mcp-weekly',
+            queries: ['MCP server for paid API calls'],
+            official_source_urls: [
+              'https://www.synapse-network.ai/',
+              'https://mcp.synapse-network.ai/mcp',
+            ],
+            success_decision_rule: 'Success requires an official citation.',
+            manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
+            record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl --apply',
+            compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+            evidence_directory: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly',
+            blockers: [],
+            next_actions: ['Run the chatgpt probe with unchanged query wording.'],
+          },
+        ],
+      })
+    }
     if (url.includes('/growth/ai-visibility/optimization-brief')) {
       return json({
         module_key: 'ai_visibility',

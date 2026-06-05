@@ -329,6 +329,31 @@ class GrowthAIVisibilityOfficialSourceListOut(BaseModel):
     total: int = 0
 
 
+class GrowthAIVisibilityProbeMatrixRowOut(BaseModel):
+    feed_key: str
+    platform: str
+    status: str
+    run_group: str
+    queries: list[str] = Field(default_factory=list)
+    official_source_urls: list[str] = Field(default_factory=list)
+    success_decision_rule: str
+    manual_probe_template_command: str
+    record_probe_command: str
+    compare_command: str
+    evidence_directory: str
+    blockers: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class GrowthAIVisibilityProbeMatrixOut(BaseModel):
+    module_key: str = "ai_visibility"
+    generated_at: datetime
+    target_platforms: list[str] = Field(default_factory=list)
+    recommended_feed_key: str = ""
+    rows: list[GrowthAIVisibilityProbeMatrixRowOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class GrowthAIVisibilityFeedScoreOut(BaseModel):
     feed_key: str
     rank: int = 0

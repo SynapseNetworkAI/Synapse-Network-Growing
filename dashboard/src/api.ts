@@ -60,6 +60,8 @@ export type {
   GrowthAIVisibilityOptimizationBrief,
   GrowthAIVisibilityOfficialSource,
   GrowthAIVisibilityOfficialSourceList,
+  GrowthAIVisibilityProbeMatrix,
+  GrowthAIVisibilityProbeMatrixRow,
   GrowthAIVisibilityReleaseCommandGroup,
   GrowthAIVisibilityReleaseSnapshot,
   GrowthAIVisibilityReleaseUnblockPlan,

@@ -69,6 +69,33 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert "401" in source_by_key["remote_mcp"]["acceptance_signal"]
     assert source_by_key["official_mcp_registry"]["surface"] == "mcp_registry"
+    probe_matrix = synced_client.get("/api/growth/ai-visibility/probe-matrix")
+    assert probe_matrix.status_code == 200
+    matrix_payload = probe_matrix.json()
+    assert matrix_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert matrix_payload["total"] == 9
+    mcp_chatgpt = next(
+        row
+        for row in matrix_payload["rows"]
+        if row["feed_key"] == "mcp_paid_api_discovery"
+        and row["platform"] == "chatgpt"
+    )
+    assert mcp_chatgpt["status"] in {
+        "blocked_until_feed_ready",
+        "ready_to_probe",
+        "covered",
+    }
+    assert "MCP server for paid API calls" in mcp_chatgpt["queries"]
+    assert "https://www.synapse-network.ai/" in mcp_chatgpt[
+        "official_source_urls"
+    ]
+    assert "https://mcp.synapse-network.ai/mcp" in mcp_chatgpt[
+        "official_source_urls"
+    ]
+    assert "record_ai_visibility_probe.py" in mcp_chatgpt["record_probe_command"]
+    assert "comparisons?feed_key=mcp_paid_api_discovery" in mcp_chatgpt[
+        "compare_command"
+    ]
     packages = synced_client.get("/api/growth/ai-visibility/feed-package")
     assert packages.status_code == 200
     package_payload = packages.json()

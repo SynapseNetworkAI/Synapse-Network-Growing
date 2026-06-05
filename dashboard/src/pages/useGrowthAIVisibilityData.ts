@@ -15,6 +15,7 @@ import {
   type GrowthAIVisibilityOptimizationBrief,
   type GrowthAIVisibilityOfficialSourceList,
   type GrowthAIVisibilityOptimizationPlan,
+  type GrowthAIVisibilityProbeMatrix,
   type GrowthAIVisibilityReleaseSnapshot,
   type GrowthAIVisibilityReleaseUnblockPlan,
   type GrowthAIVisibilityWeeklyReport,
@@ -37,6 +38,7 @@ export function useGrowthAIVisibilityData() {
   const [liveReadiness, setLiveReadiness] = useState<GrowthAIVisibilityLiveReadiness | null>(null)
   const [externalProbeGate, setExternalProbeGate] = useState<GrowthAIVisibilityExternalProbeGate | null>(null)
   const [officialSources, setOfficialSources] = useState<GrowthAIVisibilityOfficialSourceList | null>(null)
+  const [probeMatrix, setProbeMatrix] = useState<GrowthAIVisibilityProbeMatrix | null>(null)
   const [plan, setPlan] = useState<GrowthAIVisibilityOptimizationPlan | null>(null)
 
   const load = async (options: { includeRuntimeEvidence: boolean; search: string }) => {
@@ -57,6 +59,7 @@ export function useGrowthAIVisibilityData() {
       handoffBundlePayload,
       briefPayload,
       officialSourcesPayload,
+      probeMatrixPayload,
       comparisonPayload,
       checksPayload,
     ] = await Promise.all([
@@ -75,6 +78,7 @@ export function useGrowthAIVisibilityData() {
       includeRuntimeEvidence ? api.getGrowthAIVisibilityHandoffBundle() : Promise.resolve(null),
       api.getGrowthAIVisibilityOptimizationBrief(),
       api.getGrowthAIVisibilityOfficialSources(),
+      api.getGrowthAIVisibilityProbeMatrix(),
       api.getGrowthAIVisibilityComparisons({ limit: 10 }),
       api.getGrowthAIVisibilityChecks({ q: options.search || undefined, limit: 100 }),
     ])
@@ -93,6 +97,7 @@ export function useGrowthAIVisibilityData() {
     setHandoffBundle(handoffBundlePayload)
     setOptimizationBrief(briefPayload)
     setOfficialSources(officialSourcesPayload)
+    setProbeMatrix(probeMatrixPayload)
     setComparisons(comparisonPayload.items)
     setItems(checksPayload.items)
   }
@@ -101,6 +106,7 @@ export function useGrowthAIVisibilityData() {
     plan,
     externalProbeGate,
     officialSources,
+    probeMatrix,
     liveReadiness,
     optimizationBrief,
     handoffBundle,

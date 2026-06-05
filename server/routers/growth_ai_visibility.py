@@ -23,6 +23,7 @@ from server.schemas_growth import (
     GrowthAIVisibilityOptimizationBriefOut,
     GrowthAIVisibilityOfficialSourceListOut,
     GrowthAIVisibilityOptimizationPlanOut,
+    GrowthAIVisibilityProbeMatrixOut,
     GrowthAIVisibilityReleaseSnapshotOut,
     GrowthAIVisibilityReleaseUnblockPlanOut,
     GrowthAIVisibilityWeeklyReportOut,
@@ -37,6 +38,7 @@ from server.services.growth import (
     ai_visibility_live_readiness,
     ai_visibility_official_sources,
     ai_visibility_plan,
+    ai_visibility_probe_matrix,
     ai_visibility_release_snapshot,
     ai_visibility_release_unblock,
     ai_visibility_scorecard,
@@ -207,6 +209,14 @@ def get_ai_visibility_external_probe_gate(
 )
 def get_ai_visibility_official_sources():
     return ai_visibility_official_sources.ai_visibility_official_sources()
+
+
+@router.get(
+    "/ai-visibility/probe-matrix",
+    response_model=GrowthAIVisibilityProbeMatrixOut,
+)
+def get_ai_visibility_probe_matrix(db: Session = Depends(get_db)):
+    return ai_visibility_probe_matrix.ai_visibility_probe_matrix(db)
 
 
 @router.get(
