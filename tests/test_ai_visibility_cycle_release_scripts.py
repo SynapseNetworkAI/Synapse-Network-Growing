@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 from scripts.growth import ai_visibility_cli
+from scripts.growth import (
+    generate_ai_visibility_external_probe_gate as external_probe_gate_cli,
+)
 from scripts.growth import generate_ai_visibility_live_readiness as live_readiness_cli
 from scripts.growth import generate_ai_visibility_operator_brief as operator_brief
 from scripts.growth import (
@@ -485,6 +488,102 @@ def test_live_readiness_cli_writes_json(monkeypatch, tmp_path: Path):
     assert payload["canonical_homepage"] == "https://www.synapse-network.ai/"
     assert "run_ai_visibility_feed_validation.py" in payload["validation_command"]
     assert payload["items"][0]["feed_key"] == "mcp_paid_api_discovery"
+
+
+def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Path):
+    output_path = tmp_path / "external-probe-gate.json"
+
+    class FakeGate:
+        def model_dump(self, mode: str):  # noqa: ARG002
+            return {
+                "module_key": "ai_visibility",
+                "feed_key": "brand_disambiguation_www",
+                "run_group": "2026-06-05-brand-external",
+                "status": "ready_for_partial_external_probes",
+                "ready_to_execute": False,
+                "partial_ready_to_execute": True,
+                "feed_ready": True,
+                "api_keys_ready": False,
+                "target_platforms": ["chatgpt", "claude", "grok"],
+                "ready_platforms": ["chatgpt"],
+                "missing_platforms": ["claude", "grok"],
+                "provider_readiness": [
+                    {
+                        "platform": "chatgpt",
+                        "env_key": "OPENAI_API_KEY",
+                        "configured": True,
+                    },
+                    {
+                        "platform": "claude",
+                        "env_key": "ANTHROPIC_API_KEY",
+                        "configured": False,
+                    },
+                ],
+                "blockers": ["claude missing ANTHROPIC_API_KEY."],
+                "feed_validation_command": (
+                    "python scripts/growth/run_ai_visibility_feed_validation.py"
+                ),
+                "record_readiness_command": (
+                    "python scripts/growth/record_ai_visibility_probe.py "
+                    "docs/archive/evidence/growth/ai-visibility/live.jsonl "
+                    "--allow-local-validation --apply"
+                ),
+                "api_readiness_command": (
+                    "python scripts/growth/run_ai_visibility_api_probe.py "
+                    "--feed-key brand_disambiguation_www "
+                    "--platforms chatgpt,claude,grok"
+                ),
+                "api_execute_command": (
+                    "python scripts/growth/run_ai_visibility_api_probe.py "
+                    "--feed-key brand_disambiguation_www "
+                    "--platforms chatgpt,claude,grok --execute"
+                ),
+                "partial_api_readiness_command": (
+                    "python scripts/growth/run_ai_visibility_api_probe.py "
+                    "--feed-key brand_disambiguation_www --platforms chatgpt"
+                ),
+                "partial_api_execute_command": (
+                    "python scripts/growth/run_ai_visibility_api_probe.py "
+                    "--feed-key brand_disambiguation_www --platforms chatgpt "
+                    "--execute"
+                ),
+                "record_probe_command": (
+                    "python scripts/growth/record_ai_visibility_probe.py "
+                    "docs/archive/evidence/growth/ai-visibility/external.jsonl --apply"
+                ),
+                "compare_command": (
+                    "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/"
+                    "comparisons?feed_key=brand_disambiguation_www' | python -m json.tool"
+                ),
+            }
+
+    monkeypatch.setattr(
+        external_probe_gate_cli,
+        "ai_visibility_external_probe_gate",
+        lambda **_: FakeGate(),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_ai_visibility_external_probe_gate.py",
+            "--feed-key",
+            "brand_disambiguation_www",
+            "--run-group",
+            "2026-06-05-brand-external",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert external_probe_gate_cli.main() == 0
+    rendered = output_path.read_text(encoding="utf-8")
+    payload = json.loads(rendered)
+    assert payload["status"] == "ready_for_partial_external_probes"
+    assert payload["ready_platforms"] == ["chatgpt"]
+    assert "OPENAI_API_KEY" in rendered
+    assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
+    assert "sk-test" not in rendered
 
 
 def test_generate_optimization_brief_cli_writes_markdown(tmp_path: Path):
