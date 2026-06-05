@@ -357,6 +357,47 @@ def test_feed_validation_mcp_feed_passes_with_docs_and_auth_boundary(monkeypatch
     assert validate_records(rows, allow_local_validation=True) == []
 
 
+def test_feed_validation_mcp_feed_matches_full_body_without_leaking_metadata(
+    monkeypatch,
+):
+    def fake_fetch(label: str, url: str, **kwargs):
+        status = 401 if label == "mcp_unauth_post" else 200
+        snippet = "Synapse"
+        match_text = snippet
+        if label == "docs_mcp_paid_api_calls":
+            snippet = "Synapse docs shell without the tool list"
+            match_text = (
+                "x"
+                * feed_validation.BODY_SNIPPET_CHARS
+                + " MCP Server for Paid API Calls Synapse discover_services "
+                "invoke_and_pay get_receipt"
+            )
+        if label == "www_llms_mcp":
+            snippet = "Synapse llms intro"
+            match_text = (
+                "x" * feed_validation.BODY_SNIPPET_CHARS
+                + " MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+            )
+        return feed_validation.HttpProbeResult(
+            label=label,
+            url=url,
+            status=status,
+            body_snippet=snippet,
+            body_match_text=match_text,
+        )
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].synapse_mentioned is True
+    assert rows[0].missing_facts == []
+    assert all("body_match_text" not in check for check in rows[0].metadata["checks"])
+
+
 def test_feed_validation_parse_feed_keys():
     assert feed_validation.parse_feed_keys(None) == [
         "agent_payment_category_pages",

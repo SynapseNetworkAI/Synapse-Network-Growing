@@ -24,6 +24,7 @@ FEED_KEYS = {
     "mcp_paid_api_discovery",
 }
 BODY_SNIPPET_CHARS = 1200
+BODY_MATCH_CHARS = 250_000
 
 __all__ = [
     "AI_SEARCH_CRAWLERS",
@@ -47,6 +48,7 @@ class HttpProbeResult:
     status: int = 0
     final_url: str = ""
     body_snippet: str = ""
+    body_match_text: str = field(default="", repr=False)
     error: str = ""
     contains_synapse: bool = False
     headers: dict[str, str] = field(default_factory=dict)
@@ -318,24 +320,26 @@ def fetch(
     try:
         opener = urllib.request.urlopen if follow_redirects else no_redirect_urlopen
         with opener(request, timeout=timeout) as response:  # noqa: S310
-            body = response.read(20000).decode("utf-8", errors="replace")
+            body = response.read(BODY_MATCH_CHARS).decode("utf-8", errors="replace")
             return HttpProbeResult(
                 label=label,
                 url=url,
                 status=int(response.status),
                 final_url=response.geturl(),
                 body_snippet=body[:BODY_SNIPPET_CHARS],
+                body_match_text=body,
                 contains_synapse=has_synapse_brand_fact(body),
                 headers={key.lower(): value for key, value in response.headers.items()},
             )
     except urllib.error.HTTPError as exc:
-        body = exc.read(20000).decode("utf-8", errors="replace")
+        body = exc.read(BODY_MATCH_CHARS).decode("utf-8", errors="replace")
         return HttpProbeResult(
             label=label,
             url=url,
             status=int(exc.code),
             final_url=exc.geturl(),
             body_snippet=body[:BODY_SNIPPET_CHARS],
+            body_match_text=body,
             contains_synapse=has_synapse_brand_fact(body),
             headers={key.lower(): value for key, value in exc.headers.items()},
             error="",
@@ -367,7 +371,8 @@ def has_synapse_content(result: HttpProbeResult) -> bool:
 
 
 def has_all_text(result: HttpProbeResult, expected: list[str]) -> bool:
-    return all(item in result.body_snippet for item in expected)
+    searchable_body = result.body_match_text or result.body_snippet
+    return all(item in searchable_body for item in expected)
 
 
 def mcp_next_action(
@@ -426,10 +431,16 @@ def record(
         metadata={
             "mode": "feed_live_validation",
             "checked_at": datetime.now(UTC).isoformat(),
-            "checks": [asdict(check) for check in checks],
+            "checks": [probe_result_metadata(check) for check in checks],
             **(metadata_extra or {}),
         },
     )
+
+
+def probe_result_metadata(result: HttpProbeResult) -> dict[str, object]:
+    payload = asdict(result)
+    payload.pop("body_match_text", None)
+    return payload
 
 
 def summary_for_checks(passed: bool, checks: list[HttpProbeResult]) -> str:
