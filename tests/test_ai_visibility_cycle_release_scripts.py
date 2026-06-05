@@ -219,6 +219,65 @@ def test_cycle_summary_detects_external_citation(tmp_path: Path):
     assert "--query" not in payload["commands"]["api_readiness"]
 
 
+def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
+    probe_path = tmp_path / "api-blockers.jsonl"
+    probe_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "query": "External API probe readiness",
+                        "platform": platform,
+                        "feed_key": "mcp_paid_api_discovery",
+                        "run_group": "2026-06-06-api-blockers",
+                        "answer_summary": f"{platform} API probe blocked.",
+                        "synapse_mentioned": False,
+                        "synapse_cited": False,
+                        "missing_facts": [
+                            f"{env_key} missing; no paid {platform} probe executed."
+                        ],
+                        "next_action": (
+                            f"Configure {env_key} and rerun "
+                            "run_ai_visibility_api_probe.py with --execute."
+                        ),
+                        "metadata": {
+                            "mode": "api_probe_readiness_blocker",
+                            "provider_env_key": env_key,
+                        },
+                    }
+                )
+                for platform, env_key in (
+                    ("chatgpt", "OPENAI_API_KEY"),
+                    ("claude", "ANTHROPIC_API_KEY"),
+                    ("grok", "XAI_API_KEY"),
+                )
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = cycle_summary.parse_probe_file(probe_path)
+    payload = cycle_summary.summarize_cycle(records, source_path=str(probe_path))
+
+    assert payload["status"] == "external_probe_blocked"
+    assert payload["external_probe_count"] == 0
+    assert payload["api_probe_blocker_count"] == 3
+    assert payload["external_mentioned_count"] == 0
+    assert payload["external_cited_count"] == 0
+    assert payload["covered_platforms"] == []
+    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
+    assert "OPENAI_API_KEY missing; no paid chatgpt probe executed." in payload[
+        "blockers"
+    ]
+    assert (
+        "External API probes are blocked by missing provider credentials."
+        in payload["blockers"]
+    )
+    assert (
+        "Configure missing answer-engine API keys" in payload["next_actions"][-1]
+    )
+
+
 def test_cycle_summary_surfaces_explicit_crawler_policy_improvement(tmp_path: Path):
     probe_path = tmp_path / "crawler-policy.jsonl"
     probe_path.write_text(

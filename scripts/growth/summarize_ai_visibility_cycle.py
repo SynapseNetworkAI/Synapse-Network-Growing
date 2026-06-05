@@ -93,17 +93,24 @@ def summarize_cycle(
     previous_source_path: str = "",
 ) -> Any:
     scope = cycle_scope(records)
-    validation_records, external_records, failed_validation = partition_records(records)
+    (
+        validation_records,
+        external_records,
+        failed_validation,
+        api_probe_blockers,
+    ) = partition_records(records)
     covered_platforms, missing_platforms = platform_coverage(external_records)
     blockers = cycle_blockers(
         failed_validation=failed_validation,
         external_records=external_records,
         missing_platforms=missing_platforms,
+        api_probe_blockers=api_probe_blockers,
     )
     status = cycle_status(
         failed_validation=failed_validation,
         external_records=external_records,
         missing_platforms=missing_platforms,
+        api_probe_blockers=api_probe_blockers,
     )
     strategy_platforms = missing_platforms if missing_platforms else TARGET_PLATFORMS
     platform_strategies = platform_strategies_for(
@@ -120,7 +127,9 @@ def summarize_cycle(
         feed_improvements=feed_improvements,
     )
     previous_external_records = [
-        record for record in (previous_records or []) if not is_local_validation(record)
+        record
+        for record in (previous_records or [])
+        if not is_local_validation(record) and not is_api_probe_readiness_blocker(record)
     ]
     comparison = comparison_summary(
         current_external_records=external_records,
@@ -139,6 +148,7 @@ def summarize_cycle(
         "record_count": len(records),
         "local_validation_count": len(validation_records),
         "external_probe_count": len(external_records),
+        "api_probe_blocker_count": len(api_probe_blockers),
         "external_mentioned_count": sum(
             1 for record in external_records if record.synapse_mentioned
         ),
@@ -173,15 +183,22 @@ def cycle_scope(records: list[ProbeRecord]) -> Any:
 
 def partition_records(
     records: list[ProbeRecord],
-) -> tuple[list[ProbeRecord], list[ProbeRecord], list[ProbeRecord]]:
+) -> tuple[list[ProbeRecord], list[ProbeRecord], list[ProbeRecord], list[ProbeRecord]]:
     validation_records = [record for record in records if is_local_validation(record)]
-    external_records = [record for record in records if not is_local_validation(record)]
+    api_probe_blockers = [
+        record for record in records if is_api_probe_readiness_blocker(record)
+    ]
+    external_records = [
+        record
+        for record in records
+        if not is_local_validation(record) and not is_api_probe_readiness_blocker(record)
+    ]
     failed_validation = [
         record
         for record in validation_records
         if not record.synapse_mentioned or record.missing_facts
     ]
-    return validation_records, external_records, failed_validation
+    return validation_records, external_records, failed_validation, api_probe_blockers
 
 
 def platform_coverage(
@@ -205,11 +222,17 @@ def cycle_blockers(
     failed_validation: list[ProbeRecord],
     external_records: list[ProbeRecord],
     missing_platforms: list[str],
+    api_probe_blockers: list[ProbeRecord],
 ) -> list[str]:
     blockers = unique_strings(
         [fact for record in failed_validation for fact in record.missing_facts]
+        + [fact for record in api_probe_blockers for fact in record.missing_facts]
     )
-    if not external_records:
+    if api_probe_blockers and not external_records:
+        blockers.append(
+            "External API probes are blocked by missing provider credentials."
+        )
+    elif not external_records:
         blockers.append("No external GPT/Claude/Grok probe evidence has been recorded.")
     if external_records and missing_platforms:
         blockers.append(
@@ -239,9 +262,12 @@ def cycle_status(
     failed_validation: list[ProbeRecord],
     external_records: list[ProbeRecord],
     missing_platforms: list[str],
+    api_probe_blockers: list[ProbeRecord],
 ) -> str:
     if failed_validation:
         return "feed_blocked"
+    if api_probe_blockers and not external_records:
+        return "external_probe_blocked"
     if not external_records:
         return "ready_for_external_probe"
     if missing_platforms:
@@ -267,6 +293,10 @@ def recommended_actions(
         ]
     if status == "partial_external_probe":
         return [f"Complete missing external probes for {', '.join(missing_platforms)}."]
+    if status == "external_probe_blocked":
+        return [
+            "Configure missing answer-engine API keys and rerun external probes with --execute."
+        ]
     if status in {"citation_observed", "mention_observed"}:
         return [
             "Compare this run against the previous run group and schedule the next weekly stability probe."
@@ -416,6 +446,10 @@ def platform_strategies_for(*, feed_key: str, platforms: list[str]) -> list[Any]
 
 def is_local_validation(record: ProbeRecord) -> bool:
     return record.platform.endswith("_validation")
+
+
+def is_api_probe_readiness_blocker(record: ProbeRecord) -> bool:
+    return str(record.metadata.get("mode", "")).strip() == "api_probe_readiness_blocker"
 
 
 def emit(payload: dict[str, Any], *, stderr: bool = False) -> None:
