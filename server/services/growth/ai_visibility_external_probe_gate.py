@@ -60,6 +60,7 @@ def ai_visibility_external_probe_gate(
         status=status,
         ready_to_execute=feed_ready and api_keys_ready,
         partial_ready_to_execute=feed_ready and bool(ready_platforms),
+        manual_ready_to_execute=feed_ready,
         feed_ready=feed_ready,
         api_keys_ready=api_keys_ready,
         target_platforms=TARGET_PLATFORMS,

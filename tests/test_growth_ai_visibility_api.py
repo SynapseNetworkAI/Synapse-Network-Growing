@@ -578,6 +578,7 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["status"] == "blocked_until_feed_ready"
     assert payload["ready_to_execute"] is False
     assert payload["partial_ready_to_execute"] is False
+    assert payload["manual_ready_to_execute"] is False
     assert payload["feed_ready"] is False
     assert payload["api_keys_ready"] is False
     assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
@@ -635,6 +636,7 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert payload["status"] == "ready_for_partial_external_probes"
     assert payload["ready_to_execute"] is False
     assert payload["partial_ready_to_execute"] is True
+    assert payload["manual_ready_to_execute"] is True
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is False
     assert payload["ready_platforms"] == ["chatgpt", "claude"]
@@ -691,6 +693,7 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert payload["status"] == "ready_to_execute_external_probes"
     assert payload["ready_to_execute"] is True
     assert payload["partial_ready_to_execute"] is True
+    assert payload["manual_ready_to_execute"] is True
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is True
     assert payload["ready_platforms"] == ["chatgpt", "claude", "grok"]

@@ -283,6 +283,7 @@ class GrowthAIVisibilityExternalProbeGateOut(BaseModel):
     status: str
     ready_to_execute: bool = False
     partial_ready_to_execute: bool = False
+    manual_ready_to_execute: bool = False
     feed_ready: bool = False
     api_keys_ready: bool = False
     target_platforms: list[str] = Field(default_factory=list)

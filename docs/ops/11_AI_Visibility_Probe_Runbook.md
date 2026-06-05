@@ -318,15 +318,17 @@ The output should be `status=ready` when the requested platform keys exist, or
 
 The Growing gate at `/api/growth/ai-visibility/external-probe-gate` also
 reports `ready_platforms`, `missing_platforms`, and
-`manual_probe_template_command`. If API keys are missing, run the manual template
-command, use the generated rows as a checklist in ChatGPT, Claude, and Grok UI,
-fill in answer summaries, citations, and screenshot paths, then apply the JSONL
-with `record_ai_visibility_probe.py`. When the feed is ready but only some keys
-exist, the gate returns `ready_for_partial_external_probes` and shows
-`partial_api_readiness_command` / `partial_api_execute_command` for the
-configured platforms. Use partial API probes only for focused diagnostics. Full
-success still requires comparable ChatGPT, Claude, and Grok evidence for the same
-feed and run group.
+`manual_probe_template_command`. `manual_ready_to_execute=true` means the feed is
+ready for manual ChatGPT, Claude, and Grok UI checks even when API execution is
+blocked by missing keys. If API keys are missing, run the manual template
+command, use the generated rows as a checklist in each UI, fill in answer
+summaries, citations, and screenshot paths, then apply the JSONL with
+`record_ai_visibility_probe.py`. When the feed is ready but only some keys exist,
+the gate returns `ready_for_partial_external_probes` and shows
+`partial_api_readiness_command` / `partial_api_execute_command` for the configured
+platforms. Use partial API probes only for focused diagnostics. Full success
+still requires comparable ChatGPT, Claude, and Grok evidence for the same feed
+and run group.
 
 Execute paid probes:
 

@@ -502,6 +502,7 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                 "status": "ready_for_partial_external_probes",
                 "ready_to_execute": False,
                 "partial_ready_to_execute": True,
+                "manual_ready_to_execute": True,
                 "feed_ready": True,
                 "api_keys_ready": False,
                 "target_platforms": ["chatgpt", "claude", "grok"],
@@ -586,6 +587,7 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
     payload = json.loads(rendered)
     assert payload["status"] == "ready_for_partial_external_probes"
     assert payload["ready_platforms"] == ["chatgpt"]
+    assert payload["manual_ready_to_execute"] is True
     assert (
         "generate_ai_visibility_probe_template.py"
         in payload["manual_probe_template_command"]
