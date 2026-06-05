@@ -35,6 +35,9 @@ FEED_KEYS = {
 }
 BODY_SNIPPET_CHARS = 1200
 BODY_MATCH_CHARS = 250_000
+DEFAULT_HTTP_TIMEOUT_SECONDS = 20
+DIRECTORY_HTTP_TIMEOUT_SECONDS = 45
+DIRECTORY_HTTP_ATTEMPTS = 2
 
 __all__ = [
     "AI_SEARCH_CRAWLERS",
@@ -324,6 +327,8 @@ def _mcp_feed_checks() -> tuple[
         "mcp_registry",
         "https://registry.modelcontextprotocol.io/v0.1/servers"
         "?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        timeout=DIRECTORY_HTTP_TIMEOUT_SECONDS,
+        attempts=DIRECTORY_HTTP_ATTEMPTS,
     )
     return (
         homepage,
@@ -352,39 +357,50 @@ def fetch(
     *,
     method: str = "GET",
     data: bytes | None = None,
-    timeout: int = 20,
+    timeout: int = DEFAULT_HTTP_TIMEOUT_SECONDS,
     follow_redirects: bool = True,
+    attempts: int = 1,
 ) -> HttpProbeResult:
     request = urllib.request.Request(url, data=data, method=method)
-    try:
-        opener = urllib.request.urlopen if follow_redirects else no_redirect_urlopen
-        with opener(request, timeout=timeout) as response:  # noqa: S310
-            body = response.read(BODY_MATCH_CHARS).decode("utf-8", errors="replace")
+    opener = urllib.request.urlopen if follow_redirects else no_redirect_urlopen
+    bounded_attempts = max(int(attempts or 1), 1)
+    last_error = ""
+    for attempt_index in range(bounded_attempts):
+        try:
+            with opener(request, timeout=timeout) as response:  # noqa: S310
+                body = response.read(BODY_MATCH_CHARS).decode(
+                    "utf-8", errors="replace"
+                )
+                return HttpProbeResult(
+                    label=label,
+                    url=url,
+                    status=int(response.status),
+                    final_url=response.geturl(),
+                    body_snippet=body[:BODY_SNIPPET_CHARS],
+                    body_match_text=body,
+                    contains_synapse=has_synapse_brand_fact(body),
+                    headers={
+                        key.lower(): value for key, value in response.headers.items()
+                    },
+                )
+        except urllib.error.HTTPError as exc:
+            body = exc.read(BODY_MATCH_CHARS).decode("utf-8", errors="replace")
             return HttpProbeResult(
                 label=label,
                 url=url,
-                status=int(response.status),
-                final_url=response.geturl(),
+                status=int(exc.code),
+                final_url=exc.geturl(),
                 body_snippet=body[:BODY_SNIPPET_CHARS],
                 body_match_text=body,
                 contains_synapse=has_synapse_brand_fact(body),
-                headers={key.lower(): value for key, value in response.headers.items()},
+                headers={key.lower(): value for key, value in exc.headers.items()},
+                error="",
             )
-    except urllib.error.HTTPError as exc:
-        body = exc.read(BODY_MATCH_CHARS).decode("utf-8", errors="replace")
-        return HttpProbeResult(
-            label=label,
-            url=url,
-            status=int(exc.code),
-            final_url=exc.geturl(),
-            body_snippet=body[:BODY_SNIPPET_CHARS],
-            body_match_text=body,
-            contains_synapse=has_synapse_brand_fact(body),
-            headers={key.lower(): value for key, value in exc.headers.items()},
-            error="",
-        )
-    except Exception as exc:
-        return HttpProbeResult(label=label, url=url, error=str(exc))
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt_index + 1 >= bounded_attempts:
+                break
+    return HttpProbeResult(label=label, url=url, error=last_error)
 
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):

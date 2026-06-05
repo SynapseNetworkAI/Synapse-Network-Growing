@@ -419,6 +419,46 @@ def test_feed_validation_mcp_feed_requires_401(monkeypatch):
     assert validate_records(rows, allow_local_validation=True) == []
 
 
+def test_feed_validation_mcp_registry_uses_directory_retry_budget(monkeypatch):
+    calls = {}
+
+    def fake_fetch(label: str, url: str, **kwargs):
+        calls[label] = kwargs
+        body = "Synapse"
+        status = 401 if label == "mcp_unauth_post" else 200
+        if label == "docs_mcp_paid_api_calls":
+            body = (
+                "MCP Server for Paid API Calls Synapse discover_services "
+                "invoke_and_pay get_receipt"
+            )
+        if label == "www_llms_mcp":
+            body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
+        if label == "mcp_registry":
+            body = valid_mcp_registry_body()
+        return feed_validation.HttpProbeResult(
+            label=label,
+            url=url,
+            status=status,
+            body_snippet=body,
+        )
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].missing_facts == []
+    assert calls["mcp_registry"]["timeout"] == 45
+    assert calls["mcp_registry"]["attempts"] == 2
+    assert "attempts" not in calls["mcp_npm_package"]
+
+
 def test_feed_validation_mcp_feed_prioritizes_docs_next_action(monkeypatch):
     def fake_fetch(label: str, url: str, **_kwargs):
         status = 401 if label == "mcp_unauth_post" else 200
