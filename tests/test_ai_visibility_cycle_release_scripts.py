@@ -466,10 +466,9 @@ def test_release_unblock_plan_generates_safe_release_commands():
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
     )
-    assert any(
-        "homepage https://www.synapse-network.ai/ is reachable" in blocker
-        for blocker in payload["known_blockers"]
-    )
+    assert payload["known_blockers"] == [
+        "GCloud auth fails non-interactively until a human runs gcloud auth login.",
+    ]
     assert set(payload["services"]) == {"docs-front", "user-front"}
     assert "gcloud auth login" in rendered
     assert "X-Growing-Agent-Deploy-Token" in rendered

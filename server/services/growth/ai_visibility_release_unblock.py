@@ -295,14 +295,11 @@ def _answer_engine_probe_group() -> dict[str, Any]:
     }
 
 
-def _known_blockers(deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str) -> list[str]:
+def _known_blockers(
+    deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str
+) -> list[str]:
     blockers = [
         "GCloud auth fails non-interactively until a human runs gcloud auth login.",
-        "docs-front production is behind the merged MCP paid API feed commits.",
-        "user-front staging and production are behind the merged MCP paid API feed commits.",
-        "Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.",
-        "Production homepage https://www.synapse-network.ai/ is reachable, but https://www.synapse-network.ai/llms.txt does not expose the MCP paid API guide and Remote MCP endpoint yet.",
-        "External GPT/Claude/Grok probe evidence is not valid until production feed validation passes.",
     ]
     if deploy_readiness == "blocked_until_target_commit_matches":
         evidence_commit = _clean(str(predeploy_evidence.get("commit") or ""))
