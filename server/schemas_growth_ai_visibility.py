@@ -53,9 +53,12 @@ class GrowthAIVisibilityComparisonOut(BaseModel):
     mentioned_delta: int = 0
     cited_delta: int = 0
     comparison_status: str = "baseline"
+    citation_quality_status: str = "unknown"
     feed_effective: bool = False
     missing_platforms: list[str] = Field(default_factory=list)
     top_competitors: list[str] = Field(default_factory=list)
+    known_collision_competitors: list[str] = Field(default_factory=list)
+    official_cited_urls: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
     evidence_urls: list[str] = Field(default_factory=list)
     latest_run_at: Optional[datetime] = None
@@ -70,9 +73,12 @@ class GrowthAIVisibilityFeedReportOut(BaseModel):
     feed_key: str
     latest_run_group: str = ""
     comparison_status: str = "needs_external_probe"
+    citation_quality_status: str = "unknown"
     feed_effective: bool = False
     external_platforms: list[str] = Field(default_factory=list)
     missing_platforms: list[str] = Field(default_factory=list)
+    known_collision_competitors: list[str] = Field(default_factory=list)
+    official_cited_urls: list[str] = Field(default_factory=list)
     mentioned_count: int = 0
     cited_count: int = 0
     mentioned_delta: int = 0

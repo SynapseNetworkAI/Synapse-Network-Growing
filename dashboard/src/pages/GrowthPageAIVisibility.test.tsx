@@ -61,6 +61,8 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('Manual UI ready')).toBeInTheDocument()
     expect(screen.getAllByText('Manual template').length).toBeGreaterThan(0)
     expect(screen.getByText('Record evidence')).toBeInTheDocument()
+    expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
+    expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-release-unblock-plan')).toBeInTheDocument()
     expect(screen.getAllByText('blocked_until_gcloud_auth').length).toBeGreaterThan(0)
@@ -189,7 +191,7 @@ function optimizationBrief() {
 }
 
 function comparison() {
-  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: [], total_checks: 1, external_checks_count: 0, local_validation_count: 1, mentioned_count: 0, cited_count: 0, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 0, cited_delta: 0, comparison_status: 'needs_external_probe', feed_effective: false, missing_platforms: ['chatgpt'], top_competitors: [], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
+  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
 }
 
 function check() {

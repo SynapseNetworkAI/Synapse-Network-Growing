@@ -36,9 +36,12 @@ export interface GrowthAIVisibilityComparison {
   mentioned_delta: number
   cited_delta: number
   comparison_status: string
+  citation_quality_status?: string
   feed_effective: boolean
   missing_platforms: string[]
   top_competitors: string[]
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   next_actions: string[]
   evidence_urls: string[]
   latest_run_at: string | null
@@ -47,9 +50,12 @@ export interface GrowthAIVisibilityFeedReport {
   feed_key: string
   latest_run_group: string
   comparison_status: string
+  citation_quality_status?: string
   feed_effective: boolean
   external_platforms: string[]
   missing_platforms: string[]
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   mentioned_count: number
   cited_count: number
   mentioned_delta: number

@@ -308,6 +308,11 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert comparison_payload["external_checks_count"] == 3
     assert comparison_payload["local_validation_count"] == 0
     assert comparison_payload["cited_count"] == 1
+    assert comparison_payload["citation_quality_status"] == "official_citation_verified"
+    assert comparison_payload["official_cited_urls"] == [
+        "https://www.synapse-network.ai/"
+    ]
+    assert comparison_payload["known_collision_competitors"] == []
     assert "grok" in comparison_payload["missing_platforms"]
     assert "RapidAPI" in comparison_payload["top_competitors"]
     assert (
@@ -343,6 +348,8 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert after_comparison["cited_delta"] == 1
     assert after_comparison["mentioned_delta"] == 2
     assert after_comparison["comparison_status"] == "improved"
+    assert after_comparison["citation_quality_status"] == "official_citation_verified"
+    assert after_comparison["known_collision_competitors"] == []
     assert after_comparison["feed_effective"] is True
     improved_scorecard = synced_client.get(
         "/api/growth/ai-visibility/feed-scorecard"
@@ -645,6 +652,17 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
         "disambiguation copy" in action and "synapsenetwork.xyz" in action
         for action in payload["next_actions"]
     )
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons"
+        "?feed_key=brand_disambiguation_www"
+        "&run_group=2026-06-05-brand-collision-check"
+    )
+    comparison_payload = comparison.json()["items"][0]
+    assert comparison_payload["citation_quality_status"] == "brand_collision_present"
+    assert comparison_payload["known_collision_competitors"] == ["synapsenetwork.xyz"]
+    assert comparison_payload["official_cited_urls"] == [
+        "https://www.synapse-network.ai/"
+    ]
 
 
 def test_growth_ai_visibility_external_probe_gate_partial_ready(

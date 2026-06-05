@@ -277,12 +277,19 @@ function ComparisonCard({ item }: Readonly<{ item: GrowthAIVisibilityComparison 
   const externalChecks = item.external_checks_count ?? item.total_checks
   const localValidationCount = item.local_validation_count ?? 0
   const statusTone = item.feed_effective ? 'delivered' : item.comparison_status === 'needs_external_probe' ? 'blocked' : item.comparison_status === 'regressed' ? 'blocked' : 'running'
+  const citationQuality = item.citation_quality_status || 'unknown'
+  const qualityTone = citationQuality === 'official_citation_verified' ? 'delivered' : citationQuality === 'needs_external_probe' || citationQuality === 'missing_official_citation' || citationQuality === 'brand_collision_present' ? 'blocked' : 'running'
+  const officialCitations = item.official_cited_urls || []
+  const collisionCompetitors = item.known_collision_competitors || []
 
   return (
     <div className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="font-semibold text-[color:var(--ops-text-title)]">{item.feed_key}</div>
-        <StateBadge tone={statusTone}>{item.comparison_status || 'baseline'}</StateBadge>
+        <div className="flex flex-wrap items-center gap-2">
+          <StateBadge tone={qualityTone}>{citationQuality}</StateBadge>
+          <StateBadge tone={statusTone}>{item.comparison_status || 'baseline'}</StateBadge>
+        </div>
       </div>
       <div className="mt-1 text-sm text-[color:var(--ops-text-muted)]">
         {item.run_group} · external {externalPlatforms.join(', ') || '-'} · cited {item.cited_count}/{externalChecks} · mentioned {item.mentioned_count}/{externalChecks}
@@ -295,6 +302,12 @@ function ComparisonCard({ item }: Readonly<{ item: GrowthAIVisibilityComparison 
       </div>
       <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
         Missing: {item.missing_platforms.join(', ') || '-'}
+      </div>
+      <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+        Official citations: {officialCitations.join(', ') || '-'}
+      </div>
+      <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+        Brand collisions: {collisionCompetitors.join(', ') || '-'}
       </div>
       <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
         Next: {item.next_actions[0] || '-'}
