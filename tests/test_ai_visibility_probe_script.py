@@ -16,6 +16,9 @@ from scripts.growth.generate_ai_visibility_probe_template import (
     official_source_urls_for_feed,
     parse_platforms,
 )
+from scripts.growth.ai_visibility_api_probe_records import (
+    api_readiness_blocker_records,
+)
 from scripts.growth import run_ai_visibility_api_probe as api_probe
 
 
@@ -742,7 +745,37 @@ def test_api_probe_execute_missing_keys_fails_closed(tmp_path: Path):
         "ANTHROPIC_API_KEY",
         "XAI_API_KEY",
     }
-    assert not output_path.exists()
+    assert payload["record_count"] == 3
+    assert output_path.exists()
+    records = parse_probe_file(output_path)
+    assert validate_records(records) == []
+    assert {record.platform for record in records} == {"chatgpt", "claude", "grok"}
+    assert all(record.metadata["mode"] == "api_probe_readiness_blocker" for record in records)
+    assert all(record.synapse_mentioned is False for record in records)
+    assert all(record.synapse_cited is False for record in records)
+    assert "OPENAI_API_KEY" in records[0].missing_facts[0]
+
+
+def test_api_readiness_blocker_records_are_valid():
+    records = api_readiness_blocker_records(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-06-www-homepage-live",
+        missing=[
+            {"platform": "chatgpt", "missing_env": "OPENAI_API_KEY"},
+            {"platform": "claude", "missing_env": "ANTHROPIC_API_KEY"},
+        ],
+        query_count=2,
+    )
+
+    assert validate_records(records) == []
+    assert [record.platform for record in records] == ["chatgpt", "claude"]
+    assert records[0].query == "ChatGPT Claude Grok API probe readiness"
+    assert records[0].metadata["mode"] == "api_probe_readiness_blocker"
+    assert records[0].metadata["blocked_query_count"] == "2"
+    assert "OPENAI_API_KEY" in records[0].answer_summary
+    assert "https://www.synapse-network.ai/" in records[0].metadata[
+        "official_source_urls"
+    ]
 
 
 def test_run_api_probes_generates_valid_records(monkeypatch):
