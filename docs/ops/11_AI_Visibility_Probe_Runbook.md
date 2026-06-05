@@ -170,15 +170,16 @@ python scripts/growth/run_ai_visibility_feed_validation.py \
 ```
 
 Feed validation checks public readiness surfaces such as bare-domain redirect,
-`robots.txt`, `llms.txt`, sitemap, `www` category pages, docs pages, Remote
-MCP readiness/auth boundaries, and the official MCP Registry listing freshness
-for the `mcp_paid_api_discovery` feed. It emits `*_live_validation` rows. These rows are
-useful blockers and readiness evidence, but they are not GPT/Claude/Grok answer
-evidence and do not count toward external citation success. The brand feed row
-also includes `metadata.ai_crawler_policy`, which records whether answer-engine
-search crawlers such as `OAI-SearchBot`, `ChatGPT-User`, `GPTBot`, `ClaudeBot`,
-`Claude-User`, `Claude-SearchBot`, `anthropic-ai`, `PerplexityBot`, `Bingbot`,
-and `Google-Extended` are explicitly named or blocked. Wildcard
+`robots.txt`, `llms.txt`, sitemap, GitHub organization profile, `www` category
+pages, docs pages, Remote MCP readiness/auth boundaries, and the official MCP
+Registry listing freshness for the `mcp_paid_api_discovery` feed. It emits
+`*_live_validation` rows. These rows are useful blockers and readiness evidence,
+but they are not GPT/Claude/Grok answer evidence and do not count toward external
+citation success. The brand feed row also includes `metadata.ai_crawler_policy`,
+which records whether answer-engine search crawlers such as `OAI-SearchBot`,
+`ChatGPT-User`, `GPTBot`, `ClaudeBot`, `Claude-User`, `Claude-SearchBot`,
+`anthropic-ai`, `PerplexityBot`, `Bingbot`, and `Google-Extended` are explicitly
+named or blocked. Wildcard
 `User-agent: * Allow: /` is acceptable readiness evidence, but explicit search
 crawler policy is still a recommended feed improvement.
 

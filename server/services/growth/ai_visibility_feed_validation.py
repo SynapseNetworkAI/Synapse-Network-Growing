@@ -8,6 +8,11 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
 from scripts.growth.record_ai_visibility_probe import ProbeRecord
+from server.services.growth.ai_visibility_brand_feed import (
+    brand_feed_missing,
+    brand_next_action,
+    github_org_profile_ready,
+)
 from server.services.growth.ai_visibility_mcp_feed import (
     mcp_feed_missing,
     mcp_next_action,
@@ -85,13 +90,15 @@ def validate_feed(*, feed_key: str, run_group: str) -> list[ProbeRecord]:
 
 
 def validate_brand_feed(run_group: str) -> list[ProbeRecord]:
-    bare, robots, llms, sitemap = _brand_feed_checks()
+    bare, robots, llms, sitemap, github_profile = _brand_feed_checks()
     crawler_policy = robots_ai_crawler_policy(robots.body_snippet if robots.ok else "")
+    github_profile_ready = github_org_profile_ready(github_profile)
     passed = _brand_feed_passed(
         bare=bare,
         robots=robots,
         llms=llms,
         sitemap=sitemap,
+        github_profile_ready=github_profile_ready,
         crawler_policy=crawler_policy,
     )
     return [
@@ -101,21 +108,24 @@ def validate_brand_feed(run_group: str) -> list[ProbeRecord]:
             platform="www_live_validation",
             query="Brand disambiguation live feed readiness",
             passed=passed,
-            checks=[bare, robots, llms, sitemap],
-            missing_facts=_brand_feed_missing(
-                bare=bare,
-                robots=robots,
-                llms=llms,
-                sitemap=sitemap,
-                crawler_policy=crawler_policy,
+            checks=[bare, robots, llms, sitemap, github_profile],
+            missing_facts=brand_feed_missing(
+                bare_redirect_ready=is_redirect_to_www(bare),
+                robots_ready=robots.ok,
+                blocked_crawlers=crawler_policy["blocked_crawlers"],
+                llms_ready=llms.ok and has_synapse_content(llms),
+                sitemap_ready=sitemap.ok
+                and "www.synapse-network.ai" in sitemap.body_snippet,
+                github_profile_ready=github_profile_ready,
             ),
-            next_action=_brand_feed_next_action(passed),
+            next_action=brand_next_action(passed),
             metadata_extra={"ai_crawler_policy": crawler_policy},
         )
     ]
 
 
 def _brand_feed_checks() -> tuple[
+    HttpProbeResult,
     HttpProbeResult,
     HttpProbeResult,
     HttpProbeResult,
@@ -130,7 +140,8 @@ def _brand_feed_checks() -> tuple[
     robots = fetch("robots", "https://www.synapse-network.ai/robots.txt")
     llms = fetch("llms", "https://www.synapse-network.ai/llms.txt")
     sitemap = fetch("sitemap", "https://www.synapse-network.ai/sitemap.xml")
-    return bare, robots, llms, sitemap
+    github_profile = fetch("github_org_profile", "https://github.com/SynapseNetworkAI")
+    return bare, robots, llms, sitemap, github_profile
 
 
 def _brand_feed_passed(
@@ -139,6 +150,7 @@ def _brand_feed_passed(
     robots: HttpProbeResult,
     llms: HttpProbeResult,
     sitemap: HttpProbeResult,
+    github_profile_ready: bool,
     crawler_policy: dict[str, object],
 ) -> bool:
     return (
@@ -149,46 +161,7 @@ def _brand_feed_passed(
         and has_synapse_content(llms)
         and sitemap.ok
         and "www.synapse-network.ai" in sitemap.body_snippet
-    )
-
-
-def _brand_feed_missing(
-    *,
-    bare: HttpProbeResult,
-    robots: HttpProbeResult,
-    llms: HttpProbeResult,
-    sitemap: HttpProbeResult,
-    crawler_policy: dict[str, object],
-) -> list[str]:
-    return missing_for_checks(
-        [
-            (
-                is_redirect_to_www(bare),
-                "Bare domain must permanently redirect to https://www.synapse-network.ai/.",
-            ),
-            (robots.ok, "robots.txt must be publicly reachable."),
-            (
-                robots.ok and not crawler_policy["blocked_crawlers"],
-                "robots.txt must not block answer-engine search crawlers from public pages.",
-            ),
-            (
-                llms.ok and has_synapse_content(llms),
-                "llms.txt must contain Synapse Network product facts.",
-            ),
-            (
-                sitemap.ok and "www.synapse-network.ai" in sitemap.body_snippet,
-                "sitemap.xml must include www canonical URLs.",
-            ),
-        ]
-    )
-
-
-def _brand_feed_next_action(passed: bool) -> str:
-    if passed:
-        return "Run GPT/Claude/Grok brand probes with generated template."
-    return (
-        "Deploy canonical www redirect, robots, llms.txt, and sitemap fixes before "
-        "external probes."
+        and github_profile_ready
     )
 
 
