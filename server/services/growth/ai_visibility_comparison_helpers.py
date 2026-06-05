@@ -11,16 +11,12 @@ from server.schemas_growth import (
     GrowthAIVisibilityComparisonOut,
     GrowthAIVisibilityFeedReportOut,
 )
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
-OFFICIAL_CITATION_PREFIXES = (
-    "https://www.synapse-network.ai/",
-    "https://docs.synapse-network.ai/",
-    "https://github.com/SynapseNetworkAI",
-    "https://mcp.synapse-network.ai/",
-    "https://registry.modelcontextprotocol.io/",
-)
 KNOWN_BRAND_COLLISION_COMPETITORS = {
     "synapsenetwork.xyz",
     "synapse.network",
@@ -327,7 +323,7 @@ def _official_cited_urls(rows: list[GrowthAIVisibilityCheckRow]) -> list[str]:
 
 
 def _is_official_citation(url: str) -> bool:
-    return any(url.startswith(prefix) for prefix in OFFICIAL_CITATION_PREFIXES)
+    return is_official_citation_url(url)
 
 
 def _citation_quality_status(

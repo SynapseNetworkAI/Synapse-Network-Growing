@@ -1,5 +1,5 @@
 import { EmptyPane, StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
 import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
 import { HandoffBundleSummary, ReleaseSnapshotSummary, ReleaseUnblockSummary } from './GrowthAIVisibilityReleaseSummaries'
 import { Info, signed } from './GrowthAIVisibilityPanelParts'
@@ -24,6 +24,7 @@ export function GrowthAIVisibilityPanel({
   optimizationBrief,
   liveReadiness,
   externalProbeGate,
+  officialSources,
   plan,
   onCreate,
 }: Readonly<{
@@ -42,6 +43,7 @@ export function GrowthAIVisibilityPanel({
   optimizationBrief: GrowthAIVisibilityOptimizationBrief | null
   liveReadiness: GrowthAIVisibilityLiveReadiness | null
   externalProbeGate: GrowthAIVisibilityExternalProbeGate | null
+  officialSources: GrowthAIVisibilityOfficialSourceList | null
   plan: GrowthAIVisibilityOptimizationPlan | null
   onCreate: () => void
 }>) {
@@ -84,6 +86,7 @@ export function GrowthAIVisibilityPanel({
           </div>
           <WeeklyReportSummary report={weeklyReport} />
           <OptimizationBriefSummary brief={optimizationBrief} />
+          <OfficialSourceMap sources={officialSources} />
           <ExternalProbeGateSummary gate={externalProbeGate} />
           <LiveReadinessSummary readiness={liveReadiness} />
           <NextCycleSummary nextCycle={nextCycle} />
@@ -137,6 +140,42 @@ export function GrowthAIVisibilityPanel({
         )}
       </div>
     </section>
+  )
+}
+
+function OfficialSourceMap({ sources }: Readonly<{ sources: GrowthAIVisibilityOfficialSourceList | null }>) {
+  if (!sources) return null
+  const requiredCount = sources.items.filter((item) => item.required_for_success).length
+  return (
+    <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-official-sources">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Official source map</div>
+          <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">Citation authority surfaces</div>
+        </div>
+        <StateBadge tone={requiredCount ? 'running' : 'muted'}>{requiredCount} required</StateBadge>
+      </div>
+      <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
+        Accepted prefixes: {sources.official_citation_prefixes.join(', ')}
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {sources.items.map((source) => (
+          <div key={source.surface_key} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold text-[color:var(--ops-text-title)]">{source.surface_key}</div>
+              <StateBadge tone={source.required_for_success ? 'running' : 'muted'}>{source.surface}</StateBadge>
+            </div>
+            <div className="mt-2 break-words text-xs leading-5 text-[color:var(--ops-text-caption)]">{source.canonical_url}</div>
+            <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{source.citation_role}</div>
+            <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Feeds: {source.feed_keys.join(', ') || '-'}</div>
+            <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
+              {source.validation_command}
+            </div>
+            <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">Accept: {source.acceptance_signal}</div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 function DesignHandoffSummary({ handoff }: Readonly<{ handoff: GrowthAIVisibilityDesignHandoff | null }>) {

@@ -47,6 +47,28 @@ def test_growth_ai_visibility_and_discovery_listing(
         "mcp_paid_api_discovery",
     }
     assert "ai_visibility_search_probe" in plan_payload["growing_workflows"]
+    official_sources = synced_client.get(
+        "/api/growth/ai-visibility/official-sources"
+    )
+    assert official_sources.status_code == 200
+    official_payload = official_sources.json()
+    assert official_payload["total"] >= 8
+    assert "https://www.synapse-network.ai/" in official_payload[
+        "official_citation_prefixes"
+    ]
+    source_by_key = {
+        item["surface_key"]: item for item in official_payload["items"]
+    }
+    assert source_by_key["www_homepage"]["canonical_url"] == (
+        "https://www.synapse-network.ai/"
+    )
+    assert source_by_key["www_homepage"]["required_for_success"] is True
+    assert "brand_disambiguation_www" in source_by_key["www_homepage"]["feed_keys"]
+    assert source_by_key["remote_mcp"]["canonical_url"] == (
+        "https://mcp.synapse-network.ai/mcp"
+    )
+    assert "401" in source_by_key["remote_mcp"]["acceptance_signal"]
+    assert source_by_key["official_mcp_registry"]["surface"] == "mcp_registry"
     packages = synced_client.get("/api/growth/ai-visibility/feed-package")
     assert packages.status_code == 200
     package_payload = packages.json()

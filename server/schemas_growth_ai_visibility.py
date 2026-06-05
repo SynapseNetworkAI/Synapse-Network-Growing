@@ -310,6 +310,25 @@ class GrowthAIVisibilityExternalProbeGateOut(BaseModel):
     compare_command: str
 
 
+class GrowthAIVisibilityOfficialSourceOut(BaseModel):
+    surface_key: str
+    surface: str
+    canonical_url: str
+    citation_role: str
+    feed_keys: list[str] = Field(default_factory=list)
+    required_for_success: bool = False
+    validation_command: str
+    acceptance_signal: str
+
+
+class GrowthAIVisibilityOfficialSourceListOut(BaseModel):
+    module_key: str = "ai_visibility"
+    generated_at: datetime
+    official_citation_prefixes: list[str] = Field(default_factory=list)
+    items: list[GrowthAIVisibilityOfficialSourceOut] = Field(default_factory=list)
+    total: int = 0
+
+
 class GrowthAIVisibilityFeedScoreOut(BaseModel):
     feed_key: str
     rank: int = 0

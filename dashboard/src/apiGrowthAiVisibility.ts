@@ -322,6 +322,23 @@ export interface GrowthAIVisibilityExternalProbeGate {
   record_probe_command: string
   compare_command: string
 }
+export interface GrowthAIVisibilityOfficialSource {
+  surface_key: string
+  surface: string
+  canonical_url: string
+  citation_role: string
+  feed_keys: string[]
+  required_for_success: boolean
+  validation_command: string
+  acceptance_signal: string
+}
+export interface GrowthAIVisibilityOfficialSourceList {
+  module_key: string
+  generated_at: string
+  official_citation_prefixes: string[]
+  items: GrowthAIVisibilityOfficialSource[]
+  total: number
+}
 export interface GrowthAIVisibilityQuery {
   query: string
   intent: string
@@ -477,6 +494,8 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilityLiveReadiness>('/growth/ai-visibility/live-readiness'),
     getGrowthAIVisibilityExternalProbeGate: () =>
       request<GrowthAIVisibilityExternalProbeGate>('/growth/ai-visibility/external-probe-gate'),
+    getGrowthAIVisibilityOfficialSources: () =>
+      request<GrowthAIVisibilityOfficialSourceList>('/growth/ai-visibility/official-sources'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }

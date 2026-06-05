@@ -21,6 +21,7 @@ from server.schemas_growth import (
     GrowthAIVisibilityLiveReadinessOut,
     GrowthAIVisibilityNextCycleOut,
     GrowthAIVisibilityOptimizationBriefOut,
+    GrowthAIVisibilityOfficialSourceListOut,
     GrowthAIVisibilityOptimizationPlanOut,
     GrowthAIVisibilityReleaseSnapshotOut,
     GrowthAIVisibilityReleaseUnblockPlanOut,
@@ -34,6 +35,7 @@ from server.services.growth import (
     ai_visibility_external_probe_gate,
     ai_visibility_handoff_bundle,
     ai_visibility_live_readiness,
+    ai_visibility_official_sources,
     ai_visibility_plan,
     ai_visibility_release_snapshot,
     ai_visibility_release_unblock,
@@ -197,6 +199,14 @@ def get_ai_visibility_external_probe_gate(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/ai-visibility/official-sources",
+    response_model=GrowthAIVisibilityOfficialSourceListOut,
+)
+def get_ai_visibility_official_sources():
+    return ai_visibility_official_sources.ai_visibility_official_sources()
 
 
 @router.get(

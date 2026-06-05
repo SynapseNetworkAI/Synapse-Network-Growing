@@ -18,14 +18,13 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_API_BASE = "http://localhost:9700/api"
-OFFICIAL_CITATION_PREFIXES = (
-    "https://www.synapse-network.ai/",
-    "https://docs.synapse-network.ai/",
-    "https://github.com/SynapseNetworkAI",
-    "https://mcp.synapse-network.ai/",
-    "https://registry.modelcontextprotocol.io/",
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from server.services.growth.ai_visibility_official_sources import (  # noqa: E402
+    OFFICIAL_CITATION_PREFIXES,
 )
+
+DEFAULT_API_BASE = "http://localhost:9700/api"
 
 EXTERNAL_PLATFORMS = {
     "chatgpt",

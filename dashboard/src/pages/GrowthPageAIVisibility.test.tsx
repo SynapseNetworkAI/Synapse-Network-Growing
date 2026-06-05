@@ -27,6 +27,7 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/feed-scorecard')) return json(feedScorecard())
     if (url.includes('/growth/ai-visibility/live-readiness')) return json(liveReadiness())
     if (url.includes('/growth/ai-visibility/external-probe-gate')) return json(externalProbeGate())
+    if (url.includes('/growth/ai-visibility/official-sources')) return json(officialSources())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -61,6 +62,10 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('Manual UI ready')).toBeInTheDocument()
     expect(screen.getAllByText('Manual template').length).toBeGreaterThan(0)
     expect(screen.getByText('Record evidence')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-official-sources')).toBeInTheDocument()
+    expect(screen.getByText('Citation authority surfaces')).toBeInTheDocument()
+    expect(screen.getByText('remote_mcp')).toBeInTheDocument()
+    expect(screen.getByText('https://mcp.synapse-network.ai/mcp')).toBeInTheDocument()
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
     expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
@@ -156,6 +161,19 @@ function liveReadiness() {
 
 function externalProbeGate() {
   return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-external', status: 'blocked_until_api_keys', ready_to_execute: false, partial_ready_to_execute: false, manual_ready_to_execute: true, feed_ready: true, api_keys_ready: false, target_platforms: ['chatgpt', 'claude', 'grok'], ready_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], provider_readiness: [{ platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false }], blockers: ['chatgpt missing OPENAI_API_KEY.'], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', partial_api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt', partial_api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt --execute', record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/external.jsonl --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"' }
+}
+
+function officialSources() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    official_citation_prefixes: ['https://www.synapse-network.ai/', 'https://docs.synapse-network.ai/', 'https://mcp.synapse-network.ai/'],
+    total: 2,
+    items: [
+      { surface_key: 'www_homepage', surface: 'www', canonical_url: 'https://www.synapse-network.ai/', citation_role: 'Primary canonical.', feed_keys: ['brand_disambiguation_www'], required_for_success: true, validation_command: 'curl -fsS https://www.synapse-network.ai/', acceptance_signal: 'Homepage has facts.' },
+      { surface_key: 'remote_mcp', surface: 'mcp', canonical_url: 'https://mcp.synapse-network.ai/mcp', citation_role: 'Hosted Remote MCP endpoint.', feed_keys: ['mcp_paid_api_discovery'], required_for_success: true, validation_command: 'curl -fsS https://mcp.synapse-network.ai/readyz', acceptance_signal: 'readyz is 200 and /mcp is 401.' },
+    ],
+  }
 }
 
 function docsBlueprint() {

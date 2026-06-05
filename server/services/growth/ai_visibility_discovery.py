@@ -29,16 +29,12 @@ from server.services.growth.ai_visibility_comparison_helpers import (
     _weekly_blockers,
     _weekly_next_actions,
 )
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
+)
 
 AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
-OFFICIAL_CITATION_PREFIXES = (
-    "https://www.synapse-network.ai/",
-    "https://docs.synapse-network.ai/",
-    "https://github.com/SynapseNetworkAI",
-    "https://mcp.synapse-network.ai/",
-    "https://registry.modelcontextprotocol.io/",
-)
 
 
 def _limit(value: int) -> int:
@@ -78,11 +74,7 @@ def create_ai_check(
 
 
 def _has_official_citation(urls: list[str]) -> bool:
-    return any(
-        url.startswith(prefix)
-        for url in urls
-        for prefix in OFFICIAL_CITATION_PREFIXES
-    )
+    return any(is_official_citation_url(url) for url in urls)
 
 
 def list_ai_checks(

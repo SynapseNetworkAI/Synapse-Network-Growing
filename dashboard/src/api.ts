@@ -58,6 +58,8 @@ export type {
   GrowthAIVisibilityLiveReadinessItem,
   GrowthAIVisibilityNextCycle,
   GrowthAIVisibilityOptimizationBrief,
+  GrowthAIVisibilityOfficialSource,
+  GrowthAIVisibilityOfficialSourceList,
   GrowthAIVisibilityReleaseCommandGroup,
   GrowthAIVisibilityReleaseSnapshot,
   GrowthAIVisibilityReleaseUnblockPlan,

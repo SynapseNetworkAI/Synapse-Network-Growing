@@ -628,6 +628,40 @@ function installFetch() {
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery" | python -m json.tool',
       })
     }
+    if (url.includes('/growth/ai-visibility/official-sources')) {
+      return json({
+        module_key: 'ai_visibility',
+        generated_at: '2026-06-05T00:00:00Z',
+        official_citation_prefixes: [
+          'https://www.synapse-network.ai/',
+          'https://docs.synapse-network.ai/',
+          'https://mcp.synapse-network.ai/',
+        ],
+        total: 2,
+        items: [
+          {
+            surface_key: 'www_homepage',
+            surface: 'www',
+            canonical_url: 'https://www.synapse-network.ai/',
+            citation_role: 'Primary canonical.',
+            feed_keys: ['brand_disambiguation_www'],
+            required_for_success: true,
+            validation_command: 'curl -fsS https://www.synapse-network.ai/',
+            acceptance_signal: 'Homepage has facts.',
+          },
+          {
+            surface_key: 'remote_mcp',
+            surface: 'mcp',
+            canonical_url: 'https://mcp.synapse-network.ai/mcp',
+            citation_role: 'Hosted Remote MCP endpoint.',
+            feed_keys: ['mcp_paid_api_discovery'],
+            required_for_success: true,
+            validation_command: 'curl -fsS https://mcp.synapse-network.ai/readyz',
+            acceptance_signal: 'readyz is 200 and /mcp is 401.',
+          },
+        ],
+      })
+    }
     if (url.includes('/growth/ai-visibility/optimization-brief')) {
       return json({
         module_key: 'ai_visibility',
