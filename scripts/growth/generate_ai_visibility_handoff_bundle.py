@@ -75,6 +75,7 @@ def write_handoff_payloads(payloads: dict) -> Any:
     _write_json(files["release_snapshot"], payloads["release_snapshot"])
     _write_json(files["live_readiness"], payloads["live_readiness"])
     _write_json(files["external_probe_gate"], payloads["external_probe_gate"])
+    _write_json(files["next_cycle"], payloads["next_cycle"])
     files["operator_brief"].write_text(
         payloads["operator_brief"],
         encoding="utf-8",

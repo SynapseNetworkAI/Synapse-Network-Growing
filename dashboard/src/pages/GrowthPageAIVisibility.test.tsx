@@ -27,6 +27,8 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/feed-scorecard')) return json(feedScorecard())
     if (url.includes('/growth/ai-visibility/live-readiness')) return json(liveReadiness())
     if (url.includes('/growth/ai-visibility/external-probe-gate')) return json(externalProbeGate())
+    if (url.includes('/growth/ai-visibility/official-sources')) return json(officialSources())
+    if (url.includes('/growth/ai-visibility/probe-matrix')) return json(probeMatrix())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -60,10 +62,22 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('manual ready')).toBeInTheDocument()
     expect(screen.getByText('Manual UI ready')).toBeInTheDocument()
     expect(screen.getAllByText('Manual template').length).toBeGreaterThan(0)
+    expect(screen.getByText('Record evidence')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-official-sources')).toBeInTheDocument()
+    expect(screen.getByText('Citation authority surfaces')).toBeInTheDocument()
+    expect(screen.getByText('remote_mcp')).toBeInTheDocument()
+    expect(screen.getByText('https://mcp.synapse-network.ai/mcp')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-probe-matrix')).toBeInTheDocument()
+    expect(screen.getByText('Answer-engine probe matrix')).toBeInTheDocument()
+    expect(screen.getByText('ready_to_probe')).toBeInTheDocument()
+    expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
+    expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-release-unblock-plan')).toBeInTheDocument()
     expect(screen.getAllByText('blocked_until_gcloud_auth').length).toBeGreaterThan(0)
     expect(screen.getByTestId('ai-visibility-feed-cycle-matrix')).toBeInTheDocument()
+    expect(screen.getByText('Probe matrix')).toBeInTheDocument()
+    expect(screen.getByText('Validate matrix')).toBeInTheDocument()
     expect(screen.getAllByText('mcp_paid_api_discovery').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
   })
@@ -143,7 +157,7 @@ function feedScorecard() {
     recommended_feed_key: 'mcp_paid_api_discovery',
     ranking_basis: 'Impact score rewards feed readiness.',
     total: 1,
-    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
+    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', citation_quality_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, known_collision_competitors: [], official_cited_urls: [], mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
   }
 }
 
@@ -152,7 +166,45 @@ function liveReadiness() {
 }
 
 function externalProbeGate() {
-  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-external', status: 'blocked_until_api_keys', ready_to_execute: false, partial_ready_to_execute: false, manual_ready_to_execute: true, feed_ready: true, api_keys_ready: false, target_platforms: ['chatgpt', 'claude', 'grok'], ready_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], provider_readiness: [{ platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false }], blockers: ['chatgpt missing OPENAI_API_KEY.'], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', partial_api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt', partial_api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt --execute', record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"' }
+  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-external', status: 'blocked_until_api_keys', ready_to_execute: false, partial_ready_to_execute: false, manual_ready_to_execute: true, feed_ready: true, api_keys_ready: false, target_platforms: ['chatgpt', 'claude', 'grok'], ready_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], provider_readiness: [{ platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false }], blockers: ['chatgpt missing OPENAI_API_KEY.'], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', partial_api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt', partial_api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt --execute', record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/external.jsonl --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"' }
+}
+
+function officialSources() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    official_citation_prefixes: ['https://www.synapse-network.ai/', 'https://docs.synapse-network.ai/', 'https://mcp.synapse-network.ai/'],
+    total: 2,
+    items: [
+      { surface_key: 'www_homepage', surface: 'www', canonical_url: 'https://www.synapse-network.ai/', citation_role: 'Primary canonical.', feed_keys: ['brand_disambiguation_www'], required_for_success: true, validation_command: 'curl -fsS https://www.synapse-network.ai/', acceptance_signal: 'Homepage has facts.' },
+      { surface_key: 'remote_mcp', surface: 'mcp', canonical_url: 'https://mcp.synapse-network.ai/mcp', citation_role: 'Hosted Remote MCP endpoint.', feed_keys: ['mcp_paid_api_discovery'], required_for_success: true, validation_command: 'curl -fsS https://mcp.synapse-network.ai/readyz', acceptance_signal: 'readyz is 200 and /mcp is 401.' },
+    ],
+  }
+}
+
+function probeMatrix() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    target_platforms: ['chatgpt', 'claude', 'grok'],
+    recommended_feed_key: 'mcp_paid_api_discovery',
+    total: 1,
+    rows: [{
+      feed_key: 'mcp_paid_api_discovery',
+      platform: 'chatgpt',
+      status: 'ready_to_probe',
+      run_group: '2026-06-05-mcp-weekly',
+      queries: ['MCP server for paid API calls'],
+      official_source_urls: ['https://www.synapse-network.ai/', 'https://mcp.synapse-network.ai/mcp'],
+      success_decision_rule: 'Success requires an official citation.',
+      manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
+      record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl --apply',
+      compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+      evidence_directory: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly',
+      blockers: [],
+      next_actions: ['Run the chatgpt probe with unchanged query wording.'],
+    }],
+  }
 }
 
 function docsBlueprint() {
@@ -168,7 +220,7 @@ function weeklyReport() {
 }
 
 function nextCycle() {
-  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl', missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], validation_commands: [], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"', weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py' }
+  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl', missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], validation_commands: [], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply', probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/run.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"', weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py' }
 }
 
 function releasePlan() {
@@ -188,7 +240,7 @@ function optimizationBrief() {
 }
 
 function comparison() {
-  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: [], total_checks: 1, external_checks_count: 0, local_validation_count: 1, mentioned_count: 0, cited_count: 0, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 0, cited_delta: 0, comparison_status: 'needs_external_probe', feed_effective: false, missing_platforms: ['chatgpt'], top_competitors: [], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
+  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
 }
 
 function check() {

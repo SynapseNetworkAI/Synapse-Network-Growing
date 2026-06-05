@@ -16,6 +16,7 @@ from server.schemas_growth import (
 )
 from server.services.growth.serializer import ai_check_out, json_dumps
 from server.services.growth.ai_visibility_comparison_helpers import (
+    _comparison_collision_mentions,
     _comparison_out,
     _feed_report,
     _latest_comparison_by_feed,
@@ -27,6 +28,9 @@ from server.services.growth.ai_visibility_comparison_helpers import (
     _utcnow,
     _weekly_blockers,
     _weekly_next_actions,
+)
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
 )
 
 AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
@@ -42,6 +46,12 @@ def create_ai_check(
 ) -> GrowthAIVisibilityCheckOut:
     if not body.query.strip() or not body.platform.strip():
         raise ValueError("query and platform are required")
+    if body.synapse_cited and body.cited_urls and not _has_official_citation(
+        body.cited_urls
+    ):
+        raise ValueError(
+            "synapse_cited=true requires at least one official Synapse cited_url"
+        )
     row = GrowthAIVisibilityCheckRow(
         query=body.query.strip(),
         platform=body.platform.strip(),
@@ -61,6 +71,10 @@ def create_ai_check(
     db.add(row)
     db.commit()
     return ai_check_out(row)
+
+
+def _has_official_citation(urls: list[str]) -> bool:
+    return any(is_official_citation_url(url) for url in urls)
 
 
 def list_ai_checks(
@@ -153,6 +167,7 @@ def ai_visibility_weekly_report(db: Session) -> GrowthAIVisibilityWeeklyReportOu
         stable_positive_runs=stable_positive_runs,
         validation_blockers=validation_blockers,
     )
+    collision_mentions = _comparison_collision_mentions(comparisons)
     goal_achieved = not blockers
     recommended_feed_key = _recommended_feed_key(feed_reports)
     return GrowthAIVisibilityWeeklyReportOut(
@@ -178,6 +193,7 @@ def ai_visibility_weekly_report(db: Session) -> GrowthAIVisibilityWeeklyReportOu
             feed_reports,
             missing_platforms,
             validation_blockers=validation_blockers,
+            collision_mentions=collision_mentions,
         ),
         recommended_feed_key=recommended_feed_key,
         recommended_probe_template_command=_probe_template_command(
@@ -214,6 +230,9 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
     feed_key = report.recommended_feed_key or "agent_payment_category_pages"
     run_group = f"{_utcnow().date().isoformat()}-{feed_key}-weekly"
     output_path = f"docs/archive/evidence/growth/ai-visibility/{run_group}.jsonl"
+    matrix_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/{run_group}-probe-matrix.json"
+    )
     validation_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-feed-validation.jsonl"
     )
@@ -252,6 +271,17 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         api_execute_command=f"{api_base} --output {output_path} --execute",
         apply_command=(
             f"python scripts/growth/record_ai_visibility_probe.py {output_path} --apply"
+        ),
+        probe_matrix_command=(
+            "python scripts/growth/generate_ai_visibility_probe_matrix.py "
+            f"--output {matrix_output_path}"
+        ),
+        validate_matrix_command=(
+            "python scripts/growth/validate_ai_visibility_probe_matrix.py "
+            f"{output_path} "
+            f"--matrix-file {matrix_output_path} "
+            f"--feed-key {feed_key} "
+            f"--run-group {run_group}"
         ),
         compare_command=(
             "curl -fsS "

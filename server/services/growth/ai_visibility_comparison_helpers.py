@@ -11,9 +11,17 @@ from server.schemas_growth import (
     GrowthAIVisibilityComparisonOut,
     GrowthAIVisibilityFeedReportOut,
 )
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
+KNOWN_BRAND_COLLISION_COMPETITORS = {
+    "synapsenetwork.xyz",
+    "synapse.network",
+    "forbes.com/digital-assets/assets/synapse-network-zksnp",
+}
 
 
 def _comparison_out(
@@ -29,11 +37,20 @@ def _comparison_out(
     external_platforms = sorted({row.platform for row in external_rows if row.platform})
     aggregate = _comparison_row_aggregate(rows)
     counts = _comparison_counts(external_rows, previous)
+    official_cited_urls = _official_cited_urls(external_rows)
+    known_collision_competitors = _known_collision_mentions(
+        aggregate["top_competitors"]
+    )
     comparison_status = _comparison_status(
         external_checks_count=len(external_rows),
         previous=previous,
         mentioned_delta=counts["mentioned_delta"],
         cited_delta=counts["cited_delta"],
+    )
+    citation_quality_status = _citation_quality_status(
+        external_checks_count=len(external_rows),
+        official_cited_urls=official_cited_urls,
+        known_collision_competitors=known_collision_competitors,
     )
     return GrowthAIVisibilityComparisonOut(
         feed_key=key[0],
@@ -51,9 +68,15 @@ def _comparison_out(
         mentioned_delta=counts["mentioned_delta"],
         cited_delta=counts["cited_delta"],
         comparison_status=comparison_status,
-        feed_effective=comparison_status == "improved",
+        citation_quality_status=citation_quality_status,
+        feed_effective=(
+            comparison_status == "improved"
+            and citation_quality_status == "official_citation_verified"
+        ),
         missing_platforms=_missing_platforms(external_platforms),
         top_competitors=aggregate["top_competitors"],
+        known_collision_competitors=known_collision_competitors,
+        official_cited_urls=official_cited_urls,
         next_actions=aggregate["next_actions"],
         evidence_urls=aggregate["evidence_urls"],
         latest_run_at=aggregate["latest_run_at"],
@@ -183,9 +206,12 @@ def _feed_report(
         feed_key=comparison.feed_key,
         latest_run_group=comparison.run_group,
         comparison_status=comparison.comparison_status,
+        citation_quality_status=comparison.citation_quality_status,
         feed_effective=comparison.feed_effective,
         external_platforms=comparison.external_platforms,
         missing_platforms=comparison.missing_platforms,
+        known_collision_competitors=comparison.known_collision_competitors,
+        official_cited_urls=comparison.official_cited_urls,
         mentioned_count=comparison.mentioned_count,
         cited_count=comparison.cited_count,
         mentioned_delta=comparison.mentioned_delta,
@@ -196,8 +222,17 @@ def _feed_report(
 
 
 def _stable_positive_runs(comparisons: list[GrowthAIVisibilityComparisonOut]) -> int:
-    positive = [item for item in comparisons if _is_positive_external_run(item)]
-    return len(positive)
+    latest_external_runs = sorted(
+        [item for item in comparisons if item.external_checks_count > 0],
+        key=lambda item: item.latest_run_at or datetime.min,
+        reverse=True,
+    )
+    streak = 0
+    for item in latest_external_runs:
+        if not _is_positive_external_run(item):
+            break
+        streak += 1
+    return streak
 
 
 def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
@@ -208,6 +243,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
+        and not _known_collision_mentions(item.top_competitors)
     )
 
 
@@ -229,6 +265,12 @@ def _weekly_blockers(
         blockers.append(
             "Fewer than three stable positive external runs have been recorded."
         )
+    collision_mentions = _comparison_collision_mentions(comparisons)
+    if collision_mentions:
+        blockers.append(
+            "Known Synapse brand collision results still appear in external "
+            f"probe evidence: {', '.join(collision_mentions)}."
+        )
     if not any(item.cited_count > 0 for item in comparisons):
         blockers.append("No answer-engine citation to Synapse has been recorded.")
     return unique_strings(blockers)
@@ -239,8 +281,10 @@ def _weekly_next_actions(
     missing_platforms: list[str],
     *,
     validation_blockers: list[str],
+    collision_mentions: list[str] | None = None,
 ) -> list[str]:
     actions: list[str] = []
+    collision_mentions = collision_mentions or []
     if validation_blockers:
         actions.append(
             "Resolve latest validation blockers before the next external probe."
@@ -252,9 +296,59 @@ def _weekly_next_actions(
     for report in feed_reports:
         if report.comparison_status in {"needs_external_probe", "regressed", "flat"}:
             actions.extend(report.next_actions[:2])
+    if collision_mentions:
+        actions.append(
+            "Add or strengthen disambiguation copy for known collision domains: "
+            f"{', '.join(collision_mentions)}."
+        )
     if not actions:
         actions.append("Schedule the next weekly GPT/Claude/Grok stability probe.")
     return unique_strings(actions)[:6]
+
+
+def _comparison_collision_mentions(
+    comparisons: list[GrowthAIVisibilityComparisonOut],
+) -> list[str]:
+    collisions: set[str] = set()
+    for item in comparisons:
+        collisions.update(_known_collision_mentions(item.top_competitors))
+    return sorted(collisions)
+
+
+def _official_cited_urls(rows: list[GrowthAIVisibilityCheckRow]) -> list[str]:
+    urls: list[str] = []
+    for row in rows:
+        urls.extend(_json_list(row.cited_urls_json))
+    return sorted({url for url in urls if _is_official_citation(url)})
+
+
+def _is_official_citation(url: str) -> bool:
+    return is_official_citation_url(url)
+
+
+def _citation_quality_status(
+    *,
+    external_checks_count: int,
+    official_cited_urls: list[str],
+    known_collision_competitors: list[str],
+) -> str:
+    if external_checks_count <= 0:
+        return "needs_external_probe"
+    if known_collision_competitors:
+        return "brand_collision_present"
+    if not official_cited_urls:
+        return "missing_official_citation"
+    return "official_citation_verified"
+
+
+def _known_collision_mentions(values: list[str]) -> list[str]:
+    collisions: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip().lower()
+        for collision in KNOWN_BRAND_COLLISION_COMPETITORS:
+            if collision in normalized:
+                collisions.add(collision)
+    return sorted(collisions)
 
 
 def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:

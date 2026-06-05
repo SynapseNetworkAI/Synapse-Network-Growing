@@ -7,6 +7,9 @@ from scripts.growth import ai_visibility_cli
 from scripts.growth import (
     generate_ai_visibility_external_probe_gate as external_probe_gate_cli,
 )
+from scripts.growth import (
+    generate_ai_visibility_probe_template as probe_template_cli,
+)
 from scripts.growth import generate_ai_visibility_live_readiness as live_readiness_cli
 from scripts.growth import generate_ai_visibility_operator_brief as operator_brief
 from scripts.growth import (
@@ -46,6 +49,29 @@ def test_ai_visibility_cli_helpers_cover_payload_output_and_failure(
         "error_type": "ValueError",
         "error_message": "bad input",
     }
+
+
+def test_probe_template_includes_official_sources_and_collision_domains():
+    rows = probe_template_cli.generate_records(
+        feed_key="brand_disambiguation_www",
+        run_group="2026-06-05-www-canonical-manual",
+        platforms=["chatgpt"],
+        queries=["What is Synapse Network for AI agents?"],
+        mode="after-feed",
+    )
+
+    assert len(rows) == 1
+    metadata = rows[0].metadata
+    assert metadata["canonical_homepage"] == "https://www.synapse-network.ai/"
+    assert "https://www.synapse-network.ai/" in metadata["official_source_urls"]
+    assert "https://github.com/SynapseNetworkAI" in metadata["official_source_urls"]
+    assert "https://www.synapse-network.ai/llms.txt" in metadata[
+        "official_source_urls"
+    ]
+    assert "synapsenetwork.xyz" in metadata["known_collision_domains"]
+    assert "synapse.network" in metadata["known_collision_domains"]
+    assert "known collision domains" in metadata["evidence_capture"]
+    assert "Success requires" in metadata["success_decision_rule"]
 
 
 def test_cycle_summary_marks_failed_feed_validation_blocked(tmp_path: Path):

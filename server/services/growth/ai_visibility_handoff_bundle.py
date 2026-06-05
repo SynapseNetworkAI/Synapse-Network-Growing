@@ -15,6 +15,7 @@ from server.services.growth.ai_visibility_external_probe_gate import (
 from server.services.growth.ai_visibility_live_readiness import (
     ai_visibility_live_readiness,
 )
+from server.services.growth.ai_visibility_discovery import ai_visibility_next_cycle
 from server.services.growth.ai_visibility_release_snapshot import build_snapshot
 from server.services.growth.ai_visibility_release_unblock import (
     DEFAULT_ACTOR,
@@ -64,6 +65,7 @@ def build_handoff_payloads(
         db,
         run_group=f"{safe_run_group}-operator-brief",
     )
+    next_cycle = _dump(ai_visibility_next_cycle(db))
     files = _files(safe_output_dir)
     manifest = build_handoff_manifest(
         generated_at=generated_at,
@@ -74,6 +76,7 @@ def build_handoff_payloads(
         release_snapshot=release_snapshot,
         live_readiness=live_readiness,
         external_gate=external_gate,
+        next_cycle=next_cycle,
         files=files,
     )
     return {
@@ -81,6 +84,7 @@ def build_handoff_payloads(
         "release_snapshot": release_snapshot,
         "live_readiness": live_readiness,
         "external_probe_gate": external_gate,
+        "next_cycle": next_cycle,
         "operator_brief": optimization_brief.markdown,
         "files": files,
     }
@@ -96,6 +100,7 @@ def build_handoff_manifest(
     release_snapshot: dict[str, Any],
     live_readiness: dict[str, Any],
     external_gate: dict[str, Any],
+    next_cycle: dict[str, Any],
     files: dict[str, Path],
 ) -> dict[str, Any]:
     return {
@@ -130,6 +135,7 @@ def build_handoff_manifest(
             output_dir=output_dir,
             live_readiness=live_readiness,
             external_gate=external_gate,
+            next_cycle=next_cycle,
         ),
     }
 
@@ -187,6 +193,7 @@ def _handoff_commands(
     output_dir: Path,
     live_readiness: dict[str, Any],
     external_gate: dict[str, Any],
+    next_cycle: dict[str, Any],
 ) -> dict[str, str]:
     return {
         "rerun_handoff": (
@@ -203,7 +210,10 @@ def _handoff_commands(
         ),
         "api_execute": external_gate.get("api_execute_command", ""),
         "record_probe": external_gate.get("record_probe_command", ""),
+        "probe_matrix": next_cycle.get("probe_matrix_command", ""),
+        "validate_matrix": next_cycle.get("validate_matrix_command", ""),
         "compare": external_gate.get("compare_command", ""),
+        "weekly_report": next_cycle.get("weekly_report_command", ""),
     }
 
 
@@ -212,6 +222,7 @@ def _files(output_dir: Path) -> dict[str, Path]:
         "release_snapshot": output_dir / "release-snapshot.json",
         "live_readiness": output_dir / "live-readiness.json",
         "external_probe_gate": output_dir / "external-probe-gate.json",
+        "next_cycle": output_dir / "next-cycle.json",
         "operator_brief": output_dir / "operator-brief.md",
         "manifest": output_dir / "manifest.json",
     }

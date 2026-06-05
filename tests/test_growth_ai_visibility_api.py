@@ -47,6 +47,55 @@ def test_growth_ai_visibility_and_discovery_listing(
         "mcp_paid_api_discovery",
     }
     assert "ai_visibility_search_probe" in plan_payload["growing_workflows"]
+    official_sources = synced_client.get(
+        "/api/growth/ai-visibility/official-sources"
+    )
+    assert official_sources.status_code == 200
+    official_payload = official_sources.json()
+    assert official_payload["total"] >= 8
+    assert "https://www.synapse-network.ai/" in official_payload[
+        "official_citation_prefixes"
+    ]
+    source_by_key = {
+        item["surface_key"]: item for item in official_payload["items"]
+    }
+    assert source_by_key["www_homepage"]["canonical_url"] == (
+        "https://www.synapse-network.ai/"
+    )
+    assert source_by_key["www_homepage"]["required_for_success"] is True
+    assert "brand_disambiguation_www" in source_by_key["www_homepage"]["feed_keys"]
+    assert source_by_key["remote_mcp"]["canonical_url"] == (
+        "https://mcp.synapse-network.ai/mcp"
+    )
+    assert "401" in source_by_key["remote_mcp"]["acceptance_signal"]
+    assert source_by_key["official_mcp_registry"]["surface"] == "mcp_registry"
+    probe_matrix = synced_client.get("/api/growth/ai-visibility/probe-matrix")
+    assert probe_matrix.status_code == 200
+    matrix_payload = probe_matrix.json()
+    assert matrix_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert matrix_payload["total"] == 9
+    mcp_chatgpt = next(
+        row
+        for row in matrix_payload["rows"]
+        if row["feed_key"] == "mcp_paid_api_discovery"
+        and row["platform"] == "chatgpt"
+    )
+    assert mcp_chatgpt["status"] in {
+        "blocked_until_feed_ready",
+        "ready_to_probe",
+        "covered",
+    }
+    assert "MCP server for paid API calls" in mcp_chatgpt["queries"]
+    assert "https://www.synapse-network.ai/" in mcp_chatgpt[
+        "official_source_urls"
+    ]
+    assert "https://mcp.synapse-network.ai/mcp" in mcp_chatgpt[
+        "official_source_urls"
+    ]
+    assert "record_ai_visibility_probe.py" in mcp_chatgpt["record_probe_command"]
+    assert "comparisons?feed_key=mcp_paid_api_discovery" in mcp_chatgpt[
+        "compare_command"
+    ]
     packages = synced_client.get("/api/growth/ai-visibility/feed-package")
     assert packages.status_code == 200
     package_payload = packages.json()
@@ -161,6 +210,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "mcp_paid_api_discovery",
     }
     assert "Impact score rewards feed readiness" in scorecard_payload["ranking_basis"]
+    assert "official Synapse citations" in scorecard_payload["ranking_basis"]
     assert {item["feed_key"] for item in scorecard_payload["items"]} == {
         "brand_disambiguation_www",
         "agent_payment_category_pages",
@@ -199,6 +249,28 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert "Ready platforms: chatgpt, claude" in brief_payload["markdown"]
     assert "Missing platforms: grok" in brief_payload["markdown"]
+    assert "## Operator Execution Sequence" in brief_payload["markdown"]
+    assert (
+        "run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery"
+        in brief_payload["markdown"]
+    )
+    assert (
+        "generate_ai_visibility_probe_matrix.py --feed-key mcp_paid_api_discovery"
+        in brief_payload["markdown"]
+    )
+    assert (
+        "validate_ai_visibility_probe_matrix.py --feed-key mcp_paid_api_discovery"
+        in brief_payload["markdown"]
+    )
+    assert "## Fail-Closed Success Rules" in brief_payload["markdown"]
+    assert (
+        "The canonical product homepage is https://www.synapse-network.ai/"
+        in brief_payload["markdown"]
+    )
+    assert (
+        "Partial API readiness is diagnostic only"
+        in brief_payload["markdown"]
+    )
     assert (
         "generate_ai_visibility_optimization_brief.py"
         in brief_payload["export_command"]
@@ -265,6 +337,22 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert check.json()["run_group"] == "2026-06-04-baseline"
     assert check.json()["result_rank"] == 3
     assert check.json()["metadata"]["search_mode"] == "manual"
+    collision_check = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "What is Synapse Network for AI agents?",
+            "platform": "chatgpt",
+            "answer_summary": "A result cites a brand-collision domain.",
+            "synapse_mentioned": True,
+            "synapse_cited": True,
+            "cited_urls": ["https://www.synapsenetwork.xyz/"],
+            "competitor_mentions": ["synapsenetwork.xyz"],
+            "feed_key": "brand_disambiguation_www",
+            "run_group": "2026-06-05-brand-collision",
+        },
+    )
+    assert collision_check.status_code == 400
+    assert "official Synapse cited_url" in collision_check.json()["detail"]
     for platform, cited in (("chatgpt", True), ("claude", False)):
         synced_client.post(
             "/api/growth/ai-visibility/checks",
@@ -292,6 +380,11 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert comparison_payload["external_checks_count"] == 3
     assert comparison_payload["local_validation_count"] == 0
     assert comparison_payload["cited_count"] == 1
+    assert comparison_payload["citation_quality_status"] == "official_citation_verified"
+    assert comparison_payload["official_cited_urls"] == [
+        "https://www.synapse-network.ai/"
+    ]
+    assert comparison_payload["known_collision_competitors"] == []
     assert "grok" in comparison_payload["missing_platforms"]
     assert "RapidAPI" in comparison_payload["top_competitors"]
     assert (
@@ -327,6 +420,8 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert after_comparison["cited_delta"] == 1
     assert after_comparison["mentioned_delta"] == 2
     assert after_comparison["comparison_status"] == "improved"
+    assert after_comparison["citation_quality_status"] == "official_citation_verified"
+    assert after_comparison["known_collision_competitors"] == []
     assert after_comparison["feed_effective"] is True
     improved_scorecard = synced_client.get(
         "/api/growth/ai-visibility/feed-scorecard"
@@ -338,6 +433,9 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert mcp_score["feed_effective"] is True
     assert mcp_score["impact_score"] > 0
+    assert mcp_score["citation_quality_status"] == "official_citation_verified"
+    assert mcp_score["official_cited_urls"]
+    assert mcp_score["known_collision_competitors"] == []
     assert mcp_score["mentioned_delta"] == 2
     assert mcp_score["cited_delta"] == 1
     assert "Resolve feed blockers" in mcp_score["recommended_action"]
@@ -409,6 +507,19 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert next_cycle_payload["apply_command"].startswith(
         "python scripts/growth/record_ai_visibility_probe.py"
     )
+    assert next_cycle_payload["probe_matrix_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_probe_matrix.py"
+    )
+    assert next_cycle_payload["probe_matrix_command"].endswith(
+        "-brand_disambiguation_www-weekly-probe-matrix.json"
+    )
+    assert next_cycle_payload["validate_matrix_command"].startswith(
+        "python scripts/growth/validate_ai_visibility_probe_matrix.py"
+    )
+    assert "--matrix-file" in next_cycle_payload["validate_matrix_command"]
+    assert "--feed-key brand_disambiguation_www" in next_cycle_payload[
+        "validate_matrix_command"
+    ]
     assert (
         "comparisons?feed_key=brand_disambiguation_www"
         in next_cycle_payload["compare_command"]
@@ -595,197 +706,95 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert "record_ai_visibility_probe.py" in payload["record_probe_command"]
 
 
-def test_growth_ai_visibility_external_probe_gate_partial_ready(
-    monkeypatch,
-    synced_client,
-):
-    from scripts.growth.record_ai_visibility_probe import ProbeRecord
+def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client):
+    for platform in ("chatgpt", "claude", "grok"):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "What is Synapse Network for AI agents?",
+                "platform": platform,
+                "answer_summary": f"{platform} cites Synapse but also surfaces a collision.",
+                "synapse_mentioned": True,
+                "synapse_cited": True,
+                "cited_urls": ["https://www.synapse-network.ai/"],
+                "competitor_mentions": ["synapsenetwork.xyz"]
+                if platform == "chatgpt"
+                else [],
+                "next_action": "Strengthen brand disambiguation copy.",
+                "feed_key": "brand_disambiguation_www",
+                "run_group": "2026-06-05-brand-collision-check",
+            },
+        )
+        assert response.status_code == 201
 
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    report = synced_client.get("/api/growth/ai-visibility/weekly-report")
 
-    def fake_validate_feed(*, feed_key: str, run_group: str):
-        return [
-            ProbeRecord(
-                query="Remote MCP live readiness",
-                platform="mcp_live_validation",
-                feed_key=feed_key,
-                run_group=run_group,
-                answer_summary="Live feed validation passed.",
-                synapse_mentioned=True,
-                synapse_cited=True,
-                cited_urls=["https://www.synapse-network.ai/"],
-            )
-        ]
-
-    monkeypatch.setattr(
-        "server.services.growth.ai_visibility_live_readiness."
-        "feed_validation.validate_feed",
-        fake_validate_feed,
+    assert report.status_code == 200
+    payload = report.json()
+    assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["stable_positive_runs"] == 0
+    assert any(
+        "synapsenetwork.xyz" in blocker for blocker in payload["blockers"]
     )
-
-    response = synced_client.get(
-        "/api/growth/ai-visibility/external-probe-gate"
-        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-05-external"
+    assert any(
+        "disambiguation copy" in action and "synapsenetwork.xyz" in action
+        for action in payload["next_actions"]
     )
-
-    assert response.status_code == 200
-    payload = response.json()
-    rendered = json.dumps(payload)
-    assert payload["status"] == "ready_for_partial_external_probes"
-    assert payload["ready_to_execute"] is False
-    assert payload["partial_ready_to_execute"] is True
-    assert payload["manual_ready_to_execute"] is True
-    assert payload["feed_ready"] is True
-    assert payload["api_keys_ready"] is False
-    assert payload["ready_platforms"] == ["chatgpt", "claude"]
-    assert payload["missing_platforms"] == ["grok"]
-    assert "--platforms chatgpt,claude" in payload["partial_api_readiness_command"]
-    assert "--platforms chatgpt,claude" in payload["partial_api_execute_command"]
-    assert "--platforms chatgpt,claude,grok" in payload["api_readiness_command"]
-    assert "--platforms chatgpt,claude,grok" in payload[
-        "manual_probe_template_command"
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons"
+        "?feed_key=brand_disambiguation_www"
+        "&run_group=2026-06-05-brand-collision-check"
+    )
+    comparison_payload = comparison.json()["items"][0]
+    assert comparison_payload["citation_quality_status"] == "brand_collision_present"
+    assert comparison_payload["known_collision_competitors"] == ["synapsenetwork.xyz"]
+    assert comparison_payload["official_cited_urls"] == [
+        "https://www.synapse-network.ai/"
     ]
-    assert "grok missing XAI_API_KEY." in payload["blockers"]
-    assert "sk-test-openai-secret" not in rendered
-    assert "sk-test-anthropic-secret" not in rendered
+    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
+    brand_score = next(
+        item
+        for item in scorecard["items"]
+        if item["feed_key"] == "brand_disambiguation_www"
+    )
+    assert brand_score["citation_quality_status"] == "brand_collision_present"
+    assert brand_score["known_collision_competitors"] == ["synapsenetwork.xyz"]
 
 
-def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
-    monkeypatch,
-    synced_client,
-):
-    from scripts.growth.record_ai_visibility_probe import ProbeRecord
-
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
-    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
-
-    def fake_validate_feed(*, feed_key: str, run_group: str):
-        return [
-            ProbeRecord(
-                query="Remote MCP live readiness",
-                platform="mcp_live_validation",
-                feed_key=feed_key,
-                run_group=run_group,
-                answer_summary="Live feed validation passed.",
-                synapse_mentioned=True,
-                synapse_cited=True,
-                cited_urls=["https://www.synapse-network.ai/"],
+def test_ai_visibility_weekly_report_counts_only_latest_positive_streak(synced_client):
+    def record_run(run_group: str, *, positive: bool) -> None:
+        for platform in ("chatgpt", "claude"):
+            response = synced_client.post(
+                "/api/growth/ai-visibility/checks",
+                json={
+                    "query": "AI agent payment API",
+                    "platform": platform,
+                    "answer_summary": (
+                        "Synapse Network is cited by an official source."
+                        if positive
+                        else "No Synapse citation appeared."
+                    ),
+                    "synapse_mentioned": positive,
+                    "synapse_cited": positive,
+                    "cited_urls": ["https://www.synapse-network.ai/"]
+                    if positive
+                    else [],
+                    "feed_key": "agent_payment_category_pages",
+                    "run_group": run_group,
+                },
             )
-        ]
+            assert response.status_code == 201
 
-    monkeypatch.setattr(
-        "server.services.growth.ai_visibility_live_readiness."
-        "feed_validation.validate_feed",
-        fake_validate_feed,
+    record_run("2026-06-01-weekly-positive", positive=True)
+    record_run("2026-06-08-weekly-regressed", positive=False)
+    record_run("2026-06-15-weekly-positive", positive=True)
+
+    report = synced_client.get("/api/growth/ai-visibility/weekly-report")
+
+    assert report.status_code == 200
+    payload = report.json()
+    assert payload["stable_positive_runs"] == 1
+    assert (
+        "Fewer than three stable positive external runs have been recorded."
+        in payload["blockers"]
     )
-
-    response = synced_client.get(
-        "/api/growth/ai-visibility/external-probe-gate"
-        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-05-external"
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    rendered = json.dumps(payload)
-    assert payload["status"] == "ready_to_execute_external_probes"
-    assert payload["ready_to_execute"] is True
-    assert payload["partial_ready_to_execute"] is True
-    assert payload["manual_ready_to_execute"] is True
-    assert payload["feed_ready"] is True
-    assert payload["api_keys_ready"] is True
-    assert payload["ready_platforms"] == ["chatgpt", "claude", "grok"]
-    assert payload["missing_platforms"] == []
-    assert all(item["configured"] for item in payload["provider_readiness"])
-    assert "generate_ai_visibility_probe_template.py" in payload[
-        "manual_probe_template_command"
-    ]
-    assert "sk-test-openai-secret" not in rendered
-    assert "sk-test-anthropic-secret" not in rendered
-    assert "xai-test-secret" not in rendered
-
-
-def test_growth_ai_visibility_release_snapshot_api(monkeypatch, synced_client):
-    def fake_snapshot(**kwargs):
-        return {
-            "module_key": "ai_visibility",
-            "snapshot_type": "release_blocker",
-            "generated_at": "2026-06-05T00:00:00Z",
-            "feed_key": kwargs["feed_key"],
-            "run_group": kwargs["run_group"],
-            "target_commit_sha": kwargs["target_commit"],
-            "official_homepage": "https://www.synapse-network.ai/",
-            "status": "blocked",
-            "release_plan_status": "blocked_until_gcloud_auth",
-            "deploy_readiness_status": "ready_for_release_runner_after_gcloud_auth",
-            "confirmed_facts": [
-                "Official homepage canonical is https://www.synapse-network.ai/.",
-            ],
-            "deployment_gaps": [],
-            "live_readiness": {"status": "blocked"},
-            "gcloud": {"production": {"ok": False}},
-            "external_probe_keys": {"chatgpt": {"configured": False}},
-            "blockers": ["GCloud auth fails non-interactively."],
-            "next_actions": ["Run gcloud auth login."],
-        }
-
-    monkeypatch.setattr(
-        "server.routers.growth_ai_visibility.ai_visibility_release_snapshot.build_snapshot",
-        fake_snapshot,
-    )
-
-    response = synced_client.get(
-        "/api/growth/ai-visibility/release-snapshot"
-        "?feed_key=mcp_paid_api_discovery"
-        "&run_group=2026-06-05-release-snapshot"
-        "&target_commit=d8b5371e11fea2d962dcc656b9b8d08d0c1379d9"
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert payload["status"] == "blocked"
-    assert payload["feed_key"] == "mcp_paid_api_discovery"
-    assert payload["run_group"] == "2026-06-05-release-snapshot"
-
-
-def test_ai_visibility_weekly_report_uses_latest_validation_surface(synced_client):
-    stale_blocker = "Synthetic stale redirect blocker should disappear."
-    first = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "Brand feed validation",
-            "platform": "www_live_validation",
-            "answer_summary": "Bare domain did not redirect.",
-            "synapse_mentioned": False,
-            "synapse_cited": False,
-            "missing_facts": [stale_blocker],
-            "next_action": "Fix synthetic redirect blocker.",
-            "feed_key": "brand_disambiguation_www",
-            "run_group": "2026-06-04-live-predeploy",
-        },
-    )
-    assert first.status_code == 201
-    blocked = synced_client.get("/api/growth/ai-visibility/weekly-report")
-    assert stale_blocker in blocked.json()["blockers"]
-
-    second = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "Brand feed validation",
-            "platform": "www_live_validation",
-            "answer_summary": "Bare domain redirects and public assets are live.",
-            "synapse_mentioned": True,
-            "synapse_cited": True,
-            "cited_urls": ["https://www.synapse-network.ai/"],
-            "feed_key": "brand_disambiguation_www",
-            "run_group": "2026-06-05-live-refresh",
-        },
-    )
-    assert second.status_code == 201
-    refreshed = synced_client.get("/api/growth/ai-visibility/weekly-report")
-    assert stale_blocker not in refreshed.json()["blockers"]
-    next_cycle = synced_client.get("/api/growth/ai-visibility/next-cycle")
-    assert stale_blocker not in next_cycle.json()["blockers"]

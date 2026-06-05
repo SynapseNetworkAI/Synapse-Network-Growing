@@ -28,7 +28,9 @@ from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout 
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
-    baseline_queries,
+    KNOWN_COLLISION_DOMAINS,
+    default_queries_for_feed,
+    official_source_urls_for_feed,
     parse_platforms,
     template_record,
 )
@@ -72,7 +74,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         "--query",
         action="append",
         dest="queries",
-        help="Question to run. Repeat for multiple queries. Defaults to baseline queries.",
+        help="Question to run. Repeat for multiple queries. Defaults to the selected feed target queries.",
     )
     parser.add_argument("--output", help="Write JSONL probe rows to this path.")
     parser.add_argument(
@@ -84,7 +86,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
 
     try:
         platforms = parse_api_platforms(args.platforms)
-        queries = args.queries or baseline_queries()
+        queries = args.queries or default_queries_for_feed(args.feed_key)
         missing = missing_key_blockers(platforms)
         if missing or not args.execute:
             emit_status(
@@ -166,6 +168,7 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
     queries: list[str],
 ):
     rows = []
+    official_source_urls = official_source_urls_for_feed(feed_key)
     for query in queries:
         for platform in platforms:
             template = template_record(
@@ -175,6 +178,7 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
                 run_group=run_group,
                 mode="after-feed",
                 generated_at=datetime.now(UTC).date().isoformat(),
+                official_source_urls=official_source_urls,
             )
             answer = call_platform(platform, query)
             payload = asdict(template)
@@ -407,6 +411,9 @@ def competitor_mentions(text: str, urls: list[str]) -> list[str]:
     for label in ["x402", "stripe", "rapidapi", "masumi", "locus", "payspawn"]:
         if re.search(rf"\b{re.escape(label)}\b", haystack):
             competitors.append(label)
+    for domain in KNOWN_COLLISION_DOMAINS:
+        if domain.lower() in haystack:
+            competitors.append(domain)
     return competitors
 
 

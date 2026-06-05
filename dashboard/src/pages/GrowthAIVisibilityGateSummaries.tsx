@@ -96,6 +96,7 @@ export function ExternalProbeGateSummary({ gate }: Readonly<{ gate: GrowthAIVisi
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <CommandBlock label="Validate feed" value={gate.feed_validation_command} />
         <CommandBlock label="Manual template" value={gate.manual_probe_template_command || '-'} />
+        <CommandBlock label="Record evidence" value={gate.record_probe_command} />
         <CommandBlock label="API readiness" value={gate.api_readiness_command} />
         <CommandBlock label="Execute probes" value={gate.api_execute_command} />
         <CommandBlock label="Configured-platform readiness" value={gate.partial_api_readiness_command || '-'} />
@@ -200,7 +201,9 @@ export function NextCycleSummary({ nextCycle }: Readonly<{ nextCycle: GrowthAIVi
         <CommandBlock label="Manual template" value={nextCycle.manual_probe_template_command} />
         <CommandBlock label="API readiness" value={nextCycle.api_readiness_command} />
         <CommandBlock label="API execute" value={nextCycle.api_execute_command} />
+        <CommandBlock label="Probe matrix" value={nextCycle.probe_matrix_command} />
         <CommandBlock label="Apply evidence" value={nextCycle.apply_command} />
+        <CommandBlock label="Validate matrix" value={nextCycle.validate_matrix_command} />
         <CommandBlock label="Compare" value={nextCycle.compare_command} />
         <CommandBlock label="Weekly report" value={nextCycle.weekly_report_command} />
       </div>
@@ -232,9 +235,11 @@ export function FeedScorecardSummary({ scorecard }: Readonly<{ scorecard: Growth
             </div>
             <div className="mt-3 grid gap-1 text-xs leading-5 text-[color:var(--ops-text-muted)]">
               <div>Status: {item.status} · {item.comparison_status}</div>
+              <div>Citation quality: {item.citation_quality_status || 'unknown'}</div>
               <div>Covered: {item.covered_platforms.join(', ') || '-'}</div>
               <div>Missing: {item.missing_platforms.join(', ') || '-'}</div>
               <div>Mention/cite: {item.mentioned_count}/{item.cited_count}</div>
+              <div>Official/collision: {(item.official_cited_urls || []).length}/{(item.known_collision_competitors || []).length}</div>
               <div>Delta: mention {signed(item.mentioned_delta)} · cite {signed(item.cited_delta)}</div>
               <div>External/local: {item.external_checks_count}/{item.local_validation_count}</div>
             </div>

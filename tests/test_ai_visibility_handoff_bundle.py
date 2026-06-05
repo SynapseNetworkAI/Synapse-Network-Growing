@@ -35,6 +35,11 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
             markdown="# Synapse AI Visibility Optimization Brief\n"
         ),
     )
+    monkeypatch.setattr(
+        handoff_service,
+        "ai_visibility_next_cycle",
+        lambda *_args, **_kwargs: FakeNextCycle(),
+    )
 
     payloads = handoff_service.build_handoff_payloads(
         output_dir=output_dir,
@@ -54,11 +59,18 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
     assert "GCloud auth fails non-interactively." in manifest["blockers"]
     assert "Docs /mcp/paid-api-calls page must be live." in manifest["blockers"]
     assert "--platforms chatgpt,claude" in manifest["commands"]["partial_api_readiness"]
+    assert "generate_ai_visibility_probe_matrix.py" in manifest["commands"][
+        "probe_matrix"
+    ]
+    assert "validate_ai_visibility_probe_matrix.py" in manifest["commands"][
+        "validate_matrix"
+    ]
     for filename in (
         "manifest.json",
         "release-snapshot.json",
         "live-readiness.json",
         "external-probe-gate.json",
+        "next-cycle.json",
         "operator-brief.md",
     ):
         assert (output_dir / filename).exists()
@@ -161,5 +173,26 @@ class FakeExternalGate:
             ),
             "compare_command": (
                 "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/comparisons'"
+            ),
+        }
+
+
+class FakeNextCycle:
+    def model_dump(self, mode: str):  # noqa: ARG002
+        return {
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-05-mcp-weekly",
+            "probe_matrix_command": (
+                "python scripts/growth/generate_ai_visibility_probe_matrix.py "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-probe-matrix.json"
+            ),
+            "validate_matrix_command": (
+                "python scripts/growth/validate_ai_visibility_probe_matrix.py "
+                "docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl "
+                "--matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-probe-matrix.json"
+            ),
+            "weekly_report_command": (
+                "python scripts/growth/export_ai_visibility_weekly_report.py "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-weekly-report.json"
             ),
         }

@@ -1,3 +1,7 @@
+import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan } from './apiGrowthAiVisibilityPlanTypes'
+
+export type * from './apiGrowthAiVisibilityPlanTypes'
+
 type RequestFn = <T>(path: string, options?: RequestInit, timeoutMs?: number) => Promise<T>
 
 export interface GrowthAIVisibilityCheck {
@@ -36,9 +40,12 @@ export interface GrowthAIVisibilityComparison {
   mentioned_delta: number
   cited_delta: number
   comparison_status: string
+  citation_quality_status?: string
   feed_effective: boolean
   missing_platforms: string[]
   top_competitors: string[]
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   next_actions: string[]
   evidence_urls: string[]
   latest_run_at: string | null
@@ -47,9 +54,12 @@ export interface GrowthAIVisibilityFeedReport {
   feed_key: string
   latest_run_group: string
   comparison_status: string
+  citation_quality_status?: string
   feed_effective: boolean
   external_platforms: string[]
   missing_platforms: string[]
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   mentioned_count: number
   cited_count: number
   mentioned_delta: number
@@ -93,6 +103,8 @@ export interface GrowthAIVisibilityNextCycle {
   api_readiness_command: string
   api_execute_command: string
   apply_command: string
+  probe_matrix_command: string
+  validate_matrix_command: string
   compare_command: string
   weekly_report_command: string
 }
@@ -204,6 +216,7 @@ export interface GrowthAIVisibilityFeedScore {
   objective: string
   latest_run_group: string
   comparison_status: string
+  citation_quality_status?: string
   feed_ready: boolean
   external_probe_ready: boolean
   feed_effective: boolean
@@ -214,6 +227,8 @@ export interface GrowthAIVisibilityFeedScore {
   local_validation_count: number
   mentioned_count: number
   cited_count: number
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   mentioned_delta: number
   cited_delta: number
   blockers: string[]
@@ -313,121 +328,46 @@ export interface GrowthAIVisibilityExternalProbeGate {
   record_probe_command: string
   compare_command: string
 }
-export interface GrowthAIVisibilityQuery {
-  query: string
-  intent: string
-  target_platforms: string[]
-  success_signal: string
-}
-export interface GrowthAIVisibilityFeedExperiment {
-  feed_key: string
-  surfaces: string[]
-  content_assets: string[]
-  target_queries: string[]
-  measurement_window_days: number
-}
-export interface GrowthAIVisibilityPlatformStrategy {
-  platform: string
-  feed_focus: string
-  preferred_surfaces: string[]
-  probe_queries: string[]
-  success_signal: string
-  fallback_action: string
-}
-export interface GrowthAIVisibilityFeedAsset {
+export interface GrowthAIVisibilityOfficialSource {
+  surface_key: string
   surface: string
-  target: string
-  purpose: string
-  validation: string
+  canonical_url: string
+  citation_role: string
+  feed_keys: string[]
+  required_for_success: boolean
+  validation_command: string
+  acceptance_signal: string
 }
-export interface GrowthAIVisibilityFeedPackage {
+export interface GrowthAIVisibilityOfficialSourceList {
+  module_key: string
+  generated_at: string
+  official_citation_prefixes: string[]
+  items: GrowthAIVisibilityOfficialSource[]
+  total: number
+}
+export interface GrowthAIVisibilityProbeMatrixRow {
   feed_key: string
-  objective: string
-  canonical_domain: string
-  surfaces: string[]
-  content_assets: string[]
-  target_queries: string[]
-  publish_assets: GrowthAIVisibilityFeedAsset[]
-  platform_strategies: GrowthAIVisibilityPlatformStrategy[]
-  stitch_prompt: string
-  figma_handoff: string[]
-  validation_commands: string[]
-  probe_template_command: string
-  success_metrics: string[]
+  platform: string
+  status: string
+  run_group: string
+  queries: string[]
+  official_source_urls: string[]
+  success_decision_rule: string
+  manual_probe_template_command: string
+  record_probe_command: string
+  compare_command: string
+  evidence_directory: string
+  blockers: string[]
   next_actions: string[]
 }
-export interface GrowthAIVisibilityDocsPlan {
-  canonical_domain: string
-  docs_category: string
-  pages: string[]
-  required_blocks: string[]
-  schema_types: string[]
-}
-export interface GrowthAIVisibilityDocsPageBlueprint {
-  slug: string
-  title: string
-  canonical_url: string
-  meta_description: string
-  target_queries: string[]
-  definition_block: string
-  fact_table: Array<Record<string, string>>
-  page_sections: string[]
-  faq: Array<Record<string, string>>
-  schema_types: string[]
-  stitch_notes: string[]
-  figma_components: string[]
-  mdx_skeleton: string
-  validation_commands: string[]
-}
-export interface GrowthAIVisibilityDocsBlueprint {
-  category: string
-  canonical_domain: string
-  target_repo: string
-  implementation_root: string
-  pages: GrowthAIVisibilityDocsPageBlueprint[]
-  shared_components: string[]
-  publishing_checklist: string[]
-}
-export interface GrowthAIVisibilityDesignFrame {
-  name: string
-  purpose: string
-  source_page_slug: string
-  layout_notes: string[]
-  figma_components: string[]
-  stitch_prompt: string
-}
-export interface GrowthAIVisibilityDesignHandoff {
-  title: string
-  canonical_domain: string
-  source_tool: string
-  target_tool: string
-  figma_file_name: string
-  stitch_prompt: string
-  frames: GrowthAIVisibilityDesignFrame[]
-  component_specs: Array<Record<string, string>>
-  design_tokens: Record<string, string>
-  import_steps: string[]
-  implementation_notes: string[]
-  acceptance_checks: string[]
-}
-export interface GrowthAIVisibilityDesignPlan {
-  stitch_prompt: string
-  figma_handoff: string[]
-  implementation_targets: string[]
-}
-export interface GrowthAIVisibilityOptimizationPlan {
+export interface GrowthAIVisibilityProbeMatrix {
   module_key: string
-  objective: string
-  canonical_domain: string
-  critical_fixes: string[]
-  baseline_queries: GrowthAIVisibilityQuery[]
-  feed_experiments: GrowthAIVisibilityFeedExperiment[]
-  product_docs: GrowthAIVisibilityDocsPlan
-  design_plan: GrowthAIVisibilityDesignPlan
-  growing_workflows: string[]
-  success_criteria: string[]
+  generated_at: string
+  target_platforms: string[]
+  recommended_feed_key: string
+  rows: GrowthAIVisibilityProbeMatrixRow[]
+  total: number
 }
-
 export function createGrowthAiVisibilityApi(request: RequestFn) {
   return {
     getGrowthAIVisibilityChecks: (params?: { q?: string; platform?: string; limit?: number; offset?: number }) =>
@@ -468,6 +408,10 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilityLiveReadiness>('/growth/ai-visibility/live-readiness'),
     getGrowthAIVisibilityExternalProbeGate: () =>
       request<GrowthAIVisibilityExternalProbeGate>('/growth/ai-visibility/external-probe-gate'),
+    getGrowthAIVisibilityOfficialSources: () =>
+      request<GrowthAIVisibilityOfficialSourceList>('/growth/ai-visibility/official-sources'),
+    getGrowthAIVisibilityProbeMatrix: () =>
+      request<GrowthAIVisibilityProbeMatrix>('/growth/ai-visibility/probe-matrix'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }

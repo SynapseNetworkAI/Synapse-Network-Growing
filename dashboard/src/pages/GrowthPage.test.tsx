@@ -402,6 +402,8 @@ function installFetch() {
         api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API"',
         api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API" --execute',
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
+        probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json',
+        validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly',
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages&run_group=2026-06-05-agent_payment_category_pages-weekly" | python -m json.tool',
         weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-weekly-report.json',
       })
@@ -628,6 +630,69 @@ function installFetch() {
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery" | python -m json.tool',
       })
     }
+    if (url.includes('/growth/ai-visibility/official-sources')) {
+      return json({
+        module_key: 'ai_visibility',
+        generated_at: '2026-06-05T00:00:00Z',
+        official_citation_prefixes: [
+          'https://www.synapse-network.ai/',
+          'https://docs.synapse-network.ai/',
+          'https://mcp.synapse-network.ai/',
+        ],
+        total: 2,
+        items: [
+          {
+            surface_key: 'www_homepage',
+            surface: 'www',
+            canonical_url: 'https://www.synapse-network.ai/',
+            citation_role: 'Primary canonical.',
+            feed_keys: ['brand_disambiguation_www'],
+            required_for_success: true,
+            validation_command: 'curl -fsS https://www.synapse-network.ai/',
+            acceptance_signal: 'Homepage has facts.',
+          },
+          {
+            surface_key: 'remote_mcp',
+            surface: 'mcp',
+            canonical_url: 'https://mcp.synapse-network.ai/mcp',
+            citation_role: 'Hosted Remote MCP endpoint.',
+            feed_keys: ['mcp_paid_api_discovery'],
+            required_for_success: true,
+            validation_command: 'curl -fsS https://mcp.synapse-network.ai/readyz',
+            acceptance_signal: 'readyz is 200 and /mcp is 401.',
+          },
+        ],
+      })
+    }
+    if (url.includes('/growth/ai-visibility/probe-matrix')) {
+      return json({
+        module_key: 'ai_visibility',
+        generated_at: '2026-06-05T00:00:00Z',
+        target_platforms: ['chatgpt', 'claude', 'grok'],
+        recommended_feed_key: 'mcp_paid_api_discovery',
+        total: 1,
+        rows: [
+          {
+            feed_key: 'mcp_paid_api_discovery',
+            platform: 'chatgpt',
+            status: 'ready_to_probe',
+            run_group: '2026-06-05-mcp-weekly',
+            queries: ['MCP server for paid API calls'],
+            official_source_urls: [
+              'https://www.synapse-network.ai/',
+              'https://mcp.synapse-network.ai/mcp',
+            ],
+            success_decision_rule: 'Success requires an official citation.',
+            manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
+            record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl --apply',
+            compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+            evidence_directory: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly',
+            blockers: [],
+            next_actions: ['Run the chatgpt probe with unchanged query wording.'],
+          },
+        ],
+      })
+    }
     if (url.includes('/growth/ai-visibility/optimization-brief')) {
       return json({
         module_key: 'ai_visibility',
@@ -812,7 +877,6 @@ describe('GrowthPage', () => {
     fireEvent.click(within(mcpDialog).getByRole('button', { name: '记录 Listing' }))
     await waitFor(() => expect(calls.some((call) => call === 'POST /api/growth/discovery-listings')).toBe(true))
   })
-
   it('opens AI visibility from the tab query string', async () => {
     window.history.pushState({}, '', '/growth?tab=ai-visibility')
 
