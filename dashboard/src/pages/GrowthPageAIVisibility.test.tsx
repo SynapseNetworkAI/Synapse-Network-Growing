@@ -76,6 +76,10 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-release-unblock-plan')).toBeInTheDocument()
     expect(screen.getAllByText('blocked_until_gcloud_auth').length).toBeGreaterThan(0)
+    expect(screen.getByText('Pending source PRs')).toBeInTheDocument()
+    expect(screen.getAllByText(/#215 OPEN codex\/add-mcp-search-landing-pages/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/https:\/\/www\.synapse-network\.ai\/mcp-server-for-paid-api-calls/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/https:\/\/docs\.synapse-network\.ai\/mcp\/synapse-vs-paid-mcp/).length).toBeGreaterThan(0)
     expect(screen.getByTestId('ai-visibility-feed-cycle-matrix')).toBeInTheDocument()
     expect(screen.getByText('Probe matrix')).toBeInTheDocument()
     expect(screen.getByText('Validate matrix')).toBeInTheDocument()
@@ -250,12 +254,24 @@ function nextCycle() {
   }
 }
 
+function pendingSourcePrs() {
+  return [{ number: 215, url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/215', state: 'OPEN', head_ref: 'codex/add-mcp-search-landing-pages', head_commit: '794a416bd85a9042e8e652eaf02f0ebf2552e85d', purpose: 'Publish MCP search landing pages and Synapse Protocol disambiguation.' }]
+}
+
+function pendingPublicationGaps() {
+  return [
+    { surface: 'docs-front', url: 'https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp', current_status: 404, expected_after_merge: 200, source_pr: 215, next_action: 'Merge and deploy source PR #215.' },
+    { surface: 'www', url: 'https://www.synapse-network.ai/mcp-server-for-paid-api-calls', current_status: 404, expected_after_merge: 200, source_pr: 215, next_action: 'Merge and deploy source PR #215.' },
+    { surface: 'www', url: 'https://www.synapse-network.ai/chatgpt-mcp-app-api-payments', current_status: 404, expected_after_merge: 200, source_pr: 215, next_action: 'Merge and deploy source PR #215.' },
+  ]
+}
+
 function releasePlan() {
-  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', status: 'blocked_until_gcloud_auth', generated_at: '2026-06-05T00:00:00Z', official_homepage: 'https://www.synapse-network.ai/', project_key: 'synapse-network', services: ['docs-front'], branch_name: 'main', target_commit_sha: 'd8b5371e', actor: 'codex', source_pr: { state: 'MERGED', url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/204' }, source_prs: [], predeploy_evidence: { status: 'target_branch_ready_live_prod_blocked', validations: [] }, deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth', deployment_gaps: [{ service_key: 'docs-front', status: 'production_behind_target' }], confirmed_facts: ['Official homepage canonical is https://www.synapse-network.ai/.'], hard_boundaries: ['Do not run gcloud run deploy directly.'], known_blockers: ['GCloud auth fails non-interactively.'], environment_defaults: {}, command_groups: [{ key: 'gcloud_auth', purpose: 'Restore auth.', commands: ['gcloud auth login'], service_key: '', environment: '', notes: [] }], success_criteria: ['llms.txt includes MCP feed.'] }
+  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', status: 'blocked_until_gcloud_auth', generated_at: '2026-06-05T00:00:00Z', official_homepage: 'https://www.synapse-network.ai/', project_key: 'synapse-network', services: ['docs-front'], branch_name: 'main', target_commit_sha: 'd8b5371e', actor: 'codex', source_pr: { state: 'MERGED', url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/204' }, source_prs: [], pending_source_prs: pendingSourcePrs(), predeploy_evidence: { status: 'target_branch_ready_live_prod_blocked', validations: [] }, deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth', deployment_gaps: [{ service_key: 'docs-front', status: 'production_behind_target' }], pending_publication_gaps: pendingPublicationGaps(), confirmed_facts: ['Official homepage canonical is https://www.synapse-network.ai/.'], hard_boundaries: ['Do not run gcloud run deploy directly.'], known_blockers: ['GCloud auth fails non-interactively.'], environment_defaults: {}, command_groups: [{ key: 'gcloud_auth', purpose: 'Restore auth.', commands: ['gcloud auth login'], service_key: '', environment: '', notes: [] }], success_criteria: ['llms.txt includes MCP feed.'] }
 }
 
 function releaseSnapshot() {
-  return { module_key: 'ai_visibility', snapshot_type: 'release_blocker', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-snapshot', target_commit_sha: 'd8b5371e', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_plan_status: 'blocked_until_gcloud_auth', deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth', confirmed_facts: [], deployment_gaps: [], live_readiness: {}, gcloud: {}, external_probe_keys: {}, blockers: ['GCloud auth fails non-interactively.'], next_actions: ['Run gcloud auth login.'] }
+  return { module_key: 'ai_visibility', snapshot_type: 'release_blocker', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-snapshot', target_commit_sha: 'd8b5371e', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_plan_status: 'blocked_until_gcloud_auth', deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth', confirmed_facts: [], deployment_gaps: [], pending_source_prs: pendingSourcePrs(), pending_publication_gaps: pendingPublicationGaps(), live_readiness: {}, gcloud: {}, external_probe_keys: {}, blockers: ['GCloud auth fails non-interactively.'], next_actions: ['Run gcloud auth login.'] }
 }
 
 function handoffBundle() {
