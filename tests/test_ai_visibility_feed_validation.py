@@ -698,7 +698,10 @@ def test_feed_validation_mcp_feed_blocks_until_npm_refresh_release(monkeypatch):
 
     assert rows[0].synapse_mentioned is False
     assert any("@synapse-network-ai/mcp-server" in fact for fact in rows[0].missing_facts)
-    assert "0.1.4 to npm" in rows[0].next_action
+    assert any("Trusted Publisher" in fact for fact in rows[0].missing_facts)
+    assert any("NPM_TOKEN" in fact for fact in rows[0].missing_facts)
+    assert "Publish MCP Server" in rows[0].next_action
+    assert "expected_version=0.1.4" in rows[0].next_action
 
 
 def test_feed_validation_parse_feed_keys():

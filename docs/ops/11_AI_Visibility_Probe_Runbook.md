@@ -175,9 +175,14 @@ pages, docs pages, Remote MCP readiness/auth boundaries, and the official MCP
 Registry listing freshness for the `mcp_paid_api_discovery` feed. The MCP feed
 also checks that npm has published `@synapse-network-ai/mcp-server@0.1.4`, because
 the official Registry refuses refreshed metadata until the referenced npm package
-version exists. It emits `*_live_validation` rows. These rows are useful blockers
-and readiness evidence, but they are not GPT/Claude/Grok answer evidence and do
-not count toward external citation success. The brand feed row also includes
+version exists. If npm still reports only an older version, configure npm
+Trusted Publisher for `SynapseNetworkAI/Synapse-Network-MCP-Server`
+`publish-mcp.yml` or provide a publish-capable `NPM_TOKEN`, run Publish MCP
+Server with `expected_version=0.1.4`, then refresh the official MCP Registry with
+`mcp-publisher`. It emits `*_live_validation` rows. These rows are useful
+blockers and readiness evidence, but they are not GPT/Claude/Grok answer
+evidence and do not count toward external citation success. The brand feed row
+also includes
 `metadata.ai_crawler_policy`,
 which records whether answer-engine search crawlers such as `OAI-SearchBot`,
 `ChatGPT-User`, `GPTBot`, `ClaudeBot`, `Claude-User`, `Claude-SearchBot`,
