@@ -403,7 +403,8 @@ def no_redirect_urlopen(request, *, timeout: int):  # noqa: ANN001
 
 def is_redirect_to_www(result: HttpProbeResult) -> bool:
     location = result.headers.get("location", "")
-    return result.status in {301, 308} and location.startswith(CANONICAL_HOMEPAGE)
+    canonical_root = CANONICAL_HOMEPAGE.rstrip("/")
+    return result.status in {301, 308} and location.rstrip("/") == canonical_root
 
 
 def has_synapse_brand_fact(text: str) -> bool:

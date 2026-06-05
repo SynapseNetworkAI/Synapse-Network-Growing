@@ -91,6 +91,51 @@ def test_feed_validation_brand_feed_records_ai_crawler_policy(monkeypatch):
     assert policy["blocked_crawlers"] == []
 
 
+def test_feed_validation_brand_feed_accepts_www_redirect_without_trailing_slash(
+    monkeypatch,
+):
+    def fake_fetch(label: str, url: str, **_kwargs):
+        if label == "bare_domain_redirect":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=308,
+                headers={"location": feed_validation.CANONICAL_HOMEPAGE.rstrip("/")},
+            )
+        if label == "robots":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="User-agent: *\nAllow: /\n",
+            )
+        if label == "llms":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="Synapse Network is the settlement layer for AI agents.",
+            )
+        if label == "sitemap":
+            return feed_validation.HttpProbeResult(
+                label=label,
+                url=url,
+                status=200,
+                body_snippet="https://www.synapse-network.ai/",
+            )
+        return feed_validation.HttpProbeResult(label=label, url=url, status=200)
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="brand_disambiguation_www",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].synapse_mentioned is True
+    assert rows[0].missing_facts == []
+
+
 def test_feed_validation_brand_feed_accepts_explicit_ai_crawler_policy(monkeypatch):
     crawler_groups = "\n\n".join(
         [
