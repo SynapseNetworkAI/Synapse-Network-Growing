@@ -28,6 +28,7 @@ from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout 
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
+    KNOWN_COLLISION_DOMAINS,
     baseline_queries,
     parse_platforms,
     template_record,
@@ -407,6 +408,9 @@ def competitor_mentions(text: str, urls: list[str]) -> list[str]:
     for label in ["x402", "stripe", "rapidapi", "masumi", "locus", "payspawn"]:
         if re.search(rf"\b{re.escape(label)}\b", haystack):
             competitors.append(label)
+    for domain in KNOWN_COLLISION_DOMAINS:
+        if domain.lower() in haystack:
+            competitors.append(domain)
     return competitors
 
 
