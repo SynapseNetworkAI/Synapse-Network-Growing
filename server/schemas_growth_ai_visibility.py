@@ -126,6 +126,8 @@ class GrowthAIVisibilityNextCycleOut(BaseModel):
     apply_command: str
     probe_matrix_command: str
     validate_matrix_command: str
+    cycle_summary_command: str
+    operator_brief_command: str
     compare_command: str
     weekly_report_command: str
 
@@ -410,7 +412,6 @@ class GrowthAIVisibilityOptimizationBriefOut(BaseModel):
     artifact_path: str
     export_command: str
     markdown: str
-
 
 
 from server.schemas_growth_ai_visibility_plan import *  # noqa: F401,F403

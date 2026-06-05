@@ -212,6 +212,8 @@ def _handoff_commands(
         "record_probe": external_gate.get("record_probe_command", ""),
         "probe_matrix": next_cycle.get("probe_matrix_command", ""),
         "validate_matrix": next_cycle.get("validate_matrix_command", ""),
+        "cycle_summary": next_cycle.get("cycle_summary_command", ""),
+        "operator_brief": next_cycle.get("operator_brief_command", ""),
         "compare": external_gate.get("compare_command", ""),
         "weekly_report": next_cycle.get("weekly_report_command", ""),
     }

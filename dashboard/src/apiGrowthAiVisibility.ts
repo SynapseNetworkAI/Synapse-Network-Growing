@@ -105,6 +105,8 @@ export interface GrowthAIVisibilityNextCycle {
   apply_command: string
   probe_matrix_command: string
   validate_matrix_command: string
+  cycle_summary_command: string
+  operator_brief_command: string
   compare_command: string
   weekly_report_command: string
 }

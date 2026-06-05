@@ -46,8 +46,10 @@ def create_ai_check(
 ) -> GrowthAIVisibilityCheckOut:
     if not body.query.strip() or not body.platform.strip():
         raise ValueError("query and platform are required")
-    if body.synapse_cited and body.cited_urls and not _has_official_citation(
-        body.cited_urls
+    if (
+        body.synapse_cited
+        and body.cited_urls
+        and not _has_official_citation(body.cited_urls)
     ):
         raise ValueError(
             "synapse_cited=true requires at least one official Synapse cited_url"
@@ -233,6 +235,12 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
     matrix_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-probe-matrix.json"
     )
+    cycle_summary_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/{run_group}-cycle-summary.json"
+    )
+    operator_brief_output_path = (
+        f"docs/archive/evidence/growth/ai-visibility/{run_group}-operator-brief.md"
+    )
     validation_output_path = (
         f"docs/archive/evidence/growth/ai-visibility/{run_group}-feed-validation.jsonl"
     )
@@ -282,6 +290,17 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
             f"--matrix-file {matrix_output_path} "
             f"--feed-key {feed_key} "
             f"--run-group {run_group}"
+        ),
+        cycle_summary_command=(
+            "python scripts/growth/summarize_ai_visibility_cycle.py "
+            f"{output_path} "
+            f"--output {cycle_summary_output_path}"
+        ),
+        operator_brief_command=(
+            "python scripts/growth/generate_ai_visibility_operator_brief.py "
+            f"--feed-key {feed_key} "
+            f"--cycle-summary {cycle_summary_output_path} "
+            f"--output {operator_brief_output_path}"
         ),
         compare_command=(
             "curl -fsS "

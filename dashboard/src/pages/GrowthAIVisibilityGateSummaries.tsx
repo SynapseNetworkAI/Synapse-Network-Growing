@@ -204,6 +204,8 @@ export function NextCycleSummary({ nextCycle }: Readonly<{ nextCycle: GrowthAIVi
         <CommandBlock label="Probe matrix" value={nextCycle.probe_matrix_command} />
         <CommandBlock label="Apply evidence" value={nextCycle.apply_command} />
         <CommandBlock label="Validate matrix" value={nextCycle.validate_matrix_command} />
+        <CommandBlock label="Cycle summary" value={nextCycle.cycle_summary_command} />
+        <CommandBlock label="Operator brief" value={nextCycle.operator_brief_command} />
         <CommandBlock label="Compare" value={nextCycle.compare_command} />
         <CommandBlock label="Weekly report" value={nextCycle.weekly_report_command} />
       </div>

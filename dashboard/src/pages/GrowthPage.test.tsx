@@ -404,6 +404,8 @@ function installFetch() {
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
         probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json',
         validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly',
+        cycle_summary_command: 'python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-cycle-summary.json',
+        operator_brief_command: 'python scripts/growth/generate_ai_visibility_operator_brief.py --feed-key agent_payment_category_pages --cycle-summary docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-cycle-summary.json --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-operator-brief.md',
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages&run_group=2026-06-05-agent_payment_category_pages-weekly" | python -m json.tool',
         weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-weekly-report.json',
       })
@@ -879,9 +881,7 @@ describe('GrowthPage', () => {
   })
   it('opens AI visibility from the tab query string', async () => {
     window.history.pushState({}, '', '/growth?tab=ai-visibility')
-
     render(<GrowthPage />)
-
     await screen.findByTestId('ai-visibility-optimization-panel')
     expect(screen.getByText('AI Visibility Optimization')).toBeInTheDocument()
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
