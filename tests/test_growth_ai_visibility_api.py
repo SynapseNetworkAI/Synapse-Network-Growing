@@ -30,9 +30,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "Redirect https://synapse-network.ai/*" in fix
         for fix in plan_payload["critical_fixes"]
     )
-    assert any(
-        "synapsenetwork.xyz" in fix for fix in plan_payload["critical_fixes"]
-    )
+    assert any("synapsenetwork.xyz" in fix for fix in plan_payload["critical_fixes"])
     assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
     assert plan_payload["baseline_queries"][0]["target_platforms"] == [
         "chatgpt",
@@ -47,18 +45,15 @@ def test_growth_ai_visibility_and_discovery_listing(
         "mcp_paid_api_discovery",
     }
     assert "ai_visibility_search_probe" in plan_payload["growing_workflows"]
-    official_sources = synced_client.get(
-        "/api/growth/ai-visibility/official-sources"
-    )
+    official_sources = synced_client.get("/api/growth/ai-visibility/official-sources")
     assert official_sources.status_code == 200
     official_payload = official_sources.json()
     assert official_payload["total"] >= 8
-    assert "https://www.synapse-network.ai/" in official_payload[
-        "official_citation_prefixes"
-    ]
-    source_by_key = {
-        item["surface_key"]: item for item in official_payload["items"]
-    }
+    assert (
+        "https://www.synapse-network.ai/"
+        in official_payload["official_citation_prefixes"]
+    )
+    source_by_key = {item["surface_key"]: item for item in official_payload["items"]}
     assert source_by_key["www_homepage"]["canonical_url"] == (
         "https://www.synapse-network.ai/"
     )
@@ -77,8 +72,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     mcp_chatgpt = next(
         row
         for row in matrix_payload["rows"]
-        if row["feed_key"] == "mcp_paid_api_discovery"
-        and row["platform"] == "chatgpt"
+        if row["feed_key"] == "mcp_paid_api_discovery" and row["platform"] == "chatgpt"
     )
     assert mcp_chatgpt["status"] in {
         "blocked_until_feed_ready",
@@ -86,16 +80,12 @@ def test_growth_ai_visibility_and_discovery_listing(
         "covered",
     }
     assert "MCP server for paid API calls" in mcp_chatgpt["queries"]
-    assert "https://www.synapse-network.ai/" in mcp_chatgpt[
-        "official_source_urls"
-    ]
-    assert "https://mcp.synapse-network.ai/mcp" in mcp_chatgpt[
-        "official_source_urls"
-    ]
+    assert "https://www.synapse-network.ai/" in mcp_chatgpt["official_source_urls"]
+    assert "https://mcp.synapse-network.ai/mcp" in mcp_chatgpt["official_source_urls"]
     assert "record_ai_visibility_probe.py" in mcp_chatgpt["record_probe_command"]
-    assert "comparisons?feed_key=mcp_paid_api_discovery" in mcp_chatgpt[
-        "compare_command"
-    ]
+    assert (
+        "comparisons?feed_key=mcp_paid_api_discovery" in mcp_chatgpt["compare_command"]
+    )
     packages = synced_client.get("/api/growth/ai-visibility/feed-package")
     assert packages.status_code == 200
     package_payload = packages.json()
@@ -113,9 +103,10 @@ def test_growth_ai_visibility_and_discovery_listing(
         and "https://www.synapse-network.ai/" in command
         for command in package_by_key["brand_disambiguation_www"]["validation_commands"]
     )
-    assert "Synapse Network AI agents" in package_by_key[
-        "brand_disambiguation_www"
-    ]["target_queries"]
+    assert (
+        "Synapse Network AI agents"
+        in package_by_key["brand_disambiguation_www"]["target_queries"]
+    )
     assert any(
         "synapsenetwork.xyz" in action
         for action in package_by_key["brand_disambiguation_www"]["next_actions"]
@@ -267,10 +258,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "The canonical product homepage is https://www.synapse-network.ai/"
         in brief_payload["markdown"]
     )
-    assert (
-        "Partial API readiness is diagnostic only"
-        in brief_payload["markdown"]
-    )
+    assert "Partial API readiness is diagnostic only" in brief_payload["markdown"]
     assert (
         "generate_ai_visibility_optimization_brief.py"
         in brief_payload["export_command"]
@@ -494,6 +482,12 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert next_cycle_payload["manual_probe_template_command"].startswith(
         "python scripts/growth/generate_ai_visibility_probe_template.py"
     )
+    assert next_cycle_payload["external_probe_gate_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_external_probe_gate.py"
+    )
+    assert next_cycle_payload["external_probe_gate_command"].endswith(
+        "-brand_disambiguation_www-weekly-external-probe-gate.json"
+    )
     assert (
         "run_ai_visibility_feed_validation.py"
         in next_cycle_payload["feed_validation_command"]
@@ -517,13 +511,50 @@ def test_growth_ai_visibility_and_discovery_listing(
         "python scripts/growth/validate_ai_visibility_probe_matrix.py"
     )
     assert "--matrix-file" in next_cycle_payload["validate_matrix_command"]
-    assert "--feed-key brand_disambiguation_www" in next_cycle_payload[
-        "validate_matrix_command"
-    ]
+    assert (
+        "--feed-key brand_disambiguation_www"
+        in next_cycle_payload["validate_matrix_command"]
+    )
+    assert next_cycle_payload["cycle_summary_command"].startswith(
+        "python scripts/growth/summarize_ai_visibility_cycle.py"
+    )
+    assert next_cycle_payload["cycle_summary_command"].endswith(
+        "-brand_disambiguation_www-weekly-cycle-summary.json"
+    )
+    assert next_cycle_payload["operator_brief_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_operator_brief.py"
+    )
+    assert "--cycle-summary" in next_cycle_payload["operator_brief_command"]
+    assert next_cycle_payload["operator_brief_command"].endswith(
+        "-brand_disambiguation_www-weekly-operator-brief.md"
+    )
+    assert next_cycle_payload["goal_audit_command"].startswith(
+        "python scripts/growth/generate_ai_visibility_goal_audit.py"
+    )
+    assert next_cycle_payload["goal_audit_command"].endswith(
+        "-brand_disambiguation_www-weekly-goal-audit.json"
+    )
     assert (
         "comparisons?feed_key=brand_disambiguation_www"
         in next_cycle_payload["compare_command"]
     )
+    goal_audit = synced_client.get("/api/growth/ai-visibility/goal-audit")
+    assert goal_audit.status_code == 200
+    goal_payload = goal_audit.json()
+    assert goal_payload["goal_achieved"] is False
+    assert goal_payload["status"] == "incomplete"
+    assert goal_payload["official_homepage"] == "https://www.synapse-network.ai/"
+    assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert goal_payload["completed_count"] < goal_payload["total_required"]
+    requirement_by_key = {
+        item["key"]: item for item in goal_payload["requirements"]
+    }
+    assert requirement_by_key["strategy"]["status"] == "completed"
+    assert requirement_by_key["product_docs"]["status"] == "completed"
+    assert requirement_by_key["stitch_figma"]["status"] == "completed"
+    assert requirement_by_key["stable_positive_runs"]["status"] == "blocked"
+    assert any("Stable positive runs" in item for item in goal_payload["blockers"])
+    assert "generate_ai_visibility_goal_audit.py" in goal_payload["export_command"]
 
     local_only = synced_client.post(
         "/api/growth/ai-visibility/checks",
@@ -697,9 +728,10 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
-    assert "generate_ai_visibility_probe_template.py" in payload[
-        "manual_probe_template_command"
-    ]
+    assert (
+        "generate_ai_visibility_probe_template.py"
+        in payload["manual_probe_template_command"]
+    )
     assert "--mode after-feed" in payload["manual_probe_template_command"]
     assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
     assert "--execute" in payload["api_execute_command"]
@@ -733,9 +765,7 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
     payload = report.json()
     assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
     assert payload["stable_positive_runs"] == 0
-    assert any(
-        "synapsenetwork.xyz" in blocker for blocker in payload["blockers"]
-    )
+    assert any("synapsenetwork.xyz" in blocker for blocker in payload["blockers"])
     assert any(
         "disambiguation copy" in action and "synapsenetwork.xyz" in action
         for action in payload["next_actions"]

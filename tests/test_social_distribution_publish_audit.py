@@ -126,7 +126,7 @@ def test_x_publish_lint_blocks_urls_by_default():
         title="No-link X draft",
         body=(
             "Agent payment rails should start with spend caps and receipts.\n\n"
-            "Read more at https://synapse-network.ai/docs"
+            "Read more at https://www.synapse-network.ai/docs"
         ),
     )
 

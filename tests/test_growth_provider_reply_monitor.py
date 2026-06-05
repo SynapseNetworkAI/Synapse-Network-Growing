@@ -51,7 +51,7 @@ def _sent_provider(db_session, *, email="partnerships@firecrawl.dev"):
         lead_id=lead.id,
         channel="email",
         subject="Synapse provider channel",
-        body="Official site: https://synapse-network.ai/",
+        body="Official site: https://www.synapse-network.ai/",
         personalization_evidence_json=json_dumps(
             [{"source": "github", "reason": "provider fit"}]
         ),

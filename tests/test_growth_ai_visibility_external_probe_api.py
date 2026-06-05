@@ -194,3 +194,99 @@ def test_ai_visibility_weekly_report_uses_latest_validation_surface(synced_clien
     assert stale_blocker not in refreshed.json()["blockers"]
     next_cycle = synced_client.get("/api/growth/ai-visibility/next-cycle")
     assert stale_blocker not in next_cycle.json()["blockers"]
+
+
+def test_ai_visibility_weekly_report_supersedes_old_validation_run_group(
+    synced_client,
+):
+    stale_blocker = (
+        "Production docs page "
+        "https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet."
+    )
+    first = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "Remote MCP docs validation",
+            "platform": "docs_live_validation",
+            "answer_summary": "MCP docs were not published.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "missing_facts": [stale_blocker],
+            "next_action": "Publish MCP paid API docs.",
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-04-live-predeploy",
+        },
+    )
+    assert first.status_code == 201
+    blocked = synced_client.get("/api/growth/ai-visibility/weekly-report")
+    assert stale_blocker in blocked.json()["blockers"]
+
+    second = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "Remote MCP live readiness",
+            "platform": "mcp_live_validation",
+            "answer_summary": "Homepage, docs, llms.txt, and MCP readiness are live.",
+            "synapse_mentioned": True,
+            "synapse_cited": True,
+            "cited_urls": [
+                "https://www.synapse-network.ai/",
+                "https://docs.synapse-network.ai/mcp/paid-api-calls",
+                "https://mcp.synapse-network.ai/mcp",
+            ],
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-05-goal-continuation",
+        },
+    )
+    assert second.status_code == 201
+
+    refreshed = synced_client.get("/api/growth/ai-visibility/weekly-report")
+    assert stale_blocker not in refreshed.json()["blockers"]
+
+
+def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
+    historical = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "AI agent payment API",
+            "platform": "claude",
+            "answer_summary": "Historical Claude evidence mentioned Synapse.",
+            "synapse_mentioned": True,
+            "synapse_cited": False,
+            "feed_key": "agent_payment_category_pages",
+            "run_group": "2026-06-04-category",
+        },
+    )
+    assert historical.status_code == 201
+    latest = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "MCP server for paid API calls",
+            "platform": "chatgpt",
+            "answer_summary": "Current ChatGPT result did not mention Synapse.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "missing_facts": ["Synapse Network was not mentioned."],
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-05-after-mcp-registry",
+        },
+    )
+    assert latest.status_code == 201
+
+    report = synced_client.get("/api/growth/ai-visibility/weekly-report").json()
+    assert report["covered_platforms"] == ["chatgpt", "claude"]
+    latest_report = next(
+        item
+        for item in report["feed_reports"]
+        if item["feed_key"] == "mcp_paid_api_discovery"
+    )
+    assert latest_report["missing_platforms"] == ["claude", "grok"]
+
+    audit = synced_client.get("/api/growth/ai-visibility/goal-audit").json()
+    external = next(
+        item
+        for item in audit["requirements"]
+        if item["key"] == "external_search_evidence"
+    )
+    assert "claude" in external["blocker"]
+    assert "grok" in external["blocker"]

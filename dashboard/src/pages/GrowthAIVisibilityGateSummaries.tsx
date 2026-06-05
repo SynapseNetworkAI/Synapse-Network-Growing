@@ -1,5 +1,5 @@
 import { StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityWeeklyReport } from '../api'
 import { CommandBlock, EvidenceList, Info, signed } from './GrowthAIVisibilityPanelParts'
 
 export function LiveReadinessSummary({ readiness }: Readonly<{ readiness: GrowthAIVisibilityLiveReadiness | null }>) {
@@ -133,6 +133,46 @@ export function OptimizationBriefSummary({ brief }: Readonly<{ brief: GrowthAIVi
   )
 }
 
+export function GoalAuditSummary({ audit }: Readonly<{ audit: GrowthAIVisibilityGoalAudit | null }>) {
+  if (!audit) return null
+  return (
+    <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-goal-audit">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Goal completion audit</div>
+          <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">
+            {audit.goal_achieved ? 'GPT/Claude/Grok visibility proven' : 'Objective still requires external evidence'}
+          </div>
+        </div>
+        <StateBadge tone={audit.goal_achieved ? 'delivered' : 'blocked'}>{audit.status}</StateBadge>
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-4">
+        <Info label="Homepage" value={audit.official_homepage} />
+        <Info label="Platforms" value={audit.target_platforms.join(', ') || '-'} />
+        <Info label="Completed" value={`${audit.completed_count}/${audit.total_required}`} />
+        <Info label="Export" value={audit.export_command} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <EvidenceList title="Goal blockers" empty="No blockers." items={audit.blockers} />
+        <EvidenceList title="Goal next actions" empty="No next actions." items={audit.next_actions} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {audit.requirements.map((item) => (
+          <div key={item.key} className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-semibold text-[color:var(--ops-text-title)]">{item.title}</span>
+              <StateBadge tone={item.status === 'completed' ? 'delivered' : 'blocked'}>{item.status}</StateBadge>
+            </div>
+            <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-muted)]">
+              {item.evidence || item.blocker || item.next_action || '-'}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function FeedCycleMatrix({ items }: Readonly<{ items: GrowthAIVisibilityFeedCycle[] }>) {
   if (!items.length) return null
   return (
@@ -199,11 +239,14 @@ export function NextCycleSummary({ nextCycle }: Readonly<{ nextCycle: GrowthAIVi
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <CommandBlock label="Feed validation" value={nextCycle.feed_validation_command} />
         <CommandBlock label="Manual template" value={nextCycle.manual_probe_template_command} />
+        <CommandBlock label="External gate" value={nextCycle.external_probe_gate_command} />
         <CommandBlock label="API readiness" value={nextCycle.api_readiness_command} />
         <CommandBlock label="API execute" value={nextCycle.api_execute_command} />
         <CommandBlock label="Probe matrix" value={nextCycle.probe_matrix_command} />
         <CommandBlock label="Apply evidence" value={nextCycle.apply_command} />
         <CommandBlock label="Validate matrix" value={nextCycle.validate_matrix_command} />
+        <CommandBlock label="Cycle summary" value={nextCycle.cycle_summary_command} />
+        <CommandBlock label="Operator brief" value={nextCycle.operator_brief_command} />
         <CommandBlock label="Compare" value={nextCycle.compare_command} />
         <CommandBlock label="Weekly report" value={nextCycle.weekly_report_command} />
       </div>

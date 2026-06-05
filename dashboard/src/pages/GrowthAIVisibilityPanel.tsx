@@ -1,6 +1,6 @@
 import { EmptyPane, StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityProbeMatrix, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
-import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
+import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityProbeMatrix, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
+import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, GoalAuditSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
 import { HandoffBundleSummary, ReleaseSnapshotSummary, ReleaseUnblockSummary } from './GrowthAIVisibilityReleaseSummaries'
 import { Info, signed } from './GrowthAIVisibilityPanelParts'
 
@@ -18,6 +18,7 @@ export function GrowthAIVisibilityPanel({
   designHandoff,
   weeklyReport,
   nextCycle,
+  goalAudit,
   releasePlan,
   releaseSnapshot,
   handoffBundle,
@@ -38,6 +39,7 @@ export function GrowthAIVisibilityPanel({
   designHandoff: GrowthAIVisibilityDesignHandoff | null
   weeklyReport: GrowthAIVisibilityWeeklyReport | null
   nextCycle: GrowthAIVisibilityNextCycle | null
+  goalAudit: GrowthAIVisibilityGoalAudit | null
   releasePlan: GrowthAIVisibilityReleaseUnblockPlan | null
   releaseSnapshot: GrowthAIVisibilityReleaseSnapshot | null
   handoffBundle: GrowthAIVisibilityHandoffBundle | null
@@ -87,6 +89,7 @@ export function GrowthAIVisibilityPanel({
             ))}
           </div>
           <WeeklyReportSummary report={weeklyReport} />
+          <GoalAuditSummary audit={goalAudit} />
           <OptimizationBriefSummary brief={optimizationBrief} />
           <OfficialSourceMap sources={officialSources} />
           <ProbeMatrixSummary matrix={probeMatrix} />

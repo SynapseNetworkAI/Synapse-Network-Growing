@@ -186,7 +186,7 @@ def test_generate_x_reply_block_strips_urls_from_reply_text(
         return GeneratedXReply(
             suggested_reply=(
                 "Agent monetization needs spend caps, receipts, and settlement rails. "
-                "Implementation notes: https://synapse-network.ai/docs"
+                "Implementation notes: https://www.synapse-network.ai/docs"
             ),
             risk_level="normal",
             rationale="URL should be stripped before review.",

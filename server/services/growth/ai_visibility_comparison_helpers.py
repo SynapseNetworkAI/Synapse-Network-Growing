@@ -362,12 +362,18 @@ def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:
         .all()
     )
     blockers: list[str] = []
+    latest_run_group_by_feed: dict[str, str] = {}
     seen_validation_surfaces: set[tuple[str, str]] = set()
     for row in rows:
         if _is_external_visibility_platform(row.platform):
             continue
+        feed_key = str(row.feed_key or "unassigned").strip()
+        run_group = str(row.run_group or "manual").strip()
+        latest_run_group_by_feed.setdefault(feed_key, run_group)
+        if run_group != latest_run_group_by_feed[feed_key]:
+            continue
         surface_key = (
-            str(row.feed_key or "unassigned").strip(),
+            feed_key,
             str(row.platform or "validation").strip().lower(),
         )
         if surface_key in seen_validation_surfaces:

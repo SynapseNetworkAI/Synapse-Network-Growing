@@ -15,8 +15,10 @@ from scripts.growth.ai_visibility_cli import (  # noqa: E402
     pydantic_payload,
     write_json_payload,
 )
-from server.database import SessionLocal  # noqa: E402
-from server.services.growth.discovery import ai_visibility_weekly_report  # noqa: E402
+from server.database import SessionLocal, init_db  # noqa: E402
+from server.services.growth.ai_visibility_discovery import (  # noqa: E402
+    ai_visibility_weekly_report,
+)
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
@@ -26,6 +28,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
     args = parser.parse_args()
 
+    init_db()
     db = SessionLocal()
     try:
         report = ai_visibility_weekly_report(db)

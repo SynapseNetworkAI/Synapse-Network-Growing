@@ -214,12 +214,12 @@ def _article_pack_metadata(
     inline_images = [
         {
             "label": "Dashboard overview",
-            "target_url": "https://synapse-network.ai/dashboard/overview",
+            "target_url": "https://www.synapse-network.ai/dashboard/overview",
             "status": "operator_capture_or_playwright_screenshot",
         },
         {
             "label": "Service registry",
-            "target_url": "https://synapse-network.ai/marketplace/registry.json",
+            "target_url": "https://www.synapse-network.ai/marketplace/registry.json",
             "status": "operator_capture_or_playwright_screenshot",
         },
     ]
@@ -270,7 +270,7 @@ def _article_pack_metadata(
                 "kind": "gif",
                 "placement_after_heading": "How an agent uses it",
                 "local_path": None,
-                "target_url": "https://synapse-network.ai/dashboard/overview",
+                "target_url": "https://www.synapse-network.ai/dashboard/overview",
                 "dimensions": None,
             },
         ],

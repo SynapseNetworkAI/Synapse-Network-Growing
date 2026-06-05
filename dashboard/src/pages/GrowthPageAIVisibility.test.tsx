@@ -33,6 +33,7 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
     if (url.includes('/growth/ai-visibility/next-cycle')) return json(nextCycle())
+    if (url.includes('/growth/ai-visibility/goal-audit')) return json(goalAudit())
     if (url.includes('/growth/ai-visibility/release-unblock-plan')) return json(releasePlan())
     if (url.includes('/growth/ai-visibility/release-snapshot')) return json(releaseSnapshot())
     if (url.includes('/growth/ai-visibility/handoff-bundle')) return json(handoffBundle())
@@ -78,6 +79,9 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByTestId('ai-visibility-feed-cycle-matrix')).toBeInTheDocument()
     expect(screen.getByText('Probe matrix')).toBeInTheDocument()
     expect(screen.getByText('Validate matrix')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-goal-audit')).toBeInTheDocument()
+    expect(screen.getByText('Objective still requires external evidence')).toBeInTheDocument()
+    expect(screen.getByText('GPT/Claude/Grok search evidence')).toBeInTheDocument()
     expect(screen.getAllByText('mcp_paid_api_discovery').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
   })
@@ -220,7 +224,29 @@ function weeklyReport() {
 }
 
 function nextCycle() {
-  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl', missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], validation_commands: [], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply', probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/run.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"', weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py' }
+  return {
+    module_key: 'ai_visibility',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-05-mcp',
+    output_path: 'docs/archive/evidence/growth/ai-visibility/run.jsonl',
+    missing_platforms: ['chatgpt'],
+    blockers: ['Docs page must be live.'],
+    next_actions: ['Publish docs.'],
+    validation_commands: [],
+    feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py',
+    manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py',
+    external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py',
+    api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py',
+    api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
+    apply_command: 'python scripts/growth/record_ai_visibility_probe.py --apply',
+    probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json',
+    validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/run.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-probe-matrix.json',
+    cycle_summary_command: 'python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/run.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-cycle-summary.json',
+    operator_brief_command: 'python scripts/growth/generate_ai_visibility_operator_brief.py --feed-key mcp_paid_api_discovery --cycle-summary docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-cycle-summary.json --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-operator-brief.md',
+    goal_audit_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-goal-audit.json',
+    compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+    weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py',
+  }
 }
 
 function releasePlan() {
@@ -232,11 +258,31 @@ function releaseSnapshot() {
 }
 
 function handoffBundle() {
-  return { module_key: 'ai_visibility', bundle_type: 'operator_handoff', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-current', target_commit_sha: 'd8b5371e', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_status: 'blocked', live_readiness_status: 'blocked', external_probe_gate_status: 'blocked_until_feed_ready', ready_platforms: [], missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], files: { operator_brief: 'operator-brief.md' }, commands: { feed_validation: 'python scripts/growth/run_ai_visibility_feed_validation.py' } }
+  return { module_key: 'ai_visibility', bundle_type: 'operator_handoff', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-current', target_commit_sha: 'd8b5371e', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_status: 'blocked', live_readiness_status: 'blocked', external_probe_gate_status: 'blocked_until_feed_ready', goal_audit_status: 'incomplete', goal_achieved: false, ready_platforms: [], missing_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], files: { operator_brief: 'operator-brief.md', goal_audit: 'goal-audit.json' }, commands: { feed_validation: 'python scripts/growth/run_ai_visibility_feed_validation.py', goal_audit: 'python scripts/growth/generate_ai_visibility_goal_audit.py' } }
 }
 
 function optimizationBrief() {
   return { module_key: 'ai_visibility', title: 'Synapse AI Visibility Optimization Brief', status: 'blocked', generated_at: '2026-06-05T00:00:00Z', official_homepage: 'https://www.synapse-network.ai/', recommended_feed_key: 'mcp_paid_api_discovery', target_platforms: ['chatgpt'], blockers: ['Docs page must be live.'], next_actions: ['Publish docs.'], artifact_path: 'docs/archive/evidence/growth/ai-visibility/brief.md', export_command: 'python scripts/growth/generate_ai_visibility_optimization_brief.py', markdown: '# Synapse AI Visibility Optimization Brief' }
+}
+
+function goalAudit() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    status: 'incomplete',
+    goal_achieved: false,
+    official_homepage: 'https://www.synapse-network.ai/',
+    target_platforms: ['chatgpt', 'claude', 'grok'],
+    completed_count: 5,
+    total_required: 8,
+    requirements: [
+      { key: 'strategy', title: 'Agent optimization strategy', status: 'completed', required: true, evidence: '3 feed experiments.', blocker: '', next_action: '' },
+      { key: 'external_search_evidence', title: 'GPT/Claude/Grok search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing real external GPT/Claude/Grok evidence.', next_action: 'Run full external probes and record evidence.' },
+    ],
+    blockers: ['Missing real external GPT/Claude/Grok evidence.'],
+    next_actions: ['Run full external probes and record evidence.'],
+    export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py',
+  }
 }
 
 function comparison() {

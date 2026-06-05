@@ -369,6 +369,7 @@ export default function GrowthPage() {
           designHandoff={aiVisibility.designHandoff}
           weeklyReport={aiVisibility.weeklyReport}
           nextCycle={aiVisibility.nextCycle}
+          goalAudit={aiVisibility.goalAudit}
           releasePlan={aiVisibility.releasePlan}
           releaseSnapshot={aiVisibility.releaseSnapshot}
           handoffBundle={aiVisibility.handoffBundle}

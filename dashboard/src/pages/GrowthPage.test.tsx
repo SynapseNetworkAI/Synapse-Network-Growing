@@ -399,14 +399,21 @@ function installFetch() {
         validation_commands: ['curl -fsS https://www.synapse-network.ai/llms.txt'],
         feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-feed-validation.jsonl',
         manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --mode after-feed',
+        external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-external-probe-gate.json',
         api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API"',
         api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API" --execute',
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
         probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json',
         validate_matrix_command: 'python scripts/growth/validate_ai_visibility_probe_matrix.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly',
+        cycle_summary_command: 'python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-cycle-summary.json',
+        operator_brief_command: 'python scripts/growth/generate_ai_visibility_operator_brief.py --feed-key agent_payment_category_pages --cycle-summary docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-cycle-summary.json --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-operator-brief.md',
+        goal_audit_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-goal-audit.json',
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages&run_group=2026-06-05-agent_payment_category_pages-weekly" | python -m json.tool',
         weekly_report_command: 'python scripts/growth/export_ai_visibility_weekly_report.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-weekly-report.json',
       })
+    }
+    if (url.includes('/growth/ai-visibility/goal-audit')) {
+      return json({ module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', status: 'incomplete', goal_achieved: false, official_homepage: 'https://www.synapse-network.ai/', target_platforms: ['chatgpt', 'claude', 'grok'], completed_count: 5, total_required: 8, requirements: [{ key: 'external_search_evidence', title: 'GPT/Claude/Grok search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing external evidence.', next_action: 'Run full external probes.' }], blockers: ['Missing external evidence.'], next_actions: ['Run full external probes.'], export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py' })
     }
     if (url.includes('/growth/ai-visibility/release-unblock-plan')) {
       return json({
@@ -577,22 +584,18 @@ function installFetch() {
         release_status: 'blocked',
         live_readiness_status: 'blocked',
         external_probe_gate_status: 'blocked_until_feed_ready',
+        goal_audit_status: 'incomplete', goal_achieved: false,
         ready_platforms: ['chatgpt', 'claude'],
         missing_platforms: ['grok'],
-        blockers: [
-          'Docs /mcp/paid-api-calls page must be live.',
-          'GCloud auth fails non-interactively.',
-        ],
+        blockers: ['Docs /mcp/paid-api-calls page must be live.', 'GCloud auth fails non-interactively.'],
         next_actions: ['Run gcloud auth login.'],
-        files: {
-          manifest: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/manifest.json',
-          operator_brief: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/operator-brief.md',
-        },
+        files: { manifest: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/manifest.json', operator_brief: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/operator-brief.md', goal_audit: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-current-handoff/goal-audit.json' },
         commands: {
           rerun_handoff: 'python scripts/growth/generate_ai_visibility_handoff_bundle.py --feed-key mcp_paid_api_discovery',
           feed_validation: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery',
           api_readiness: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok',
           partial_api_readiness: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude',
+          goal_audit: 'python scripts/growth/generate_ai_visibility_goal_audit.py',
           compare: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"',
         },
       })
@@ -879,9 +882,7 @@ describe('GrowthPage', () => {
   })
   it('opens AI visibility from the tab query string', async () => {
     window.history.pushState({}, '', '/growth?tab=ai-visibility')
-
     render(<GrowthPage />)
-
     await screen.findByTestId('ai-visibility-optimization-panel')
     expect(screen.getByText('AI Visibility Optimization')).toBeInTheDocument()
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
@@ -890,7 +891,6 @@ describe('GrowthPage', () => {
   it('renders source configs and can run provider acquisition', async () => {
     const calls = installFetch()
     render(<GrowthPage />)
-
     await screen.findByText('Provider Source Configs')
     expect(screen.getByText('Provider Discovery: MCP + API Services')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Dry Run' }))

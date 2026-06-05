@@ -40,6 +40,11 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
         "ai_visibility_next_cycle",
         lambda *_args, **_kwargs: FakeNextCycle(),
     )
+    monkeypatch.setattr(
+        handoff_service,
+        "ai_visibility_goal_audit",
+        lambda *_args, **_kwargs: FakeGoalAudit(),
+    )
 
     payloads = handoff_service.build_handoff_payloads(
         output_dir=output_dir,
@@ -59,18 +64,32 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
     assert "GCloud auth fails non-interactively." in manifest["blockers"]
     assert "Docs /mcp/paid-api-calls page must be live." in manifest["blockers"]
     assert "--platforms chatgpt,claude" in manifest["commands"]["partial_api_readiness"]
-    assert "generate_ai_visibility_probe_matrix.py" in manifest["commands"][
-        "probe_matrix"
-    ]
-    assert "validate_ai_visibility_probe_matrix.py" in manifest["commands"][
-        "validate_matrix"
-    ]
+    assert (
+        "generate_ai_visibility_external_probe_gate.py"
+        in manifest["commands"]["external_probe_gate"]
+    )
+    assert (
+        "generate_ai_visibility_probe_matrix.py" in manifest["commands"]["probe_matrix"]
+    )
+    assert (
+        "validate_ai_visibility_probe_matrix.py"
+        in manifest["commands"]["validate_matrix"]
+    )
+    assert "summarize_ai_visibility_cycle.py" in manifest["commands"]["cycle_summary"]
+    assert (
+        "generate_ai_visibility_operator_brief.py"
+        in manifest["commands"]["operator_brief"]
+    )
+    assert manifest["goal_audit_status"] == "incomplete"
+    assert manifest["goal_achieved"] is False
+    assert "generate_ai_visibility_goal_audit.py" in manifest["commands"]["goal_audit"]
     for filename in (
         "manifest.json",
         "release-snapshot.json",
         "live-readiness.json",
         "external-probe-gate.json",
         "next-cycle.json",
+        "goal-audit.json",
         "operator-brief.md",
     ):
         assert (output_dir / filename).exists()
@@ -96,6 +115,8 @@ def test_growth_ai_visibility_handoff_bundle_api(monkeypatch, synced_client):
                 "release_status": "blocked",
                 "live_readiness_status": "blocked",
                 "external_probe_gate_status": "blocked_until_feed_ready",
+                "goal_audit_status": "incomplete",
+                "goal_achieved": False,
                 "ready_platforms": ["chatgpt", "claude"],
                 "missing_platforms": ["grok"],
                 "blockers": ["Docs /mcp/paid-api-calls page must be live."],
@@ -191,8 +212,39 @@ class FakeNextCycle:
                 "docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl "
                 "--matrix-file docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-probe-matrix.json"
             ),
+            "external_probe_gate_command": (
+                "python scripts/growth/generate_ai_visibility_external_probe_gate.py "
+                "--feed-key mcp_paid_api_discovery "
+                "--run-group 2026-06-05-mcp-weekly "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-external-probe-gate.json"
+            ),
+            "cycle_summary_command": (
+                "python scripts/growth/summarize_ai_visibility_cycle.py "
+                "docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly.jsonl "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-cycle-summary.json"
+            ),
+            "operator_brief_command": (
+                "python scripts/growth/generate_ai_visibility_operator_brief.py "
+                "--feed-key mcp_paid_api_discovery "
+                "--cycle-summary docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-cycle-summary.json "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-operator-brief.md"
+            ),
             "weekly_report_command": (
                 "python scripts/growth/export_ai_visibility_weekly_report.py "
                 "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-weekly-report.json"
             ),
+            "goal_audit_command": (
+                "python scripts/growth/generate_ai_visibility_goal_audit.py "
+                "--output docs/archive/evidence/growth/ai-visibility/2026-06-05-mcp-weekly-goal-audit.json"
+            ),
+        }
+
+
+class FakeGoalAudit:
+    def model_dump(self, mode: str):  # noqa: ARG002
+        return {
+            "status": "incomplete",
+            "goal_achieved": False,
+            "blockers": ["Missing real external GPT/Claude/Grok evidence."],
+            "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py",
         }

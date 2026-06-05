@@ -52,6 +52,8 @@ export type {
   GrowthAIVisibilityFeedScorecard,
   GrowthAIVisibilityFeedCycle,
   GrowthAIVisibilityFeedCycleList,
+  GrowthAIVisibilityGoalAudit,
+  GrowthAIVisibilityGoalAuditRequirement,
   GrowthAIVisibilityHandoffBundle,
   GrowthAIVisibilityLiveReadiness,
   GrowthAIVisibilityLiveReadinessCheck,

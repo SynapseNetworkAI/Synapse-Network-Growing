@@ -121,13 +121,44 @@ class GrowthAIVisibilityNextCycleOut(BaseModel):
     validation_commands: list[str] = Field(default_factory=list)
     feed_validation_command: str
     manual_probe_template_command: str
+    external_probe_gate_command: str
     api_readiness_command: str
     api_execute_command: str
     apply_command: str
     probe_matrix_command: str
     validate_matrix_command: str
+    cycle_summary_command: str
+    operator_brief_command: str
+    goal_audit_command: str
     compare_command: str
     weekly_report_command: str
+
+
+class GrowthAIVisibilityGoalAuditRequirementOut(BaseModel):
+    key: str
+    title: str
+    status: str
+    required: bool = True
+    evidence: str = ""
+    blocker: str = ""
+    next_action: str = ""
+
+
+class GrowthAIVisibilityGoalAuditOut(BaseModel):
+    module_key: str = "ai_visibility"
+    generated_at: datetime
+    status: str
+    goal_achieved: bool = False
+    official_homepage: str = "https://www.synapse-network.ai/"
+    target_platforms: list[str] = Field(default_factory=list)
+    completed_count: int = 0
+    total_required: int = 0
+    requirements: list[GrowthAIVisibilityGoalAuditRequirementOut] = Field(
+        default_factory=list
+    )
+    blockers: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    export_command: str = ""
 
 
 class GrowthAIVisibilityReleaseCommandGroupOut(BaseModel):
@@ -197,6 +228,8 @@ class GrowthAIVisibilityHandoffBundleOut(BaseModel):
     release_status: str
     live_readiness_status: str
     external_probe_gate_status: str
+    goal_audit_status: str = "unknown"
+    goal_achieved: bool = False
     ready_platforms: list[str] = Field(default_factory=list)
     missing_platforms: list[str] = Field(default_factory=list)
     blockers: list[str] = Field(default_factory=list)
@@ -410,7 +443,6 @@ class GrowthAIVisibilityOptimizationBriefOut(BaseModel):
     artifact_path: str
     export_command: str
     markdown: str
-
 
 
 from server.schemas_growth_ai_visibility_plan import *  # noqa: F401,F403

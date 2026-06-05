@@ -223,13 +223,13 @@ def _create_asset(db) -> SocialContentAssetRow:
             "Introduce Synapse Network as payment rails for AI agents: discovery, "
             "metered API calls, budget control, settlement, and receipts."
         ),
-        canonical_url="https://synapse-network.ai",
+        canonical_url="https://www.synapse-network.ai/",
         goal_key="x_article_pack_platform_intro",
         policy_check_json=json.dumps({"status": "passed", "source": "e2e_script"}),
         agent_metadata_json=json.dumps(
             {
                 "source_of_truth": "e2e_x_article_pack",
-                "target_url": "https://synapse-network.ai",
+                "target_url": "https://www.synapse-network.ai/",
             },
             sort_keys=True,
         ),
