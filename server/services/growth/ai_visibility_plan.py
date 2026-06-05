@@ -57,7 +57,7 @@ def _critical_fixes() -> list[str]:
         f"Use {CANONICAL_HOMEPAGE} as the canonical homepage in metadata, llms.txt, and sitemap links.",
         "Redirect https://synapse-network.ai/* to https://www.synapse-network.ai/* with a permanent 301/308 response.",
         "Return a non-empty https://www.synapse-network.ai/sitemap.xml with homepage and AI-agent-payment landing pages.",
-        "Add brand-disambiguation copy that distinguishes Synapse Network from unrelated synapse.network DeFi launchpad and synapsenetwork.xyz economy-layer results.",
+        "Add brand-disambiguation copy that distinguishes Synapse Network from unrelated Synapse Protocol, synapse.network DeFi launchpad, and synapsenetwork.xyz economy-layer results.",
         "Explicitly allow OpenAI, ChatGPT, Claude, Perplexity, Bing, and Google AI/search crawlers through robots while disallowing private app routes.",
     ]
 
@@ -477,7 +477,7 @@ def _feed_next_actions(feed_key: str) -> list[str]:
     actions = {
         "brand_disambiguation_www": [
             "Fix bare-domain redirect, canonical, explicit AI crawler robots policy, sitemap, llms.txt, and brand answer blocks before baseline rerun.",
-            "Track synapsenetwork.xyz and unrelated synapse.network results as brand-collision competitors in external probe rows.",
+            "Track synapseproto.com, synapsenetwork.xyz, and unrelated synapse.network results as brand-collision competitors in external probe rows.",
             "Run ChatGPT, Claude, and Grok brand query probes with screenshot evidence.",
         ],
         "agent_payment_category_pages": [

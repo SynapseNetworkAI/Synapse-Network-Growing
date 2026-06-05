@@ -29,6 +29,7 @@ The planned route is `/growth`. It is a Human-Agent Control Plane, not an autono
 3. Current public positioning should stay consistent with the product marketing context: Synapse is the settlement layer for AI agents, a way for agents to discover, invoke, and pay for APIs with budget isolation and USDC settlement.
 4. Current robots policy broadly allows crawling while disallowing dashboard, provider, API, and Next.js data paths. The next production-site iteration should make AI crawler policy explicit instead of accidental.
 5. Live baseline on 2026-06-04 found a P0 discovery gap: `www` is the confirmed official homepage, but the production sitemap was effectively empty, some canonical / `llms.txt` links still pointed at non-`www`, and the bare domain did not permanently redirect to `www`. AI Visibility must track this as a feed experiment until fixed and rechecked.
+6. Live public search on 2026-06-05 surfaced `synapseproto.com` above the official Synapse Network site for AI-agent settlement wording. Treat Synapse Protocol as a brand-collision competitor in probe evidence; it must not count as a Synapse Network mention or citation.
 
 ## Operating Boundary
 

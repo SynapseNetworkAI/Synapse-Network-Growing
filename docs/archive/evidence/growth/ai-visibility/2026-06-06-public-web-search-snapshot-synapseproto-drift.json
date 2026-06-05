@@ -1,0 +1,94 @@
+{
+  "snapshot_type": "public_web_search_visibility",
+  "observed_at": "2026-06-05T22:29:25Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-06-synapseproto-drift",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "summary": "General public web search still does not surface official Synapse Network pages in the first returned result set for AI-agent payment and paid MCP discovery queries. A new high-priority brand collision appeared: synapseproto.com ranks above the official site for Synapse Network AI-agent payment wording while using similar settlement-layer language.",
+  "queries": [
+    {
+      "query": "Synapse Network AI agent payments",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Synapse Protocol",
+          "url": "https://www.synapseproto.com/"
+        },
+        {
+          "name": "Synapse Network economy-layer collision",
+          "url": "https://www.synapsenetwork.xyz/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "AnythingMCP",
+          "url": "https://anythingmcp.com/"
+        }
+      ]
+    },
+    {
+      "query": "MCP server for paid API calls Synapse",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "Stripe MCP directory listing",
+          "url": "https://mcp.directory/servers/stripe"
+        },
+        {
+          "name": "Magpie MCP Server",
+          "url": "https://mcp.magpie.im/"
+        },
+        {
+          "name": "PayMCP",
+          "url": "https://paymcp.info/"
+        }
+      ]
+    },
+    {
+      "query": "Synapse vs paid MCP alternatives",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "AnythingMCP",
+          "url": "https://anythingmcp.com/"
+        },
+        {
+          "name": "gMCP",
+          "url": "https://gmcp.dev/"
+        },
+        {
+          "name": "Masumi",
+          "url": "https://www.masumi.network/"
+        }
+      ]
+    }
+  ],
+  "next_actions": [
+    "Keep https://www.synapse-network.ai/ as the canonical homepage.",
+    "Add Synapse Protocol / synapseproto.com to known brand-collision domains in GPT, Claude, and Grok probe templates.",
+    "Strengthen product and docs disambiguation copy so answer engines distinguish Synapse Network from Synapse Protocol, synapsenetwork.xyz, and synapse.network.",
+    "After the product PR with /mcp/synapse-vs-paid-mcp is merged and deployed, rerun public web search plus ChatGPT, Claude, and Grok answer-engine probes and compare against this run_group."
+  ]
+}

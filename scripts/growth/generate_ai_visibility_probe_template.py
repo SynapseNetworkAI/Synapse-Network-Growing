@@ -35,6 +35,7 @@ from server.services.growth.ai_visibility_plan import (  # noqa: E402
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
 KNOWN_COLLISION_DOMAINS = [
+    "synapseproto.com",
     "synapsenetwork.xyz",
     "synapse.network",
     "forbes.com/digital-assets/assets/synapse-network-zksnp",

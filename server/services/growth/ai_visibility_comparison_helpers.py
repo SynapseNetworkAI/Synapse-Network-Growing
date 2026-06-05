@@ -18,6 +18,7 @@ from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
 KNOWN_BRAND_COLLISION_COMPETITORS = {
+    "synapseproto.com",
     "synapsenetwork.xyz",
     "synapse.network",
     "forbes.com/digital-assets/assets/synapse-network-zksnp",
