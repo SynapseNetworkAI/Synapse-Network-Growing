@@ -244,6 +244,7 @@ def test_generate_probe_template_defaults_to_feed_queries_and_sources(tmp_path: 
     assert [record.query for record in parsed] == [
         "MCP server for paid API calls",
         "ChatGPT MCP app for API payments",
+        "Synapse vs paid MCP alternatives",
     ]
     source_urls = official_source_urls_for_feed("mcp_paid_api_discovery")
     assert "https://www.synapse-network.ai/" in source_urls
@@ -312,6 +313,7 @@ def test_generate_probe_template_cli_defaults_to_feed_queries(tmp_path: Path):
     assert [record.query for record in records] == [
         "MCP server for paid API calls",
         "ChatGPT MCP app for API payments",
+        "Synapse vs paid MCP alternatives",
     ]
     assert records[0].metadata["official_source_urls"] == official_source_urls_for_feed(
         "mcp_paid_api_discovery"

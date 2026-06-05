@@ -113,12 +113,14 @@ def _feed_experiments() -> list[GrowthAIVisibilityFeedExperimentOut]:
                 "canonical homepage facts",
                 "MCP docs category",
                 "/mcp/paid-api-calls citation-ready guide",
+                "/mcp/synapse-vs-paid-mcp alternatives comparison page",
                 "Remote MCP listing metadata",
                 "registry and directory descriptions",
             ],
             target_queries=[
                 "MCP server for paid API calls",
                 "ChatGPT MCP app for API payments",
+                "Synapse vs paid MCP alternatives",
             ],
         ),
     ]
@@ -303,6 +305,12 @@ def _publish_assets(feed_key: str) -> list[GrowthAIVisibilityFeedAssetOut]:
                 "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
             ),
             _asset(
+                "docs",
+                "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+                "Alternatives comparison page that distinguishes Synapse from MCPay, Latch, Dock0, Apiosk, Teleport, Stripe MCP, and paid MCP directories.",
+                "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse|MCPay|Latch|Dock0|Apiosk|Teleport|Stripe'",
+            ),
+            _asset(
                 "mcp_registry",
                 "https://registry.modelcontextprotocol.io/",
                 "Official MCP Registry listing with Remote MCP endpoint metadata.",
@@ -344,6 +352,7 @@ def _platform_strategies(feed_key: str) -> list[GrowthAIVisibilityPlatformStrate
                 [
                     "MCP server for paid API calls",
                     "ChatGPT MCP app for API payments",
+                    "Synapse vs paid MCP alternatives",
                 ],
                 "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs or MCP registry.",
                 "Ship OAuth/custom app docs, refresh MCP Registry metadata, then rerun ChatGPT scan.",
@@ -455,6 +464,7 @@ def _validation_commands(feed_key: str) -> list[str]:
             [
                 "curl -fsS https://www.synapse-network.ai/ | grep -E 'Synapse|AI agents|paid API'",
                 "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls",
+                "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
                 "curl -fsS https://www.synapse-network.ai/llms.txt | grep 'MCP Server for Paid API Calls'",
                 "curl -fsS https://mcp.synapse-network.ai/readyz",
                 "curl -i -sS -X POST https://mcp.synapse-network.ai/mcp",
@@ -475,7 +485,7 @@ def _feed_next_actions(feed_key: str) -> list[str]:
             "Generate after-feed probe template and compare against the prior run group.",
         ],
         "mcp_paid_api_discovery": [
-            "Publish /mcp/paid-api-calls and expose it in docs sitemap plus www llms.txt.",
+            "Publish /mcp/paid-api-calls and /mcp/synapse-vs-paid-mcp, then expose them in docs sitemap plus www llms.txt.",
             "Submit or verify MCP Registry, Smithery, and Glama listings.",
             "Run ChatGPT custom MCP scan and answer-engine MCP discovery probes.",
         ],

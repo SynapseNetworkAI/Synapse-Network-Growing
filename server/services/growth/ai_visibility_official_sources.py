@@ -68,16 +68,7 @@ def ai_visibility_official_sources() -> GrowthAIVisibilityOfficialSourceListOut:
             validation_command="curl -fsS https://docs.synapse-network.ai/ai-agent-payments",
             acceptance_signal="Docs page includes definition blocks, facts table, FAQ, and schema-ready sections.",
         ),
-        GrowthAIVisibilityOfficialSourceOut(
-            surface_key="docs_mcp_paid_api_calls",
-            surface="docs",
-            canonical_url="https://docs.synapse-network.ai/mcp/paid-api-calls",
-            citation_role="Citation-ready MCP guide for ChatGPT custom app and paid API discovery queries.",
-            feed_keys=["mcp_paid_api_discovery"],
-            required_for_success=True,
-            validation_command="curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls",
-            acceptance_signal="Guide explains Remote MCP, discover_services, invoke_and_pay, get_receipt, and auth boundaries.",
-        ),
+        *_mcp_paid_api_doc_sources(),
         GrowthAIVisibilityOfficialSourceOut(
             surface_key="github_org",
             surface="github",
@@ -125,6 +116,34 @@ def ai_visibility_official_sources() -> GrowthAIVisibilityOfficialSourceListOut:
         items=items,
         total=len(items),
     )
+
+
+def _mcp_paid_api_doc_sources() -> list[GrowthAIVisibilityOfficialSourceOut]:
+    return [
+        GrowthAIVisibilityOfficialSourceOut(
+            surface_key="docs_mcp_paid_api_calls",
+            surface="docs",
+            canonical_url="https://docs.synapse-network.ai/mcp/paid-api-calls",
+            citation_role="Citation-ready MCP guide for ChatGPT custom app and paid API discovery queries.",
+            feed_keys=["mcp_paid_api_discovery"],
+            required_for_success=True,
+            validation_command="curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls",
+            acceptance_signal="Guide explains Remote MCP, discover_services, invoke_and_pay, get_receipt, and auth boundaries.",
+        ),
+        GrowthAIVisibilityOfficialSourceOut(
+            surface_key="docs_mcp_paid_api_comparison",
+            surface="docs",
+            canonical_url="https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+            citation_role="Citation-ready comparison page for paid MCP alternatives and directory drift.",
+            feed_keys=["mcp_paid_api_discovery"],
+            required_for_success=False,
+            validation_command="curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+            acceptance_signal=(
+                "Page explains Synapse versus MCPay, Latch, Dock0, Apiosk, "
+                "Teleport, Stripe MCP, and paid MCP directories."
+            ),
+        ),
+    ]
 
 
 def is_official_citation_url(url: str) -> bool:
