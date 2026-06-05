@@ -32,6 +32,13 @@ from server.services.growth.ai_visibility_comparison_helpers import (
 
 AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
+OFFICIAL_CITATION_PREFIXES = (
+    "https://www.synapse-network.ai/",
+    "https://docs.synapse-network.ai/",
+    "https://github.com/SynapseNetworkAI",
+    "https://mcp.synapse-network.ai/",
+    "https://registry.modelcontextprotocol.io/",
+)
 
 
 def _limit(value: int) -> int:
@@ -43,6 +50,12 @@ def create_ai_check(
 ) -> GrowthAIVisibilityCheckOut:
     if not body.query.strip() or not body.platform.strip():
         raise ValueError("query and platform are required")
+    if body.synapse_cited and body.cited_urls and not _has_official_citation(
+        body.cited_urls
+    ):
+        raise ValueError(
+            "synapse_cited=true requires at least one official Synapse cited_url"
+        )
     row = GrowthAIVisibilityCheckRow(
         query=body.query.strip(),
         platform=body.platform.strip(),
@@ -62,6 +75,14 @@ def create_ai_check(
     db.add(row)
     db.commit()
     return ai_check_out(row)
+
+
+def _has_official_citation(urls: list[str]) -> bool:
+    return any(
+        url.startswith(prefix)
+        for url in urls
+        for prefix in OFFICIAL_CITATION_PREFIXES
+    )
 
 
 def list_ai_checks(

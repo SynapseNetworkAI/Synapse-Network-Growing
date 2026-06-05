@@ -265,6 +265,22 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert check.json()["run_group"] == "2026-06-04-baseline"
     assert check.json()["result_rank"] == 3
     assert check.json()["metadata"]["search_mode"] == "manual"
+    collision_check = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "What is Synapse Network for AI agents?",
+            "platform": "chatgpt",
+            "answer_summary": "A result cites a brand-collision domain.",
+            "synapse_mentioned": True,
+            "synapse_cited": True,
+            "cited_urls": ["https://www.synapsenetwork.xyz/"],
+            "competitor_mentions": ["synapsenetwork.xyz"],
+            "feed_key": "brand_disambiguation_www",
+            "run_group": "2026-06-05-brand-collision",
+        },
+    )
+    assert collision_check.status_code == 400
+    assert "official Synapse cited_url" in collision_check.json()["detail"]
     for platform, cited in (("chatgpt", True), ("claude", False)):
         synced_client.post(
             "/api/growth/ai-visibility/checks",
