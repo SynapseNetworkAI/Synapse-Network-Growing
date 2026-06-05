@@ -77,6 +77,46 @@ SOURCE_PRS = [
         "purpose": "Add near-name Synapse/Synap MCP collision handling for current search results.",
     },
 ]
+PENDING_SOURCE_PRS = [
+    {
+        "number": 215,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/215",
+        "state": "OPEN",
+        "head_ref": "codex/add-mcp-search-landing-pages",
+        "base_ref": "main",
+        "head_commit": "794a416bd85a9042e8e652eaf02f0ebf2552e85d",
+        "purpose": (
+            "Add MCP search landing pages, the Synapse vs paid MCP comparison "
+            "page, and Synapse Protocol disambiguation feed assets."
+        ),
+    },
+]
+PENDING_PUBLICATION_GAPS = [
+    {
+        "surface": "docs",
+        "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy docs-front, then rerun live readiness.",
+    },
+    {
+        "surface": "www",
+        "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+    },
+    {
+        "surface": "www",
+        "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+    },
+]
 DEPLOYMENT_GAP_BASES = [
     {
         "service_key": "docs-front",
@@ -123,9 +163,11 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
         "actor": actor,
         "source_pr": SOURCE_PR,
         "source_prs": SOURCE_PRS,
+        "pending_source_prs": PENDING_SOURCE_PRS,
         "predeploy_evidence": predeploy_evidence,
         "deploy_readiness_status": deploy_readiness,
         "deployment_gaps": _deployment_gaps(target_commit),
+        "pending_publication_gaps": PENDING_PUBLICATION_GAPS,
         "confirmed_facts": _confirmed_facts(target_commit),
         "hard_boundaries": [
             "Do not run gcloud run deploy directly.",
@@ -301,6 +343,14 @@ def _known_blockers(
     blockers = [
         "GCloud auth fails non-interactively until a human runs gcloud auth login.",
     ]
+    for item in PENDING_SOURCE_PRS:
+        blockers.append(
+            (
+                f"Synapse-Network PR #{item['number']} is {item['state']}; "
+                "merge and deploy it before validating the new MCP comparison "
+                "and www landing pages."
+            )
+        )
     if deploy_readiness == "blocked_until_target_commit_matches":
         evidence_commit = _clean(str(predeploy_evidence.get("commit") or ""))
         blockers.insert(

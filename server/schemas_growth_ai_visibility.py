@@ -184,9 +184,11 @@ class GrowthAIVisibilityReleaseUnblockPlanOut(BaseModel):
     actor: str
     source_pr: dict[str, object] = Field(default_factory=dict)
     source_prs: list[dict[str, object]] = Field(default_factory=list)
+    pending_source_prs: list[dict[str, object]] = Field(default_factory=list)
     predeploy_evidence: dict[str, object] = Field(default_factory=dict)
     deploy_readiness_status: str = "unknown"
     deployment_gaps: list[dict[str, object]] = Field(default_factory=list)
+    pending_publication_gaps: list[dict[str, object]] = Field(default_factory=list)
     confirmed_facts: list[str] = Field(default_factory=list)
     hard_boundaries: list[str] = Field(default_factory=list)
     known_blockers: list[str] = Field(default_factory=list)
@@ -210,6 +212,8 @@ class GrowthAIVisibilityReleaseSnapshotOut(BaseModel):
     deploy_readiness_status: str
     confirmed_facts: list[str] = Field(default_factory=list)
     deployment_gaps: list[dict[str, object]] = Field(default_factory=list)
+    pending_source_prs: list[dict[str, object]] = Field(default_factory=list)
+    pending_publication_gaps: list[dict[str, object]] = Field(default_factory=list)
     live_readiness: dict[str, object] = Field(default_factory=dict)
     gcloud: dict[str, object] = Field(default_factory=dict)
     external_probe_keys: dict[str, object] = Field(default_factory=dict)

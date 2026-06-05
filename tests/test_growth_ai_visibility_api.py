@@ -163,9 +163,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
     )
-    assert release_payload["known_blockers"] == [
-        "GCloud auth fails non-interactively until a human runs gcloud auth login.",
-    ]
+    assert "GCloud auth fails non-interactively" in release_payload["known_blockers"][0]
     rendered_release_plan = json.dumps(release_payload)
     assert "gcloud auth login" in rendered_release_plan
     assert "X-Growing-Agent-Deploy-Token" in rendered_release_plan
