@@ -357,6 +357,186 @@ def test_generate_probe_matrix_cli_writes_json(tmp_path: Path):
     )
 
 
+def test_validate_probe_matrix_cli_accepts_complete_scope(tmp_path: Path):
+    matrix_path = tmp_path / "matrix.json"
+    probe_path = tmp_path / "probe.jsonl"
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/generate_ai_visibility_probe_matrix.py",
+            "--output",
+            str(matrix_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+    row = next(
+        item for item in matrix["rows"] if item["feed_key"] == "mcp_paid_api_discovery"
+    )
+    scoped_rows = [
+        item
+        for item in matrix["rows"]
+        if item["feed_key"] == "mcp_paid_api_discovery"
+        and item["run_group"] == row["run_group"]
+    ]
+    rows = [
+        {
+            "query": query,
+            "platform": matrix_row["platform"],
+            "feed_key": matrix_row["feed_key"],
+            "run_group": matrix_row["run_group"],
+            "answer_summary": "No Synapse citation yet.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "evidence_url": (
+                f"{matrix_row['evidence_directory']}/"
+                f"{matrix_row['platform']}-{query_index}.png"
+            ),
+        }
+        for matrix_row in scoped_rows
+        for query_index, query in enumerate(matrix_row["queries"])
+    ]
+    probe_path.write_text(
+        "\n".join(json.dumps(item) for item in rows),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/validate_ai_visibility_probe_matrix.py",
+            str(probe_path),
+            "--matrix-file",
+            str(matrix_path),
+            "--feed-key",
+            "mcp_paid_api_discovery",
+            "--run-group",
+            row["run_group"],
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "succeeded"
+    assert payload["matched_count"] == sum(len(item["queries"]) for item in scoped_rows)
+    assert payload["platforms"] == ["chatgpt", "claude", "grok"]
+
+
+def test_validate_probe_matrix_cli_rejects_missing_matrix_rows(tmp_path: Path):
+    matrix_path = tmp_path / "matrix.json"
+    probe_path = tmp_path / "probe.jsonl"
+    matrix = {
+        "rows": [
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "platform": "chatgpt",
+                "status": "ready_to_probe",
+                "run_group": "2026-06-18-mcp",
+                "queries": [
+                    "MCP server for paid API calls",
+                    "ChatGPT MCP app for API payments",
+                ],
+                "blockers": [],
+            }
+        ]
+    }
+    matrix_path.write_text(json.dumps(matrix), encoding="utf-8")
+    probe_path.write_text(
+        json.dumps(
+            {
+                "query": "MCP server for paid API calls",
+                "platform": "chatgpt",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-18-mcp",
+                "answer_summary": "No Synapse citation yet.",
+                "evidence_url": "docs/archive/evidence/growth/ai-visibility/chatgpt.png",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/validate_ai_visibility_probe_matrix.py",
+            str(probe_path),
+            "--matrix-file",
+            str(matrix_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "failed"
+    assert payload["missing_count"] == 1
+    assert "ChatGPT MCP app for API payments" in payload["errors"][0]
+
+
+def test_validate_probe_matrix_cli_requires_evidence_url(tmp_path: Path):
+    matrix_path = tmp_path / "matrix.json"
+    probe_path = tmp_path / "probe.json"
+    matrix_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "feed_key": "mcp_paid_api_discovery",
+                        "platform": "chatgpt",
+                        "status": "ready_to_probe",
+                        "run_group": "2026-06-18-mcp",
+                        "queries": ["MCP server for paid API calls"],
+                        "blockers": [],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    probe_path.write_text(
+        json.dumps(
+            {
+                "query": "MCP server for paid API calls",
+                "platform": "chatgpt",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-18-mcp",
+                "answer_summary": "No Synapse citation yet.",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/validate_ai_visibility_probe_matrix.py",
+            str(probe_path),
+            "--matrix-file",
+            str(matrix_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    payload = json.loads(result.stdout)
+    assert "record 0: evidence_url is required for matrix validation" in payload[
+        "errors"
+    ]
+
+
 def test_generate_feed_package_cli_writes_json(tmp_path: Path):
     output_path = tmp_path / "feed-package.json"
 
