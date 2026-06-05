@@ -169,6 +169,7 @@ def test_cli_dry_run_outputs_summary(tmp_path: Path):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["dry_run"] is True
+    assert payload["target"] == "dry_run"
     assert payload["platforms"] == ["grok"]
     assert payload["feed_keys"] == ["mcp_paid_api_discovery"]
 

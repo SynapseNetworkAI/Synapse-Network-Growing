@@ -81,6 +81,11 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument("--api-base", default=DEFAULT_API_BASE)
     parser.add_argument("--apply", action="store_true", help="POST rows to API.")
     parser.add_argument(
+        "--db-apply",
+        action="store_true",
+        help="Insert rows through OPS_DATABASE_URL when the local API is unavailable.",
+    )
+    parser.add_argument(
         "--allow-local-validation",
         action="store_true",
         help="Allow *_validation rows. External probe mode rejects validation evidence.",
@@ -93,25 +98,33 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
             records,
             allow_local_validation=bool(args.allow_local_validation),
         )
+        if args.apply and args.db_apply:
+            errors.append("--apply and --db-apply are mutually exclusive")
         if errors:
             emit(
                 {
                     "status": "failed",
-                    "dry_run": not args.apply,
+                    "dry_run": not (args.apply or args.db_apply),
                     "record_count": len(records),
                     "errors": errors,
                 },
                 stderr=True,
             )
             return 2
+        target = "dry_run"
         if args.apply:
             created = post_records(args.api_base, records)
+            target = "api"
+        elif args.db_apply:
+            created = insert_records_with_db(records)
+            target = "db"
         else:
             created = []
         emit(
             {
                 "status": "succeeded",
-                "dry_run": not args.apply,
+                "dry_run": target == "dry_run",
+                "target": target,
                 "record_count": len(records),
                 "created_ids": [item.get("id") for item in created],
                 "platforms": sorted({record.platform for record in records}),
@@ -124,7 +137,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         emit(
             {
                 "status": "failed",
-                "dry_run": not args.apply,
+                "dry_run": not (args.apply or args.db_apply),
                 "error_type": exc.__class__.__name__,
                 "error_message": str(exc),
             },
@@ -267,6 +280,26 @@ def post_records(api_base: str, records: list[ProbeRecord]) -> list[Any]:
             body = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"POST {url} failed with {exc.code}: {body}") from exc
     return created
+
+
+def insert_records_with_db(records: list[ProbeRecord]) -> list[Any]:
+    from server.database import SessionLocal, init_db
+    from server.schemas_growth import GrowthAIVisibilityCheckCreate
+    from server.services.growth.ai_visibility_discovery import create_ai_check
+
+    init_db()
+    db = SessionLocal()
+    try:
+        created = [
+            create_ai_check(
+                db,
+                GrowthAIVisibilityCheckCreate(**record.api_payload()),
+            ).model_dump(mode="json")
+            for record in records
+        ]
+        return created
+    finally:
+        db.close()
 
 
 def string_field(
