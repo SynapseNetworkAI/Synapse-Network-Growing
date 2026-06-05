@@ -17,6 +17,10 @@ def test_release_unblock_plan_exposes_pending_pr_and_publication_gaps():
 
     assert payload["pending_source_prs"][0]["number"] == 215
     assert payload["pending_source_prs"][0]["state"] == "OPEN"
+    assert payload["pending_source_prs"][0]["head_commit"] == (
+        "dc93e2f60d7aced44acaea3e87fb2e97576a64c3"
+    )
+    assert "JSON-LD" in payload["pending_source_prs"][0]["purpose"]
     assert {item["url"] for item in payload["pending_publication_gaps"]} == (
         EXPECTED_PENDING_URLS
     )
@@ -25,6 +29,25 @@ def test_release_unblock_plan_exposes_pending_pr_and_publication_gaps():
         for item in payload["pending_publication_gaps"]
     )
     assert any("PR #215" in blocker for blocker in payload["known_blockers"])
+    validation_commands = "\n".join(
+        command
+        for group in payload["command_groups"]
+        if group["key"] in {"staging_validation", "production_validation"}
+        for command in group["commands"]
+    )
+    assert "https://www.synapse-network.ai/mcp-server-for-paid-api-calls" in (
+        validation_commands
+    )
+    assert "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments" in (
+        validation_commands
+    )
+    assert "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp" in (
+        validation_commands
+    )
+    assert "application/ld\\+json" in validation_commands
+    assert "FAQPage" in validation_commands
+    assert "SoftwareApplication" in validation_commands
+    assert any("JSON-LD FAQPage" in item for item in payload["success_criteria"])
 
 
 def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):
@@ -64,6 +87,9 @@ def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):
     )
 
     assert payload["pending_source_prs"][0]["number"] == 215
+    assert payload["pending_source_prs"][0]["head_commit"] == (
+        "dc93e2f60d7aced44acaea3e87fb2e97576a64c3"
+    )
     assert {item["url"] for item in payload["pending_publication_gaps"]} == (
         EXPECTED_PENDING_URLS
     )

@@ -84,10 +84,11 @@ PENDING_SOURCE_PRS = [
         "state": "OPEN",
         "head_ref": "codex/add-mcp-search-landing-pages",
         "base_ref": "main",
-        "head_commit": "794a416bd85a9042e8e652eaf02f0ebf2552e85d",
+        "head_commit": "dc93e2f60d7aced44acaea3e87fb2e97576a64c3",
         "purpose": (
-            "Add MCP search landing pages, the Synapse vs paid MCP comparison "
-            "page, and Synapse Protocol disambiguation feed assets."
+            "Add MCP search landing pages, Synapse vs paid MCP comparison, "
+            "Synapse Protocol disambiguation feed assets, and JSON-LD "
+            "WebPage/SoftwareApplication/FAQPage extraction signals."
         ),
     },
 ]
@@ -201,6 +202,9 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             "docs-front and user-front staging tasks complete with DeploymentRecord.status=succeeded.",
             "Production tasks promote staging image digest for target_commit_sha.",
             "https://docs.synapse-network.ai/mcp/paid-api-calls returns 200 and includes discover_services, invoke_and_pay, and get_receipt.",
+            "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp returns 200 and names MCPay, Latch, Dock0, Apiosk, and Teleport.",
+            "https://www.synapse-network.ai/mcp-server-for-paid-api-calls returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
+            "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
             "https://www.synapse-network.ai/llms.txt includes MCP Server for Paid API Calls and https://mcp.synapse-network.ai/mcp.",
             "https://mcp.synapse-network.ai/readyz returns 200 and unauthenticated /mcp returns 401.",
             "Only after production validation passes, run unchanged ChatGPT, Claude, and Grok probes and record evidence.",
@@ -299,6 +303,9 @@ def _staging_validation_group() -> dict[str, Any]:
         "purpose": "Verify staging feed content before production promotion.",
         "commands": [
             "curl -fsS https://docs-staging.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
+            "curl -fsS https://docs-staging.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://staging.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
+            "curl -fsS https://staging.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
             "curl -fsS https://staging.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
         ],
     }
@@ -311,6 +318,9 @@ def _production_validation_group() -> dict[str, Any]:
         "commands": [
             f"curl -fsS {CANONICAL_HOMEPAGE}",
             "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
+            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://www.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
+            "curl -fsS https://www.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
             "curl -fsS https://www.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
             "curl -fsS https://mcp.synapse-network.ai/readyz",
             "test \"$(curl -o /tmp/synapse-mcp-unauth.out -sS -w '%{http_code}' -X POST https://mcp.synapse-network.ai/mcp)\" = \"401\"",

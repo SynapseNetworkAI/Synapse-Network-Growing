@@ -255,7 +255,7 @@ function nextCycle() {
 }
 
 function pendingSourcePrs() {
-  return [{ number: 215, url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/215', state: 'OPEN', head_ref: 'codex/add-mcp-search-landing-pages', head_commit: '794a416bd85a9042e8e652eaf02f0ebf2552e85d', purpose: 'Publish MCP search landing pages and Synapse Protocol disambiguation.' }]
+  return [{ number: 215, url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/215', state: 'OPEN', head_ref: 'codex/add-mcp-search-landing-pages', head_commit: 'dc93e2f60d7aced44acaea3e87fb2e97576a64c3', purpose: 'Publish MCP search landing pages, Synapse Protocol disambiguation, and JSON-LD extraction signals.' }]
 }
 
 function pendingPublicationGaps() {
