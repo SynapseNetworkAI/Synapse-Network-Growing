@@ -19,6 +19,13 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_API_BASE = "http://localhost:9700/api"
+OFFICIAL_CITATION_PREFIXES = (
+    "https://www.synapse-network.ai/",
+    "https://docs.synapse-network.ai/",
+    "https://github.com/SynapseNetworkAI",
+    "https://mcp.synapse-network.ai/",
+    "https://registry.modelcontextprotocol.io/",
+)
 
 EXTERNAL_PLATFORMS = {
     "chatgpt",
@@ -223,11 +230,25 @@ def validate_records(
             errors.append(
                 f"{prefix}: synapse_cited=true requires cited_urls or evidence_url"
             )
+        if record.synapse_cited and record.cited_urls and not _has_official_citation(
+            record.cited_urls
+        ):
+            errors.append(
+                f"{prefix}: synapse_cited=true requires at least one official Synapse cited_url"
+            )
         if record.synapse_cited and not record.synapse_mentioned:
             errors.append(
                 f"{prefix}: cited result must also mark synapse_mentioned=true"
             )
     return errors
+
+
+def _has_official_citation(urls: list[str]) -> bool:
+    return any(
+        url.startswith(prefix)
+        for url in urls
+        for prefix in OFFICIAL_CITATION_PREFIXES
+    )
 
 
 def post_records(api_base: str, records: list[ProbeRecord]) -> list[Any]:

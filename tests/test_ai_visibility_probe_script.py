@@ -110,6 +110,34 @@ def test_validation_rejects_validation_platforms_and_missing_citation_evidence(
     )
 
 
+def test_validation_rejects_collision_domain_as_synapse_citation(tmp_path: Path):
+    probe_path = tmp_path / "probe.json"
+    probe_path.write_text(
+        json.dumps(
+            {
+                "query": "What is Synapse Network for AI agents?",
+                "platform": "chatgpt",
+                "answer_summary": "A result cites a brand-collision domain.",
+                "synapse_mentioned": True,
+                "synapse_cited": True,
+                "cited_urls": ["https://www.synapsenetwork.xyz/"],
+                "competitor_mentions": ["synapsenetwork.xyz"],
+                "feed_key": "brand_disambiguation_www",
+                "run_group": "2026-06-05-brand-collision",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = parse_probe_file(probe_path)
+    errors = validate_records(records)
+
+    assert (
+        "record 0: synapse_cited=true requires at least one official Synapse cited_url"
+        in errors
+    )
+
+
 def test_cli_dry_run_outputs_summary(tmp_path: Path):
     probe_path = tmp_path / "probe.json"
     probe_path.write_text(
