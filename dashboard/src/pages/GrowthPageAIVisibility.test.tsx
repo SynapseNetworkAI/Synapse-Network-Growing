@@ -146,7 +146,7 @@ function feedScorecard() {
     recommended_feed_key: 'mcp_paid_api_discovery',
     ranking_basis: 'Impact score rewards feed readiness.',
     total: 1,
-    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
+    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', citation_quality_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, known_collision_competitors: [], official_cited_urls: [], mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
   }
 }
 

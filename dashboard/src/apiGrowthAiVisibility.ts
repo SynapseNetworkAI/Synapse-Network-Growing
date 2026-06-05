@@ -210,6 +210,7 @@ export interface GrowthAIVisibilityFeedScore {
   objective: string
   latest_run_group: string
   comparison_status: string
+  citation_quality_status?: string
   feed_ready: boolean
   external_probe_ready: boolean
   feed_effective: boolean
@@ -220,6 +221,8 @@ export interface GrowthAIVisibilityFeedScore {
   local_validation_count: number
   mentioned_count: number
   cited_count: number
+  known_collision_competitors?: string[]
+  official_cited_urls?: string[]
   mentioned_delta: number
   cited_delta: number
   blockers: string[]

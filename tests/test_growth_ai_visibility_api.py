@@ -161,6 +161,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "mcp_paid_api_discovery",
     }
     assert "Impact score rewards feed readiness" in scorecard_payload["ranking_basis"]
+    assert "official Synapse citations" in scorecard_payload["ranking_basis"]
     assert {item["feed_key"] for item in scorecard_payload["items"]} == {
         "brand_disambiguation_www",
         "agent_payment_category_pages",
@@ -361,6 +362,9 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert mcp_score["feed_effective"] is True
     assert mcp_score["impact_score"] > 0
+    assert mcp_score["citation_quality_status"] == "official_citation_verified"
+    assert mcp_score["official_cited_urls"]
+    assert mcp_score["known_collision_competitors"] == []
     assert mcp_score["mentioned_delta"] == 2
     assert mcp_score["cited_delta"] == 1
     assert "Resolve feed blockers" in mcp_score["recommended_action"]
@@ -663,6 +667,14 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
     assert comparison_payload["official_cited_urls"] == [
         "https://www.synapse-network.ai/"
     ]
+    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
+    brand_score = next(
+        item
+        for item in scorecard["items"]
+        if item["feed_key"] == "brand_disambiguation_www"
+    )
+    assert brand_score["citation_quality_status"] == "brand_collision_present"
+    assert brand_score["known_collision_competitors"] == ["synapsenetwork.xyz"]
 
 
 def test_growth_ai_visibility_external_probe_gate_partial_ready(

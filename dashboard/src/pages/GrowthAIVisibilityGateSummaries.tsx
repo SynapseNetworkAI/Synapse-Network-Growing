@@ -233,9 +233,11 @@ export function FeedScorecardSummary({ scorecard }: Readonly<{ scorecard: Growth
             </div>
             <div className="mt-3 grid gap-1 text-xs leading-5 text-[color:var(--ops-text-muted)]">
               <div>Status: {item.status} · {item.comparison_status}</div>
+              <div>Citation quality: {item.citation_quality_status || 'unknown'}</div>
               <div>Covered: {item.covered_platforms.join(', ') || '-'}</div>
               <div>Missing: {item.missing_platforms.join(', ') || '-'}</div>
               <div>Mention/cite: {item.mentioned_count}/{item.cited_count}</div>
+              <div>Official/collision: {(item.official_cited_urls || []).length}/{(item.known_collision_competitors || []).length}</div>
               <div>Delta: mention {signed(item.mentioned_delta)} · cite {signed(item.cited_delta)}</div>
               <div>External/local: {item.external_checks_count}/{item.local_validation_count}</div>
             </div>

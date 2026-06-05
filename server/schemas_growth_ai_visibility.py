@@ -318,6 +318,7 @@ class GrowthAIVisibilityFeedScoreOut(BaseModel):
     objective: str = ""
     latest_run_group: str = ""
     comparison_status: str = "needs_external_probe"
+    citation_quality_status: str = "unknown"
     feed_ready: bool = False
     external_probe_ready: bool = False
     feed_effective: bool = False
@@ -328,6 +329,8 @@ class GrowthAIVisibilityFeedScoreOut(BaseModel):
     local_validation_count: int = 0
     mentioned_count: int = 0
     cited_count: int = 0
+    known_collision_competitors: list[str] = Field(default_factory=list)
+    official_cited_urls: list[str] = Field(default_factory=list)
     mentioned_delta: int = 0
     cited_delta: int = 0
     blockers: list[str] = Field(default_factory=list)
