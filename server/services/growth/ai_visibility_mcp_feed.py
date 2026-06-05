@@ -22,6 +22,7 @@ def mcp_feed_missing(
     docs_crawler_ready: bool,
     readyz: ProbeLike,
     unauth_mcp: ProbeLike,
+    registry_ready: bool,
 ) -> list[str]:
     return [
         message
@@ -46,6 +47,10 @@ def mcp_feed_missing(
             ),
             (readyz.ok, "Remote MCP /readyz must be reachable."),
             (unauth_mcp.status == 401, "Unauthenticated /mcp POST must return 401."),
+            (
+                registry_ready,
+                "Official MCP Registry listing must include refreshed hosted Remote MCP paid API discovery metadata.",
+            ),
         ]
         if not ok
     ]
@@ -59,6 +64,7 @@ def mcp_next_action(
     llms_ready: bool,
     docs_crawler_ready: bool,
     remote_ready: bool,
+    registry_ready: bool,
 ) -> str:
     if passed:
         return "Run MCP discovery probes and ChatGPT/Claude connector checks."
@@ -76,4 +82,9 @@ def mcp_next_action(
         return "Fix docs robots.txt AI crawler access before external MCP discovery probes."
     if not remote_ready:
         return "Fix Remote MCP readiness/auth boundary before external MCP discovery probes."
+    if not registry_ready:
+        return (
+            "Refresh the official MCP Registry metadata with mcp-publisher before "
+            "external MCP discovery probes."
+        )
     return "Review MCP feed validation blockers before external MCP discovery probes."
