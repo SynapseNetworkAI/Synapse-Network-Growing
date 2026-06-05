@@ -241,6 +241,8 @@ def test_feed_validation_mcp_feed_requires_401(monkeypatch):
             )
         if label == "www_llms_mcp":
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
         return feed_validation.HttpProbeResult(
             label=label,
             url=url,
@@ -266,6 +268,8 @@ def test_feed_validation_mcp_feed_prioritizes_docs_next_action(monkeypatch):
     def fake_fetch(label: str, url: str, **_kwargs):
         status = 401 if label == "mcp_unauth_post" else 200
         body = "Synapse"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
         return feed_validation.HttpProbeResult(
             label=label,
             url=url,
@@ -300,6 +304,8 @@ def test_feed_validation_mcp_feed_blocks_without_canonical_homepage(monkeypatch)
             )
         if label == "www_llms_mcp":
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
         return feed_validation.HttpProbeResult(
             label=label,
             url=url,
@@ -330,6 +336,8 @@ def test_feed_validation_mcp_feed_passes_with_docs_and_auth_boundary(monkeypatch
             )
         if label == "www_llms_mcp":
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
         return feed_validation.HttpProbeResult(
             label=label,
             url=url,
@@ -350,11 +358,48 @@ def test_feed_validation_mcp_feed_passes_with_docs_and_auth_boundary(monkeypatch
     assert {check["label"] for check in rows[0].metadata["checks"]} == {
         "www_homepage",
         "docs_mcp_paid_api_calls",
+        "docs_robots",
         "www_llms_mcp",
         "mcp_readyz",
         "mcp_unauth_post",
     }
+    assert rows[0].metadata["docs_ai_crawler_policy"]["policy_mode"] == "wildcard"
     assert validate_records(rows, allow_local_validation=True) == []
+
+
+def test_feed_validation_mcp_feed_blocks_docs_robots_ai_crawler_denial(monkeypatch):
+    def fake_fetch(label: str, url: str, **kwargs):
+        status = 401 if label == "mcp_unauth_post" else 200
+        body = "Synapse"
+        if label == "docs_mcp_paid_api_calls":
+            body = (
+                "MCP Server for Paid API Calls Synapse discover_services "
+                "invoke_and_pay get_receipt"
+            )
+        if label == "www_llms_mcp":
+            body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: ClaudeBot\nDisallow: /\n"
+        return feed_validation.HttpProbeResult(
+            label=label,
+            url=url,
+            status=status,
+            body_snippet=body,
+        )
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].synapse_mentioned is False
+    assert any(
+        "Docs robots.txt must not block" in fact for fact in rows[0].missing_facts
+    )
+    assert "ClaudeBot" in rows[0].metadata["docs_ai_crawler_policy"]["blocked_crawlers"]
+    assert "Fix docs robots.txt AI crawler access" in rows[0].next_action
 
 
 def test_feed_validation_mcp_feed_matches_full_body_without_leaking_metadata(
@@ -378,6 +423,9 @@ def test_feed_validation_mcp_feed_matches_full_body_without_leaking_metadata(
                 "x" * feed_validation.BODY_SNIPPET_CHARS
                 + " MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
             )
+        if label == "docs_robots":
+            snippet = "User-agent: *\nAllow: /\n"
+            match_text = snippet
         return feed_validation.HttpProbeResult(
             label=label,
             url=url,

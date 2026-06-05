@@ -513,7 +513,7 @@ define query set
 
 Growing exposes `GET /api/growth/ai-visibility/optimization-plan` as the operator-facing plan source for continuous agent SEO. It is a structured read-only plan, while `AIVisibilityCheck` remains the run ledger. `GET /api/growth/ai-visibility/docs-blueprint` exports the page-level `AI Agent Payments` docs blueprint with titles, canonical URLs, definition blocks, fact tables, FAQ prompts, schema types, Stitch/Figma component notes, MDX skeletons, and validation commands. `GET /api/growth/ai-visibility/design-handoff` exports the Stitch-to-Figma handoff with Figma file name, frame prompts, reusable component specs, design tokens, import steps, implementation notes, and acceptance checks. `GET /api/growth/ai-visibility/feed-package` turns each planned feed experiment into an executable operator package: publish assets, Stitch/Figma design prompt, local validation commands, probe-template command, success metrics, and next actions. `GET /api/growth/ai-visibility/comparisons` groups checks by `feed_key + run_group` so the operator can compare GPT, Claude, and Grok search outcomes after each feed experiment. `GET /api/growth/ai-visibility/weekly-report` is the continuous optimization gate: it summarizes coverage, blockers, stable positive run count, recommended feed key, and the next probe-template command. It must keep `goal_achieved=false` until external GPT/Claude/Grok evidence and stability requirements pass.
 
-Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, bare-domain redirect state, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
+Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, bare-domain redirect state, docs robots answer-engine crawler policy, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
 
 This should be a dedicated Growth submodule, not a one-off docs task. The operator surface is `Growth -> AI Visibility`, with data stored as:
 
@@ -568,7 +568,7 @@ Agent search optimization is continuous. A single sitemap or docs deploy only pr
 
 1. Baseline: record current GPT, Claude, and Grok answers before a feed.
 2. Feed: publish one bounded asset bundle, such as `agent_payment_category_pages`.
-3. Local validation: confirm `www`, bare-domain redirect, docs, schema, sitemap, `llms.txt`, and robots access.
+3. Local validation: confirm `www`, bare-domain redirect, docs, schema, sitemap, `llms.txt`, user-front robots access, and docs-front robots access for answer-engine crawlers.
 4. External probe: rerun the same query set in the same platforms.
 5. Comparison: check mention/citation deltas, missing platforms, competitors, and missing facts.
 6. Weekly report: review blockers and recommended next feed/probe command.

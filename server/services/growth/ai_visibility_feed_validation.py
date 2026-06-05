@@ -8,6 +8,10 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
 from scripts.growth.record_ai_visibility_probe import ProbeRecord
+from server.services.growth.ai_visibility_mcp_feed import (
+    mcp_feed_missing,
+    mcp_next_action,
+)
 from server.services.growth.ai_visibility_robots import (
     AI_SEARCH_CRAWLERS,
     blocked_ai_crawlers,
@@ -232,60 +236,32 @@ def validate_agent_payment_feed(run_group: str) -> list[ProbeRecord]:
 
 
 def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
-    homepage = fetch("www_homepage", CANONICAL_HOMEPAGE)
-    docs_page = fetch(
-        "docs_mcp_paid_api_calls",
-        "https://docs.synapse-network.ai/mcp/paid-api-calls",
+    homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp = _mcp_feed_checks()
+    checks = [homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp]
+    docs_crawler_policy = _mcp_docs_crawler_policy(docs_robots)
+    homepage_ready, docs_ready, llms_ready, docs_crawler_ready, remote_ready = (
+        _mcp_feed_readiness(
+            homepage=homepage,
+            docs_page=docs_page,
+            docs_robots=docs_robots,
+            www_llms=www_llms,
+            readyz=readyz,
+            unauth_mcp=unauth_mcp,
+            docs_crawler_policy=docs_crawler_policy,
+        )
     )
-    www_llms = fetch("www_llms_mcp", "https://www.synapse-network.ai/llms.txt")
-    readyz = fetch("mcp_readyz", "https://mcp.synapse-network.ai/readyz")
-    unauth_mcp = fetch(
-        "mcp_unauth_post",
-        "https://mcp.synapse-network.ai/mcp",
-        method="POST",
-        data=b"{}",
+    passed = all(
+        [homepage_ready, docs_ready, docs_crawler_ready, llms_ready, remote_ready]
     )
-    checks = [homepage, docs_page, www_llms, readyz, unauth_mcp]
-    homepage_ready = homepage.ok and has_synapse_content(homepage)
-    docs_ready = docs_page.ok and has_all_text(
-        docs_page,
-        [
-            "MCP Server for Paid API Calls",
-            "Synapse",
-            "discover_services",
-            "invoke_and_pay",
-            "get_receipt",
-        ],
-    )
-    llms_ready = www_llms.ok and has_all_text(
-        www_llms,
-        ["MCP Server for Paid API Calls", "https://mcp.synapse-network.ai/mcp"],
-    )
-    passed = (
-        homepage_ready
-        and docs_ready
-        and llms_ready
-        and readyz.ok
-        and unauth_mcp.status == 401
-    )
-    missing = missing_for_checks(
-        [
-            (
-                homepage_ready,
-                "Canonical homepage https://www.synapse-network.ai/ must be live and include Synapse facts.",
-            ),
-            (docs_page.ok, "Docs /mcp/paid-api-calls page must be live."),
-            (
-                docs_ready,
-                "Docs /mcp/paid-api-calls must expose MCP paid API answer text and tool names.",
-            ),
-            (
-                llms_ready,
-                "www llms.txt must include the MCP paid API calls guide and Remote MCP endpoint.",
-            ),
-            (readyz.ok, "Remote MCP /readyz must be reachable."),
-            (unauth_mcp.status == 401, "Unauthenticated /mcp POST must return 401."),
-        ]
+    missing = mcp_feed_missing(
+        homepage_ready=homepage_ready,
+        docs_page=docs_page,
+        docs_ready=docs_ready,
+        llms_ready=llms_ready,
+        docs_robots=docs_robots,
+        docs_crawler_ready=docs_crawler_ready,
+        readyz=readyz,
+        unauth_mcp=unauth_mcp,
     )
     return [
         record(
@@ -301,10 +277,78 @@ def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
                 homepage_ready=homepage_ready,
                 docs_ready=docs_ready,
                 llms_ready=llms_ready,
-                remote_ready=readyz.ok and unauth_mcp.status == 401,
+                docs_crawler_ready=docs_crawler_ready,
+                remote_ready=remote_ready,
             ),
+            metadata_extra={
+                "docs_ai_crawler_policy": docs_crawler_policy,
+            },
         )
     ]
+
+
+def _mcp_feed_checks() -> tuple[
+    HttpProbeResult,
+    HttpProbeResult,
+    HttpProbeResult,
+    HttpProbeResult,
+    HttpProbeResult,
+    HttpProbeResult,
+]:
+    homepage = fetch("www_homepage", CANONICAL_HOMEPAGE)
+    docs_page = fetch(
+        "docs_mcp_paid_api_calls",
+        "https://docs.synapse-network.ai/mcp/paid-api-calls",
+    )
+    docs_robots = fetch("docs_robots", "https://docs.synapse-network.ai/robots.txt")
+    www_llms = fetch("www_llms_mcp", "https://www.synapse-network.ai/llms.txt")
+    readyz = fetch("mcp_readyz", "https://mcp.synapse-network.ai/readyz")
+    unauth_mcp = fetch(
+        "mcp_unauth_post",
+        "https://mcp.synapse-network.ai/mcp",
+        method="POST",
+        data=b"{}",
+    )
+    return homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp
+
+
+def _mcp_docs_crawler_policy(docs_robots: HttpProbeResult) -> dict[str, object]:
+    docs_crawler_source = (
+        (docs_robots.body_match_text or docs_robots.body_snippet)
+        if docs_robots.ok
+        else ""
+    )
+    return robots_ai_crawler_policy(docs_crawler_source)
+
+
+def _mcp_feed_readiness(
+    *,
+    homepage: HttpProbeResult,
+    docs_page: HttpProbeResult,
+    docs_robots: HttpProbeResult,
+    www_llms: HttpProbeResult,
+    readyz: HttpProbeResult,
+    unauth_mcp: HttpProbeResult,
+    docs_crawler_policy: dict[str, object],
+) -> tuple[bool, bool, bool, bool, bool]:
+    homepage_ready = homepage.ok and has_synapse_content(homepage)
+    docs_ready = docs_page.ok and has_all_text(
+        docs_page,
+        [
+            "MCP Server for Paid API Calls",
+            "Synapse",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+    )
+    llms_ready = www_llms.ok and has_all_text(
+        www_llms,
+        ["MCP Server for Paid API Calls", "https://mcp.synapse-network.ai/mcp"],
+    )
+    docs_crawler_ready = docs_robots.ok and not docs_crawler_policy["blocked_crawlers"]
+    remote_ready = readyz.ok and unauth_mcp.status == 401
+    return homepage_ready, docs_ready, llms_ready, docs_crawler_ready, remote_ready
 
 
 def fetch(
@@ -373,31 +417,6 @@ def has_synapse_content(result: HttpProbeResult) -> bool:
 def has_all_text(result: HttpProbeResult, expected: list[str]) -> bool:
     searchable_body = result.body_match_text or result.body_snippet
     return all(item in searchable_body for item in expected)
-
-
-def mcp_next_action(
-    *,
-    passed: bool,
-    homepage_ready: bool,
-    docs_ready: bool,
-    llms_ready: bool,
-    remote_ready: bool,
-) -> str:
-    if passed:
-        return "Run MCP discovery probes and ChatGPT/Claude connector checks."
-    if not homepage_ready:
-        return (
-            "Fix the canonical www homepage feed before external MCP discovery "
-            "probes so answer engines can resolve the official Synapse source."
-        )
-    if not docs_ready or not llms_ready:
-        return (
-            "Publish /mcp/paid-api-calls and www llms.txt MCP feed updates before "
-            "external answer-engine probes."
-        )
-    if not remote_ready:
-        return "Fix Remote MCP readiness/auth boundary before external MCP discovery probes."
-    return "Review MCP feed validation blockers before external MCP discovery probes."
 
 
 def missing_for_checks(checks: list[tuple[bool, str]]) -> list[str]:
