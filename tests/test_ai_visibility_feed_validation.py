@@ -9,6 +9,10 @@ def valid_mcp_registry_body() -> str:
     )
 
 
+def valid_mcp_npm_body() -> str:
+    return '{"name":"@synapse-network-ai/mcp-server","versions":{"0.1.4":{}}}'
+
+
 def valid_github_org_profile_body() -> str:
     return (
         "SynapseNetwork is the settlement layer "
@@ -390,6 +394,8 @@ def test_feed_validation_mcp_feed_requires_401(monkeypatch):
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
         if label == "docs_robots":
             body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = valid_mcp_registry_body()
         return feed_validation.HttpProbeResult(
@@ -419,6 +425,8 @@ def test_feed_validation_mcp_feed_prioritizes_docs_next_action(monkeypatch):
         body = "Synapse"
         if label == "docs_robots":
             body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = valid_mcp_registry_body()
         return feed_validation.HttpProbeResult(
@@ -457,6 +465,8 @@ def test_feed_validation_mcp_feed_blocks_without_canonical_homepage(monkeypatch)
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
         if label == "docs_robots":
             body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = valid_mcp_registry_body()
         return feed_validation.HttpProbeResult(
@@ -491,6 +501,8 @@ def test_feed_validation_mcp_feed_passes_with_docs_and_auth_boundary(monkeypatch
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
         if label == "docs_robots":
             body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = valid_mcp_registry_body()
         return feed_validation.HttpProbeResult(
@@ -517,6 +529,7 @@ def test_feed_validation_mcp_feed_passes_with_docs_and_auth_boundary(monkeypatch
         "www_llms_mcp",
         "mcp_readyz",
         "mcp_unauth_post",
+        "mcp_npm_package",
         "mcp_registry",
     }
     assert rows[0].metadata["docs_ai_crawler_policy"]["policy_mode"] == "wildcard"
@@ -536,6 +549,8 @@ def test_feed_validation_mcp_feed_blocks_docs_robots_ai_crawler_denial(monkeypat
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
         if label == "docs_robots":
             body = "User-agent: ClaudeBot\nDisallow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = valid_mcp_registry_body()
         return feed_validation.HttpProbeResult(
@@ -584,6 +599,9 @@ def test_feed_validation_mcp_feed_matches_full_body_without_leaking_metadata(
         if label == "docs_robots":
             snippet = "User-agent: *\nAllow: /\n"
             match_text = snippet
+        if label == "mcp_npm_package":
+            snippet = "npm shell"
+            match_text = valid_mcp_npm_body()
         if label == "mcp_registry":
             snippet = "registry shell"
             match_text = valid_mcp_registry_body()
@@ -620,6 +638,8 @@ def test_feed_validation_mcp_feed_blocks_stale_registry_metadata(monkeypatch):
             body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
         if label == "docs_robots":
             body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = valid_mcp_npm_body()
         if label == "mcp_registry":
             body = (
                 "io.github.SynapseNetworkAI/synapse-network-mcp-server "
@@ -643,6 +663,42 @@ def test_feed_validation_mcp_feed_blocks_stale_registry_metadata(monkeypatch):
     assert rows[0].synapse_mentioned is False
     assert any("Official MCP Registry listing" in fact for fact in rows[0].missing_facts)
     assert "mcp-publisher" in rows[0].next_action
+
+
+def test_feed_validation_mcp_feed_blocks_until_npm_refresh_release(monkeypatch):
+    def fake_fetch(label: str, url: str, **kwargs):
+        status = 401 if label == "mcp_unauth_post" else 200
+        body = "Synapse"
+        if label == "docs_mcp_paid_api_calls":
+            body = (
+                "MCP Server for Paid API Calls Synapse discover_services "
+                "invoke_and_pay get_receipt"
+            )
+        if label == "www_llms_mcp":
+            body = "MCP Server for Paid API Calls https://mcp.synapse-network.ai/mcp"
+        if label == "docs_robots":
+            body = "User-agent: *\nAllow: /\n"
+        if label == "mcp_npm_package":
+            body = '{"name":"@synapse-network-ai/mcp-server","versions":{"0.1.3":{}}}'
+        if label == "mcp_registry":
+            body = valid_mcp_registry_body()
+        return feed_validation.HttpProbeResult(
+            label=label,
+            url=url,
+            status=status,
+            body_snippet=body,
+        )
+
+    monkeypatch.setattr(feed_validation, "fetch", fake_fetch)
+
+    rows = feed_validation.validate_feed(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-feed-validation",
+    )
+
+    assert rows[0].synapse_mentioned is False
+    assert any("@synapse-network-ai/mcp-server" in fact for fact in rows[0].missing_facts)
+    assert "0.1.4 to npm" in rows[0].next_action
 
 
 def test_feed_validation_parse_feed_keys():

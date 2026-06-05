@@ -15,6 +15,7 @@ from server.services.growth.ai_visibility_brand_feed import (
 )
 from server.services.growth.ai_visibility_mcp_feed import (
     mcp_feed_missing,
+    mcp_feed_readiness,
     mcp_next_action,
 )
 from server.services.growth.ai_visibility_robots import (
@@ -209,10 +210,17 @@ def validate_agent_payment_feed(run_group: str) -> list[ProbeRecord]:
 
 
 def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
-    homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp, registry = (
-        _mcp_feed_checks()
-    )
-    checks = [homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp, registry]
+    checks = list(_mcp_feed_checks())
+    (
+        homepage,
+        docs_page,
+        docs_robots,
+        www_llms,
+        readyz,
+        unauth_mcp,
+        npm_package,
+        registry,
+    ) = checks
     docs_crawler_policy = _mcp_docs_crawler_policy(docs_robots)
     (
         homepage_ready,
@@ -220,21 +228,31 @@ def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
         llms_ready,
         docs_crawler_ready,
         remote_ready,
+        npm_package_ready,
         registry_ready,
     ) = (
-        _mcp_feed_readiness(
+        mcp_feed_readiness(
             homepage=homepage,
             docs_page=docs_page,
             docs_robots=docs_robots,
             www_llms=www_llms,
             readyz=readyz,
             unauth_mcp=unauth_mcp,
+            npm_package=npm_package,
             registry=registry,
             docs_crawler_policy=docs_crawler_policy,
         )
     )
     passed = all(
-        [homepage_ready, docs_ready, docs_crawler_ready, llms_ready, remote_ready, registry_ready]
+        [
+            homepage_ready,
+            docs_ready,
+            docs_crawler_ready,
+            llms_ready,
+            remote_ready,
+            npm_package_ready,
+            registry_ready,
+        ]
     )
     missing = mcp_feed_missing(
         homepage_ready=homepage_ready,
@@ -245,6 +263,7 @@ def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
         docs_crawler_ready=docs_crawler_ready,
         readyz=readyz,
         unauth_mcp=unauth_mcp,
+        npm_package_ready=npm_package_ready,
         registry_ready=registry_ready,
     )
     return [
@@ -263,6 +282,7 @@ def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
                 llms_ready=llms_ready,
                 docs_crawler_ready=docs_crawler_ready,
                 remote_ready=remote_ready,
+                npm_package_ready=npm_package_ready,
                 registry_ready=registry_ready,
             ),
             metadata_extra={
@@ -273,6 +293,7 @@ def validate_mcp_feed(run_group: str) -> list[ProbeRecord]:
 
 
 def _mcp_feed_checks() -> tuple[
+    HttpProbeResult,
     HttpProbeResult,
     HttpProbeResult,
     HttpProbeResult,
@@ -295,12 +316,25 @@ def _mcp_feed_checks() -> tuple[
         method="POST",
         data=b"{}",
     )
+    npm_package = fetch(
+        "mcp_npm_package",
+        "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+    )
     registry = fetch(
         "mcp_registry",
         "https://registry.modelcontextprotocol.io/v0.1/servers"
         "?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
     )
-    return homepage, docs_page, docs_robots, www_llms, readyz, unauth_mcp, registry
+    return (
+        homepage,
+        docs_page,
+        docs_robots,
+        www_llms,
+        readyz,
+        unauth_mcp,
+        npm_package,
+        registry,
+    )
 
 
 def _mcp_docs_crawler_policy(docs_robots: HttpProbeResult) -> dict[str, object]:
@@ -310,46 +344,6 @@ def _mcp_docs_crawler_policy(docs_robots: HttpProbeResult) -> dict[str, object]:
         else ""
     )
     return robots_ai_crawler_policy(docs_crawler_source)
-
-
-def _mcp_feed_readiness(
-    *,
-    homepage: HttpProbeResult,
-    docs_page: HttpProbeResult,
-    docs_robots: HttpProbeResult,
-    www_llms: HttpProbeResult,
-    readyz: HttpProbeResult,
-    unauth_mcp: HttpProbeResult,
-    registry: HttpProbeResult,
-    docs_crawler_policy: dict[str, object],
-) -> tuple[bool, bool, bool, bool, bool, bool]:
-    homepage_ready = homepage.ok and has_synapse_content(homepage)
-    docs_ready = docs_page.ok and has_all_text(
-        docs_page,
-        [
-            "MCP Server for Paid API Calls",
-            "Synapse",
-            "discover_services",
-            "invoke_and_pay",
-            "get_receipt",
-        ],
-    )
-    llms_ready = www_llms.ok and has_all_text(
-        www_llms,
-        ["MCP Server for Paid API Calls", "https://mcp.synapse-network.ai/mcp"],
-    )
-    docs_crawler_ready = docs_robots.ok and not docs_crawler_policy["blocked_crawlers"]
-    remote_ready = readyz.ok and unauth_mcp.status == 401
-    registry_ready = registry.ok and has_all_text(
-        registry,
-        [
-            "io.github.SynapseNetworkAI/synapse-network-mcp-server",
-            "https://mcp.synapse-network.ai/mcp",
-            "hosted Remote MCP",
-            "paid API discovery",
-        ],
-    )
-    return homepage_ready, docs_ready, llms_ready, docs_crawler_ready, remote_ready, registry_ready
 
 
 def fetch(
