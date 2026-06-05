@@ -26,7 +26,7 @@ Synapse Network, then send a concise operator-approved introduction email from
 3. Import each provider into `/growth` as a `GrowthLead` with source evidence,
    contact provenance, fit score, and confidence score.
 4. Create one `OutreachMessage` per provider with the official site
-   `https://synapse-network.ai/` in the body.
+   `https://www.synapse-network.ai/` in the body.
 5. Send only after explicit operator confirmation.
 6. Write append-only `message_sent` evidence into the Growth ledger.
 

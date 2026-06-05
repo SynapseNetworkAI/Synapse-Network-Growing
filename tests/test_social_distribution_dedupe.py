@@ -133,7 +133,7 @@ def test_content_task_create_reuses_legacy_x_article_pack_asset(
     legacy.agent_metadata_json = json.dumps(
         {
             "source_of_truth": "e2e_x_article_pack",
-            "target_url": "https://synapse-network.ai",
+            "target_url": "https://www.synapse-network.ai/",
         },
         sort_keys=True,
     )

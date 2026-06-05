@@ -548,7 +548,7 @@ def test_publish_social_reply_validation_edges(monkeypatch, synced_client, db_se
         external_reply_id="target:6",
         source_post_id="6",
         incoming_text="External post.",
-        suggested_reply="Useful implementation notes: https://synapse-network.ai/docs",
+        suggested_reply="Useful implementation notes: https://www.synapse-network.ai/docs",
         status="approved",
     )
     db_session.add_all([non_x, settled, empty_text, missing_source, blocked, with_url])
@@ -634,7 +634,7 @@ def test_x_api_publisher_reply_payload_and_http_errors(monkeypatch):
     with pytest.raises(social_publishing.SocialPublishError) as url_blocked:
         social_publishing.XApiPublisher().publish_reply(
             account,
-            "Helpful reply with https://synapse-network.ai/docs",
+            "Helpful reply with https://www.synapse-network.ai/docs",
             in_reply_to_tweet_id="123",
         )
     assert url_blocked.value.kind == "x_reply_url_blocked"

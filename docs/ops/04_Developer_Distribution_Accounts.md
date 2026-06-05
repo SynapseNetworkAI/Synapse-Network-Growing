@@ -167,7 +167,7 @@ still uses the local encrypted Postgres secret store, not Secret Manager.
 
 `x_social_daily_content_task_planner` 是从 `待计划` 自动推进到 `待发布` 的推荐路径，但它仍是 Human-Gated Distribution Center，不是自动发帖器。
 
-1. 输入是 `strategy_key + operator-local date + strategy_summary`。默认策略必须围绕 Synapse Network 官网 `https://synapse-network.ai/`、agent payment rails、provider earning、metered API/data/model usage 和预算/receipt 控制组织事实。
+1. 输入是 `strategy_key + operator-local date + strategy_summary`。默认策略必须围绕 Synapse Network 官网 `https://www.synapse-network.ai/`、agent payment rails、provider earning、metered API/data/model usage 和预算/receipt 控制组织事实。
 2. Runner 每天幂等创建两张任务卡：`x_article_pack` 和 `x_media_post`。同一 strategy/date 已存在非终态卡片时复用旧 asset，不重复生成。
 3. 每张卡先生成 `source_plan`，再扩写 `canonical_article`。Agent policy review 通过后自动批准母稿；被 policy 阻断时卡片停在 `待审核`，事件里记录 human review blocker。
 4. 母稿通过后，`x_article_pack` 生成 X Article 手动发布任务和 teaser；`x_media_post` 生成官方 X 图文草稿。Agent 会对生成后的平台任务做 lint/policy review，通过后把平台任务标记为 `approved` 或 `needs_manual_article_publish`，看板进入 `待发布`。

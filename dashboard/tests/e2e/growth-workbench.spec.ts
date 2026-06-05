@@ -164,7 +164,7 @@ try:
         campaign_id=None,
         channel="email",
         subject="Synapse provider channel",
-        body="Official site: https://synapse-network.ai/",
+        body="Official site: https://www.synapse-network.ai/",
         personalization_evidence_json=json_dumps([{"source": "site", "reason": "provider fit"}]),
         status="sent",
         sent_at=now,
