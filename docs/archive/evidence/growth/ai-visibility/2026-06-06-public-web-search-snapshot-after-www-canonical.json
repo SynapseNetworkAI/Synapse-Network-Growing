@@ -1,0 +1,120 @@
+{
+  "snapshot_type": "public_web_search_visibility",
+  "observed_at": "2026-06-06T00:14:34Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-06-after-www-canonical",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "summary": "General public web search still does not surface https://www.synapse-network.ai/ in the first returned result set for Remote MCP, ChatGPT MCP app API payments, paid MCP, or AI-agent payment discovery queries. The most visible result set includes direct paid-MCP competitors plus high-risk Synapse brand collisions such as synapsenetwork.xyz and synapseproto.com.",
+  "queries": [
+    {
+      "query": "Synapse Network MCP server paid API calls",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Dock0",
+          "url": "https://www.dock0.dev/"
+        },
+        {
+          "name": "Synapse Network economy-layer collision",
+          "url": "https://www.synapsenetwork.xyz/"
+        },
+        {
+          "name": "Synapse Protocol",
+          "url": "https://www.synapseproto.com/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "gMCP",
+          "url": "https://gmcp.dev/"
+        }
+      ]
+    },
+    {
+      "query": "ChatGPT MCP app API payments Synapse Network",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Dock0",
+          "url": "https://www.dock0.dev/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "OpenMCP",
+          "url": "https://openmcp.app/"
+        },
+        {
+          "name": "Worldpay MCP",
+          "url": "https://corporate.worldpay.com/node/7306/pdf"
+        }
+      ]
+    },
+    {
+      "query": "MCP server for paid API calls Synapse Network",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Dock0",
+          "url": "https://www.dock0.dev/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "gMCP",
+          "url": "https://gmcp.dev/"
+        },
+        {
+          "name": "OpenMCP",
+          "url": "https://openmcp.app/"
+        }
+      ]
+    },
+    {
+      "query": "Synapse Network AI agent payments API",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Synapse Network economy-layer collision",
+          "url": "https://www.synapsenetwork.xyz/"
+        },
+        {
+          "name": "Synapse Protocol",
+          "url": "https://www.synapseproto.com/"
+        },
+        {
+          "name": "Oryn",
+          "url": "https://oryn.network/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Masumi",
+          "url": "https://www.masumi.network/"
+        }
+      ]
+    }
+  ],
+  "next_actions": [
+    "Keep https://www.synapse-network.ai/ as the canonical homepage in all AI-facing assets.",
+    "Merge and publish the product PR that adds /mcp-server-for-paid-api-calls, /chatgpt-mcp-app-api-payments, and /mcp/synapse-vs-paid-mcp before expecting answer engines to cite those URLs.",
+    "Add or strengthen explicit disambiguation copy against synapsenetwork.xyz, synapseproto.com, Matrix Synapse, Azure Synapse, and unrelated Synapse MCP projects.",
+    "After production publication, submit IndexNow for www.synapse-network.ai and docs.synapse-network.ai, then rerun public web search plus ChatGPT, Claude, and Grok probes using the same query set."
+  ]
+}

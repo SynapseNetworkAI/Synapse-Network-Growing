@@ -35,15 +35,13 @@ def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
     assert payload["snapshot_type"] == "release_blocker"
     assert payload["status"] == "blocked"
     assert payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert payload["deploy_readiness_status"] == (
-        "ready_for_release_runner_after_gcloud_auth"
-    )
+    assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
     )
     rendered = json.dumps(payload)
-    assert "Docs /mcp/paid-api-calls page must be live." in rendered
+    assert "Target commit 09a8e5fcb151" in rendered
     assert "gcloud auth login" in rendered
     assert "chatgpt external probe key missing: OPENAI_API_KEY." in rendered
     assert "OPENAI_API_KEY=" not in rendered

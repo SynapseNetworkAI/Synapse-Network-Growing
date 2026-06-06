@@ -9,7 +9,7 @@ from typing import Any
 
 from server.services.growth.ai_visibility_plan import CANONICAL_HOMEPAGE
 
-DEFAULT_TARGET_COMMIT = "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
+DEFAULT_TARGET_COMMIT = "09a8e5fcb1511ca19b2ec417474ba5e780510469"
 DEFAULT_ACTOR = "codex/ai-visibility-release-unblock"
 PROJECT_KEY = "synapse-network"
 SERVICES = ("docs-front", "user-front")
@@ -17,13 +17,13 @@ STAGING_PROJECT_ID = "fabled-archive-494108-k5"
 PRODUCTION_PROJECT_ID = "synapse-network-prod"
 REGION = "us-central1"
 SOURCE_PR = {
-    "number": 214,
-    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/214",
+    "number": 216,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/216",
     "state": "MERGED",
-    "head_ref": "codex/ai-visibility-synapse-mcp-collision-feed",
+    "head_ref": "codex/fix-ai-visibility-jsonld-ssr",
     "base_ref": "main",
-    "merged_at": "2026-06-05T19:09:16Z",
-    "merge_commit": DEFAULT_TARGET_COMMIT,
+    "merged_at": "2026-06-06T01:51:16Z",
+    "merge_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
 }
 SOURCE_PRS = [
     {
@@ -73,45 +73,47 @@ SOURCE_PRS = [
         "head_ref": "codex/ai-visibility-synapse-mcp-collision-feed",
         "base_ref": "main",
         "merged_at": "2026-06-05T19:09:16Z",
-        "merge_commit": DEFAULT_TARGET_COMMIT,
+        "merge_commit": "6a1571c136c564e8c8a6202ce6bf9c4c5f491846",
         "purpose": "Add near-name Synapse/Synap MCP collision handling for current search results.",
     },
-]
-PENDING_SOURCE_PRS = [
     {
         "number": 215,
         "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/215",
-        "state": "OPEN",
+        "state": "MERGED",
         "head_ref": "codex/add-mcp-search-landing-pages",
         "base_ref": "main",
-        "head_commit": "dc93e2f60d7aced44acaea3e87fb2e97576a64c3",
-        "purpose": "Add MCP search landing pages, Synapse vs paid MCP comparison, Synapse Protocol disambiguation feed assets, and JSON-LD WebPage/SoftwareApplication/FAQPage extraction signals.",
+        "merged_at": "2026-06-06T00:20:19Z",
+        "merge_commit": "d5a263c87668595fdd6a9c48f66fe797504b4d9e",
+        "purpose": "Publish MCP search landing pages, Synapse vs paid MCP comparison, and AI visibility feed assets.",
+    },
+    {
+        "number": 216,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/216",
+        "state": "MERGED",
+        "head_ref": "codex/fix-ai-visibility-jsonld-ssr",
+        "base_ref": "main",
+        "merged_at": "2026-06-06T01:51:16Z",
+        "merge_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+        "purpose": "Move AI visibility WebPage/SoftwareApplication/FAQPage JSON-LD into server-rendered HTML for answer-engine crawlers.",
     },
 ]
+PENDING_SOURCE_PRS: list[dict[str, Any]] = []
 PENDING_PUBLICATION_GAPS = [
     {
-        "surface": "docs",
-        "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
-        "current_status": 404,
-        "expected_after_merge": 200,
-        "source_pr": 215,
-        "next_action": "Merge PR #215, deploy docs-front, then rerun live readiness.",
-    },
-    {
-        "surface": "www",
+        "surface": "www-jsonld",
         "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
-        "current_status": 404,
+        "current_status": 200,
         "expected_after_merge": 200,
-        "source_pr": 215,
-        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+        "source_pr": 216,
+        "next_action": "Deploy user-front from merged PR #216 commit 09a8e5fcb151, then verify application/ld+json, FAQPage, and SoftwareApplication in the first HTML response.",
     },
     {
-        "surface": "www",
+        "surface": "www-jsonld",
         "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
-        "current_status": 404,
+        "current_status": 200,
         "expected_after_merge": 200,
-        "source_pr": 215,
-        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+        "source_pr": 216,
+        "next_action": "Deploy user-front from merged PR #216 commit 09a8e5fcb151, then verify application/ld+json, FAQPage, and SoftwareApplication in the first HTML response.",
     },
 ]
 DEPLOYMENT_GAP_BASES = [
@@ -450,10 +452,8 @@ def _request_production_command(task_var: str, actor: str) -> str:
 def _var(service_key: str, suffix: str) -> str:
     return f"{service_key.replace('-', '_').upper()}_{suffix}"
 
-
 def _clean(value: str | None) -> str:
     return str(value or "").strip()
-
 
 def _load_predeploy_evidence() -> dict[str, Any]:
     evidence_path = Path(__file__).resolve().parents[3] / PREDEPLOY_EVIDENCE_PATH
@@ -487,6 +487,9 @@ def _load_predeploy_evidence() -> dict[str, Any]:
 
 
 def _deploy_readiness_status(predeploy_evidence: dict[str, Any], target_commit: str) -> str:
+    pending_open = any(str(item.get("state") or "").upper() != "MERGED" for item in PENDING_SOURCE_PRS)
+    if pending_open:
+        return "blocked_until_source_pr_merged"
     if SOURCE_PR.get("state") != "MERGED":
         return "blocked_until_pr_merged"
     if predeploy_evidence.get("status") != "target_branch_ready_live_prod_blocked":

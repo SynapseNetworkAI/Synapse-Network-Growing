@@ -3,32 +3,36 @@ from server.services.growth.ai_visibility_release_snapshot import build_snapshot
 
 
 EXPECTED_PENDING_URLS = {
-    "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
     "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
     "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
 }
 
 
-def test_release_unblock_plan_exposes_pending_pr_and_publication_gaps():
+def test_release_unblock_plan_exposes_merged_jsonld_pr_and_publication_gaps():
     payload = release_unblock.build_release_unblock_plan(
         target_commit=release_unblock.DEFAULT_TARGET_COMMIT,
         actor="codex/test-ai-visibility",
     )
 
-    assert payload["pending_source_prs"][0]["number"] == 215
-    assert payload["pending_source_prs"][0]["state"] == "OPEN"
-    assert payload["pending_source_prs"][0]["head_commit"] == (
-        "dc93e2f60d7aced44acaea3e87fb2e97576a64c3"
+    assert payload["source_pr"]["number"] == 216
+    assert payload["source_pr"]["state"] == "MERGED"
+    assert payload["source_pr"]["merge_commit"] == (
+        "09a8e5fcb1511ca19b2ec417474ba5e780510469"
     )
-    assert "JSON-LD" in payload["pending_source_prs"][0]["purpose"]
+    assert payload["pending_source_prs"] == []
+    merged_jsonld_pr = next(
+        item for item in payload["source_prs"] if item["number"] == 216
+    )
+    assert "JSON-LD" in merged_jsonld_pr["purpose"]
     assert {item["url"] for item in payload["pending_publication_gaps"]} == (
         EXPECTED_PENDING_URLS
     )
     assert all(
-        item["expected_after_merge"] == 200
+        item["current_status"] == item["expected_after_merge"] == 200
         for item in payload["pending_publication_gaps"]
     )
-    assert any("PR #215" in blocker for blocker in payload["known_blockers"])
+    assert all(item["surface"] == "www-jsonld" for item in payload["pending_publication_gaps"])
+    assert any("Target commit 09a8e5fcb151" in blocker for blocker in payload["known_blockers"])
     validation_commands = "\n".join(
         command
         for group in payload["command_groups"]
@@ -98,11 +102,8 @@ def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):
         run_group="2026-06-06-pending-publication",
     )
 
-    assert payload["pending_source_prs"][0]["number"] == 215
-    assert payload["pending_source_prs"][0]["head_commit"] == (
-        "dc93e2f60d7aced44acaea3e87fb2e97576a64c3"
-    )
+    assert payload["pending_source_prs"] == []
     assert {item["url"] for item in payload["pending_publication_gaps"]} == (
         EXPECTED_PENDING_URLS
     )
-    assert any("PR #215" in blocker for blocker in payload["blockers"])
+    assert any("Target commit 09a8e5fcb151" in blocker for blocker in payload["blockers"])

@@ -136,13 +136,13 @@ def test_growth_ai_visibility_and_discovery_listing(
     release_plan = synced_client.get("/api/growth/ai-visibility/release-unblock-plan")
     assert release_plan.status_code == 200
     release_payload = release_plan.json()
-    assert release_payload["status"] == "blocked_until_gcloud_auth"
+    assert release_payload["status"] == "blocked_until_target_commit_matches"
     assert release_payload["official_homepage"] == "https://www.synapse-network.ai/"
     assert release_payload["services"] == ["docs-front", "user-front"]
     assert release_payload["target_commit_sha"] == (
-        "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
+        "09a8e5fcb1511ca19b2ec417474ba5e780510469"
     )
-    assert release_payload["source_pr"]["number"] == 214
+    assert release_payload["source_pr"]["number"] == 216
     assert release_payload["source_pr"]["state"] == "MERGED"
     assert {item["number"] for item in release_payload["source_prs"]} == {
         203,
@@ -150,15 +150,15 @@ def test_growth_ai_visibility_and_discovery_listing(
         212,
         213,
         214,
+        215,
+        216,
     }
     assert release_payload["deployment_gaps"][0]["service_key"] == "docs-front"
     assert release_payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
     assert release_payload["predeploy_evidence"]["validation_count"] >= 5
-    assert release_payload["deploy_readiness_status"] == (
-        "ready_for_release_runner_after_gcloud_auth"
-    )
+    assert release_payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
