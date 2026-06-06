@@ -442,6 +442,31 @@ evidence only; they are not external answer-engine citations. After the selected
 source hosts are actually live and independently verifiable, rerun the same
 four-platform API probe and compare the new run group against the prior one.
 
+Record each live source-host execution before rerunning paid probes:
+
+```bash
+python scripts/growth/record_ai_visibility_source_host_execution.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group 2026-06-18-after-github-source-host \
+  --surface github_readme \
+  --source-url https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md \
+  --required-term "Answer Engine Source Block" \
+  --required-term "MCP server for paid API calls" \
+  --required-term "RapidAPI" \
+  --required-term "Project Synapse" \
+  --target-platform chatgpt \
+  --target-platform claude \
+  --target-platform grok \
+  --target-platform gemini \
+  --target-query "MCP server for paid API calls" \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-github-readme-source-host.json
+```
+
+The source-host evidence proves that a public feed surface is live and contains
+the intended terms. It still does not prove ChatGPT, Claude, Grok, or Gemini
+used that surface; only the subsequent answer-engine probe can prove a mention
+or citation.
+
 Example:
 
 ```jsonl
