@@ -317,6 +317,22 @@ The output should be `status=ready` when the requested platform keys exist, or
 `ANTHROPIC_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY or GENIMI_API_KEY`. It
 must never print key values.
 
+If the current Codex shell cannot see operator-provided keys, put only the
+needed answer-engine keys in a local, untracked dotenv file and pass it
+explicitly:
+
+```bash
+python scripts/growth/run_ai_visibility_api_probe.py \
+  --feed-key agent_payment_category_pages \
+  --run-group 2026-06-18-api-probe \
+  --platforms chatgpt,claude,grok,gemini \
+  --env-file /path/to/local-ai-visibility.env
+```
+
+The same path can be supplied with `AI_VISIBILITY_ENV_FILE`. The runner reports
+only `env_file_loaded=true|false` plus missing key names; it never prints key
+values. Paid calls still require `--execute`.
+
 The Growing gate at `/api/growth/ai-visibility/external-probe-gate` also
 reports `ready_platforms`, `missing_platforms`, and
 `manual_probe_template_command`. `manual_ready_to_execute=true` means the feed is

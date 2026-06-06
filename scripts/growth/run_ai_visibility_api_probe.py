@@ -33,6 +33,7 @@ from scripts.growth.ai_visibility_api_probe_failures import (  # noqa: E402
 from scripts.growth.ai_visibility_api_probe_scoring import (  # noqa: E402
     answer_payload,
 )
+from scripts.growth.local_env import load_optional_dotenv_path  # noqa: E402
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
@@ -94,9 +95,19 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         action="store_true",
         help="Actually call paid answer-engine APIs. Without this flag, only readiness is reported.",
     )
+    parser.add_argument(
+        "--env-file",
+        help=(
+            "Optional dotenv file for local API keys. Also supported through "
+            "AI_VISIBILITY_ENV_FILE. Key values are never printed."
+        ),
+    )
     args = parser.parse_args()
 
     try:
+        env_file_loaded = load_optional_dotenv_path(
+            args.env_file or os.environ.get("AI_VISIBILITY_ENV_FILE", "")
+        )
         platforms = parse_api_platforms(args.platforms)
         queries = args.queries or default_queries_for_feed(args.feed_key)
         missing = missing_key_blockers(platforms)
@@ -122,6 +133,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
                 missing=missing,
                 execute=args.execute,
                 output=args.output,
+                env_file_loaded=env_file_loaded,
             )
             return 2 if args.execute and missing else 0
 
@@ -132,6 +144,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
                 missing=missing,
                 execute=args.execute,
                 output=args.output,
+                env_file_loaded=env_file_loaded,
             )
             return 0
 
@@ -191,11 +204,13 @@ def emit_status(
     missing: list[dict[str, str]],
     execute: bool,
     output: str | None,
+    env_file_loaded: bool,
 ) -> None:
     emit(
         {
             "status": "blocked" if missing else "ready",
             "execute": execute,
+            "env_file_loaded": env_file_loaded,
             "platforms": platforms,
             "query_count": len(queries),
             "missing": missing,

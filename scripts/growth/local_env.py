@@ -19,6 +19,14 @@ def load_dotenv(path: Path, *, override_existing: bool = False) -> None:
         os.environ[env_key] = value
 
 
+def load_optional_dotenv_path(path_value: str | None) -> bool:
+    if not path_value:
+        return False
+    path = Path(path_value)
+    load_dotenv(path, override_existing=False)
+    return path.exists()
+
+
 def parse_env_line(raw: str) -> tuple[str, str] | None:
     line = raw.strip()
     if not line or line.startswith("#") or "=" not in line:
