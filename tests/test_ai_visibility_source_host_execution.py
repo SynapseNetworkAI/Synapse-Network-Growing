@@ -5,6 +5,7 @@ from pathlib import Path
 
 from scripts.growth.record_ai_visibility_source_host_execution import (
     build_source_host_evidence,
+    fetch_text,
 )
 
 
@@ -96,3 +97,33 @@ def test_source_host_execution_cli_writes_json(tmp_path: Path):
     assert payload["module_key"] == "ai_visibility_source_host_execution"
     assert payload["status"] == "live_verified"
     assert payload["surface"] == "github_readme"
+
+
+def test_fetch_text_sends_source_host_user_agent(monkeypatch):
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return b"SynapseNetwork MCP Server"
+
+    def fake_urlopen(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    assert fetch_text("https://glama.ai/mcp/connectors/example") == (
+        "SynapseNetwork MCP Server"
+    )
+    assert captured["timeout"] == 20
+    assert "SynapseNetwork-Growing-AIVisibility" in captured[
+        "request"
+    ].headers["User-agent"]
+    assert "text/html" in captured["request"].headers["Accept"]
