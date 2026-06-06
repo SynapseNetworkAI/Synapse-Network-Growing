@@ -267,7 +267,9 @@ def _weekly_blockers(
         blockers.append(
             "Fewer than three stable positive external runs have been recorded."
         )
-    collision_mentions = _comparison_collision_mentions(comparisons)
+    collision_mentions = _comparison_collision_mentions(
+        _latest_comparison_by_feed(comparisons)
+    )
     if collision_mentions:
         blockers.append(
             "Known Synapse brand collision results still appear in external "

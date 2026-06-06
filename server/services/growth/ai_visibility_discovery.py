@@ -169,7 +169,7 @@ def ai_visibility_weekly_report(db: Session) -> GrowthAIVisibilityWeeklyReportOu
         stable_positive_runs=stable_positive_runs,
         validation_blockers=validation_blockers,
     )
-    collision_mentions = _comparison_collision_mentions(comparisons)
+    collision_mentions = _comparison_collision_mentions(latest_by_feed)
     goal_achieved = not blockers
     recommended_feed_key = _recommended_feed_key(feed_reports)
     return GrowthAIVisibilityWeeklyReportOut(
