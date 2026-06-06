@@ -222,6 +222,39 @@ def test_cycle_summary_detects_external_citation(tmp_path: Path):
     assert "--query" not in payload["commands"]["api_readiness"]
 
 
+def test_cycle_summary_includes_gemini_when_probe_rows_cover_it(tmp_path: Path):
+    probe_path = tmp_path / "four-platform-cycle.jsonl"
+    probe_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "query": "MCP server for paid API calls",
+                        "platform": platform,
+                        "feed_key": "mcp_paid_api_discovery",
+                        "run_group": "2026-06-18-four-platform",
+                        "answer_summary": f"{platform} result.",
+                        "synapse_mentioned": False,
+                        "synapse_cited": False,
+                        "missing_facts": [
+                            "Official SynapseNetworkAI source or identity was not mentioned."
+                        ],
+                    }
+                )
+                for platform in ("chatgpt", "claude", "grok", "gemini")
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = cycle_summary.parse_probe_file(probe_path)
+    payload = cycle_summary.summarize_cycle(records, source_path=str(probe_path))
+
+    assert payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
+    assert payload["covered_platforms"] == ["chatgpt", "claude", "gemini", "grok"]
+    assert payload["missing_platforms"] == []
+
+
 def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
     probe_path = tmp_path / "api-blockers.jsonl"
     probe_path.write_text(
