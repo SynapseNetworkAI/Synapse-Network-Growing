@@ -22,6 +22,10 @@ from server.services.growth.ai_visibility_source_host_execution_models import ( 
 from server.services.growth.ai_visibility_text import unique_strings  # noqa: E402
 
 DEFAULT_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
+SOURCE_HOST_USER_AGENT = (
+    "SynapseNetwork-Growing-AIVisibility/1.0 "
+    "(source-host evidence checker; https://www.synapse-network.ai/)"
+)
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
@@ -137,7 +141,14 @@ def fetch_text(url: str) -> str:
         return Path(parsed.path).read_text(encoding="utf-8")
     if parsed.scheme != "https":
         raise ValueError("source_url must use https or file")
-    with urllib.request.urlopen(url, timeout=20) as response:  # nosec B310
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": SOURCE_HOST_USER_AGENT,
+            "Accept": "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:  # nosec B310
         raw = response.read()
     return raw.decode("utf-8", errors="replace")
 
