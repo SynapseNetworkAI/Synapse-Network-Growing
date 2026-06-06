@@ -28,6 +28,9 @@ from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout 
 from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
     api_readiness_blocker_records,
 )
+from scripts.growth.ai_visibility_api_probe_failures import (  # noqa: E402
+    provider_failure_payload,
+)
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
@@ -48,7 +51,7 @@ XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
 
 DEFAULT_MODELS = {
     "chatgpt": "gpt-4o-mini",
-    "claude": "claude-3-7-sonnet-latest",
+    "claude": "claude-sonnet-4-6",
     "grok": "grok-4.20-reasoning",
 }
 
@@ -212,7 +215,7 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
                 generated_at=datetime.now(UTC).date().isoformat(),
                 official_source_urls=official_source_urls,
             )
-            answer = call_platform(platform, query)
+            answer = call_platform_with_failure_boundary(platform, query)
             payload = asdict(template)
             payload.update(
                 {
@@ -241,6 +244,18 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
             )
             rows.append(record_from_payload(payload, index=len(rows)))
     return rows
+
+
+def call_platform_with_failure_boundary(platform: str, query: str) -> Any:
+    try:
+        return call_platform(platform, query)
+    except Exception as exc:  # noqa: BLE001 - provider adapters must fail bounded
+        return provider_failure_payload(
+            platform=platform,
+            query=query,
+            default_models=DEFAULT_MODELS,
+            redacted_error=redact_secrets(str(exc)),
+        )
 
 
 def call_platform(
