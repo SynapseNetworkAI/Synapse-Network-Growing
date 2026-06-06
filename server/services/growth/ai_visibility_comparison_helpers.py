@@ -121,7 +121,8 @@ def _comparison_row_aggregate(rows: list[GrowthAIVisibilityCheckRow]) -> dict:
     for row in rows:
         competitors.update(_json_list(row.competitor_mentions_json))
         latest_run_at = _latest_run_at(latest_run_at, row.run_at)
-        _append_unique(next_actions, row.next_action)
+        if not _is_external_api_key_setup_blocker(row.next_action):
+            _append_unique(next_actions, row.next_action)
         _append_unique(evidence_urls, row.evidence_url)
     return {
         "top_competitors": [item for item, _count in competitors.most_common(5)],
@@ -382,10 +383,27 @@ def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:
         seen_validation_surfaces.add(surface_key)
         if row.synapse_mentioned and row.synapse_cited:
             continue
-        blockers.extend(_json_list(row.missing_facts_json))
+        blockers.extend(
+            blocker
+            for blocker in _json_list(row.missing_facts_json)
+            if not _is_external_api_key_setup_blocker(blocker)
+        )
         if row.next_action:
-            blockers.append(row.next_action)
+            if not _is_external_api_key_setup_blocker(row.next_action):
+                blockers.append(row.next_action)
     return unique_strings(blockers)[:8]
+
+
+def _is_external_api_key_setup_blocker(value: str) -> bool:
+    text = str(value or "")
+    api_key_markers = (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GENIMI_API_KEY",
+    )
+    return any(marker in text for marker in api_key_markers)
 
 
 def _recommended_feed_key(feed_reports: list[GrowthAIVisibilityFeedReportOut]) -> str:

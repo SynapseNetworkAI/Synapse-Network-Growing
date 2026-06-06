@@ -244,6 +244,40 @@ def test_ai_visibility_weekly_report_supersedes_old_validation_run_group(
     assert stale_blocker not in refreshed.json()["blockers"]
 
 
+def test_ai_visibility_weekly_report_ignores_stale_api_key_validation_blocker(
+    synced_client,
+):
+    stale_key_blocker = "No Grok answer evidence captured because XAI_API_KEY is missing."
+    created = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "Grok probe setup",
+            "platform": "browser_probe_validation",
+            "answer_summary": "Old operator setup row.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "missing_facts": [stale_key_blocker],
+            "next_action": "Set XAI_API_KEY locally and rerun grok --execute.",
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-05-old-key-blocker",
+        },
+    )
+    assert created.status_code == 201
+
+    weekly = synced_client.get("/api/growth/ai-visibility/weekly-report").json()
+
+    assert stale_key_blocker not in weekly["blockers"]
+    assert "Set XAI_API_KEY locally and rerun grok --execute." not in weekly[
+        "blockers"
+    ]
+    assert "Set XAI_API_KEY locally and rerun grok --execute." not in weekly[
+        "next_actions"
+    ]
+    assert "Run and record missing platform probes: chatgpt, claude, grok." in weekly[
+        "next_actions"
+    ]
+
+
 def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
     historical = synced_client.post(
         "/api/growth/ai-visibility/checks",
