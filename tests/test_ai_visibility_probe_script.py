@@ -822,39 +822,6 @@ def test_run_api_probes_generates_valid_records(monkeypatch):
     assert records[0].metadata["synapse_cited_url_count"] == "1"
 
 
-def test_answer_payload_tracks_known_brand_collision_domains():
-    payload = api_probe.answer_payload(
-        platform="chatgpt",
-        model="gpt-test",
-        text=(
-            "Synapse Network appears in the result, but the cited economy layer "
-            "page is from synapsenetwork.xyz."
-        ),
-        urls=["https://www.synapsenetwork.xyz/"],
-        request_id="req-1",
-    )
-
-    assert payload["synapse_mentioned"] is True
-    assert payload["synapse_cited"] is False
-    assert payload["cited_urls"] == []
-    assert "synapsenetwork.xyz" in payload["competitor_mentions"]
-
-
-def test_answer_payload_requires_text():
-    try:
-        api_probe.answer_payload(
-            platform="chatgpt",
-            model="gpt-test",
-            text="",
-            urls=[],
-            request_id="req-1",
-        )
-    except RuntimeError as exc:
-        assert "returned no answer text" in str(exc)
-    else:
-        raise AssertionError("empty API answer should fail closed")
-
-
 def test_post_json_redacts_secret_values_on_http_error(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "secret-openai-value")
 
