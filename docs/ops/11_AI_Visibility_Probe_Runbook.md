@@ -422,6 +422,26 @@ These rows use platform `public_web_search`. They appear in comparisons and
 scorecards so the operator can see competitors and next actions, but they do not
 cover the target GPT/Claude/Grok platforms and cannot close the visibility goal.
 
+## Post-Probe Source-Host Diagnosis
+
+When a complete ChatGPT, Claude, Grok, and Gemini probe returns zero Synapse
+mentions or citations, do not blindly repeat the same probe. Generate a
+source-host diagnosis first:
+
+```bash
+python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
+  docs/archive/evidence/growth/ai-visibility/2026-06-18-api-probe.jsonl \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-feed-diagnosis.json \
+  --recommendations-output docs/archive/evidence/growth/ai-visibility/2026-06-18-source-host-recommendations.jsonl
+```
+
+The diagnosis emits `recommended_source_host_executions` for source hosts such as
+the Official MCP Registry, GitHub README, Smithery, Glama, X citation threads,
+and docs disambiguation pages. These rows are operator intent and planning
+evidence only; they are not external answer-engine citations. After the selected
+source hosts are actually live and independently verifiable, rerun the same
+four-platform API probe and compare the new run group against the prior one.
+
 Example:
 
 ```jsonl
