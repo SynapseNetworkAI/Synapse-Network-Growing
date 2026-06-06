@@ -12,6 +12,7 @@ export function ReleaseUnblockSummary({ releasePlan }: Readonly<{ releasePlan: G
   if (!releasePlan) return null
   const preflight = releasePlan.command_groups.find((group) => group.key.includes('preflight'))
   const productionValidation = releasePlan.command_groups.find((group) => group.key === 'production_validation')
+  const indexNowSubmission = releasePlan.command_groups.find((group) => group.key === 'post_publish_indexnow_submission')
   const productionGroups = releasePlan.command_groups.filter((group) => group.environment === 'production')
   return (
     <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-release-unblock-plan">
@@ -55,6 +56,7 @@ export function ReleaseUnblockSummary({ releasePlan }: Readonly<{ releasePlan: G
         <CommandList label={preflight?.key || 'preflight'} commands={preflight?.commands || []} />
         <CommandList label="production promotion" commands={productionGroups.flatMap((group) => group.commands).slice(0, 6)} />
         <CommandList label={productionValidation?.key || 'production validation'} commands={productionValidation?.commands || []} />
+        <CommandList label={indexNowSubmission?.key || 'post-publish indexnow'} commands={indexNowSubmission?.commands || []} />
         <EvidenceList title="Success criteria" empty="No success criteria." items={releasePlan.success_criteria} />
       </div>
     </div>
