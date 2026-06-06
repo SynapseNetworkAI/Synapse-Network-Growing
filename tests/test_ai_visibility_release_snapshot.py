@@ -49,6 +49,43 @@ def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
     assert "OPENAI_API_KEY=" not in rendered
 
 
+def test_release_snapshot_does_not_keep_stale_live_blockers_when_feed_is_ready(
+    monkeypatch,
+):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        snapshot,
+        "ai_visibility_live_readiness",
+        lambda **_: ReadyReadiness(),
+    )
+    monkeypatch.setattr(
+        snapshot,
+        "_gcloud_project_check",
+        lambda project_id: {
+            "project_id": project_id,
+            "ok": False,
+            "status": "failed",
+            "summary": "Reauthentication failed. Please run gcloud auth login.",
+        },
+    )
+
+    payload = snapshot.build_snapshot(
+        target_commit=snapshot.DEFAULT_TARGET_COMMIT,
+        actor="codex/test",
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-06-snapshot",
+    )
+
+    rendered = json.dumps(payload)
+    assert payload["live_readiness"]["status"] == "ready_for_external_probe"
+    assert "Docs /mcp/paid-api-calls page must be live." not in rendered
+    assert "does not expose the MCP paid API guide" not in rendered
+    assert "gcloud auth login" in rendered
+    assert "chatgpt external probe key missing: OPENAI_API_KEY." in rendered
+
+
 def test_release_snapshot_cli_writes_json(monkeypatch, tmp_path):
     output_path = tmp_path / "snapshot.json"
     monkeypatch.setattr(
@@ -86,6 +123,21 @@ class FakeReadiness:
                     "missing_facts": [
                         "Docs /mcp/paid-api-calls page must be live.",
                     ],
+                }
+            ],
+        }
+
+
+class ReadyReadiness:
+    def model_dump(self, mode: str):  # noqa: ARG002
+        return {
+            "status": "ready_for_external_probe",
+            "ready_count": 1,
+            "blocked_count": 0,
+            "items": [
+                {
+                    "feed_key": "mcp_paid_api_discovery",
+                    "missing_facts": [],
                 }
             ],
         }

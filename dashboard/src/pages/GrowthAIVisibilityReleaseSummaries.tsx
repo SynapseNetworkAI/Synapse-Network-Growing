@@ -1,11 +1,18 @@
 import { StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan } from '../api'
+import type {
+  GrowthAIVisibilityHandoffBundle,
+  GrowthAIVisibilityPendingPublicationGap,
+  GrowthAIVisibilityPendingSourcePr,
+  GrowthAIVisibilityReleaseSnapshot,
+  GrowthAIVisibilityReleaseUnblockPlan,
+} from '../api'
 import { CommandBlock, CommandList, EvidenceList, Info } from './GrowthAIVisibilityPanelParts'
 
 export function ReleaseUnblockSummary({ releasePlan }: Readonly<{ releasePlan: GrowthAIVisibilityReleaseUnblockPlan | null }>) {
   if (!releasePlan) return null
   const preflight = releasePlan.command_groups.find((group) => group.key.includes('preflight'))
   const productionValidation = releasePlan.command_groups.find((group) => group.key === 'production_validation')
+  const indexNowSubmission = releasePlan.command_groups.find((group) => group.key === 'post_publish_indexnow_submission')
   const productionGroups = releasePlan.command_groups.filter((group) => group.environment === 'production')
   return (
     <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-release-unblock-plan">
@@ -36,6 +43,10 @@ export function ReleaseUnblockSummary({ releasePlan }: Readonly<{ releasePlan: G
         <EvidenceList title="Merged source PRs" empty="No merged source PRs." items={releasePrLines(releasePlan.source_prs || [])} />
         <EvidenceList title="Deployment gaps" empty="No deployment gaps." items={deploymentGapLines(releasePlan.deployment_gaps || [])} />
       </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <EvidenceList title="Pending source PRs" empty="No pending source PRs." items={pendingSourcePrLines(releasePlan.pending_source_prs || [])} />
+        <EvidenceList title="Pending publication gaps" empty="No pending publication gaps." items={publicationGapLines(releasePlan.pending_publication_gaps || [])} />
+      </div>
       <EvidenceList className="mt-3" title="Confirmed facts" empty="No confirmed facts." items={releasePlan.confirmed_facts || []} />
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <EvidenceList title="Release blockers" empty="No release blockers." items={releasePlan.known_blockers} />
@@ -45,6 +56,7 @@ export function ReleaseUnblockSummary({ releasePlan }: Readonly<{ releasePlan: G
         <CommandList label={preflight?.key || 'preflight'} commands={preflight?.commands || []} />
         <CommandList label="production promotion" commands={productionGroups.flatMap((group) => group.commands).slice(0, 6)} />
         <CommandList label={productionValidation?.key || 'production validation'} commands={productionValidation?.commands || []} />
+        <CommandList label={indexNowSubmission?.key || 'post-publish indexnow'} commands={indexNowSubmission?.commands || []} />
         <EvidenceList title="Success criteria" empty="No success criteria." items={releasePlan.success_criteria} />
       </div>
     </div>
@@ -76,6 +88,10 @@ export function ReleaseSnapshotSummary({ snapshot }: Readonly<{ snapshot: Growth
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <EvidenceList title="Snapshot confirmed facts" empty="No confirmed facts." items={snapshot.confirmed_facts} />
         <EvidenceList title="Snapshot blockers" empty="No blockers." items={snapshot.blockers} />
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <EvidenceList title="Snapshot pending PRs" empty="No pending PRs." items={pendingSourcePrLines(snapshot.pending_source_prs || [])} />
+        <EvidenceList title="Snapshot publication gaps" empty="No publication gaps." items={publicationGapLines(snapshot.pending_publication_gaps || [])} />
       </div>
     </div>
   )
@@ -154,6 +170,14 @@ function releasePrLines(records: Record<string, unknown>[]) {
   })
 }
 
+function pendingSourcePrLines(records: GrowthAIVisibilityPendingSourcePr[]) {
+  return records.map((record) => {
+    const commit = record.head_commit ? record.head_commit.slice(0, 12) : '-'
+    const purpose = record.purpose ? ` - ${record.purpose}` : ''
+    return `#${record.number} ${record.state} ${record.head_ref} ${commit}; ${record.url}${purpose}`
+  })
+}
+
 function deploymentGapLines(records: Record<string, unknown>[]) {
   return records.map((record) => {
     const service = releaseInfo(record, 'service_key')
@@ -163,6 +187,12 @@ function deploymentGapLines(records: Record<string, unknown>[]) {
     const target = releaseInfo(record, 'target_commit').slice(0, 12)
     const next = releaseInfo(record, 'next_action')
     return `${service}: ${status}; staging=${staging} prod=${prod} target=${target}${next && next !== '-' ? `; ${next}` : ''}`
+  })
+}
+
+function publicationGapLines(records: GrowthAIVisibilityPendingPublicationGap[]) {
+  return records.map((record) => {
+    return `${record.surface}: ${record.current_status}->${record.expected_after_merge} via PR #${record.source_pr}; ${record.url}; ${record.next_action}`
   })
 }
 

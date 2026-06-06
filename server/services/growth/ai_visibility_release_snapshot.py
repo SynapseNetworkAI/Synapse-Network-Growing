@@ -73,6 +73,10 @@ def build_snapshot(
         "deploy_readiness_status": release_plan["deploy_readiness_status"],
         "confirmed_facts": release_plan.get("confirmed_facts", []),
         "deployment_gaps": release_plan.get("deployment_gaps", []),
+        "pending_source_prs": release_plan.get("pending_source_prs", []),
+        "pending_publication_gaps": release_plan.get(
+            "pending_publication_gaps", []
+        ),
         "live_readiness": {
             "status": readiness["status"],
             "ready_count": readiness["ready_count"],

@@ -16,6 +16,7 @@ from server.services.growth.ai_visibility_discovery import (
     AI_VISIBILITY_TARGET_PLATFORMS,
     list_ai_comparisons,
 )
+from server.services.growth.ai_visibility_text import unique_strings
 
 
 def ai_visibility_feed_scorecard(db: Session) -> GrowthAIVisibilityFeedScorecardOut:
@@ -103,7 +104,9 @@ def _score_item(*, cycle, comparison) -> GrowthAIVisibilityFeedScoreOut:
         mentioned_delta=comparison.mentioned_delta if comparison else 0,
         cited_delta=comparison.cited_delta if comparison else 0,
         blockers=cycle.blockers,
-        next_actions=cycle.next_actions,
+        next_actions=unique_strings(
+            cycle.next_actions + (comparison.next_actions if comparison else [])
+        )[:6],
         recommended_action=_recommended_action(
             cycle,
             missing_platforms=metrics["missing_platforms"],
@@ -120,12 +123,17 @@ def _score_item(*, cycle, comparison) -> GrowthAIVisibilityFeedScoreOut:
 
 def _score_metrics(*, cycle, comparison) -> dict[str, object]:
     if comparison:
+        covered_platforms = [
+            platform
+            for platform in comparison.external_platforms
+            if platform in AI_VISIBILITY_TARGET_PLATFORMS
+        ]
         return {
             "latest_run_group": comparison.run_group,
             "comparison_status": comparison.comparison_status,
             "citation_quality_status": comparison.citation_quality_status,
             "feed_effective": bool(comparison.feed_effective),
-            "covered_platforms": comparison.external_platforms,
+            "covered_platforms": covered_platforms,
             "missing_platforms": comparison.missing_platforms,
             "mentioned_count": comparison.mentioned_count,
             "cited_count": comparison.cited_count,

@@ -25,6 +25,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout  # noqa: E402
+from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
+    api_readiness_blocker_records,
+)
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
@@ -88,14 +91,40 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         platforms = parse_api_platforms(args.platforms)
         queries = args.queries or default_queries_for_feed(args.feed_key)
         missing = missing_key_blockers(platforms)
-        if missing or not args.execute:
+        if missing:
+            rows = api_readiness_blocker_records(
+                feed_key=args.feed_key,
+                run_group=args.run_group,
+                missing=missing,
+                query_count=len(queries),
+            )
+            errors = validate_records(rows)
+            if errors:
+                emit({"status": "failed", "errors": errors}, stderr=True)
+                return 2
+            if args.output:
+                payload = "\n".join(
+                    json.dumps(row.api_payload(), ensure_ascii=False) for row in rows
+                )
+                write_text_or_stdout(payload, output=args.output)
             emit_status(
                 platforms=platforms,
                 queries=queries,
                 missing=missing,
                 execute=args.execute,
+                output=args.output,
             )
             return 2 if args.execute and missing else 0
+
+        if not args.execute:
+            emit_status(
+                platforms=platforms,
+                queries=queries,
+                missing=missing,
+                execute=args.execute,
+                output=args.output,
+            )
+            return 0
 
         rows = run_api_probes(
             feed_key=args.feed_key,
@@ -143,6 +172,7 @@ def emit_status(
     queries: list[str],
     missing: list[dict[str, str]],
     execute: bool,
+    output: str | None,
 ) -> None:
     emit(
         {
@@ -151,6 +181,8 @@ def emit_status(
             "platforms": platforms,
             "query_count": len(queries),
             "missing": missing,
+            "output": output or "",
+            "record_count": len(missing) if missing and output else 0,
             "message": (
                 "Set missing API keys and rerun with --execute to call paid probes."
                 if missing

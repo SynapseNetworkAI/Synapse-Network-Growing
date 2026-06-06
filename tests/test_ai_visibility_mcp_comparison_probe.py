@@ -1,0 +1,47 @@
+from scripts.growth.generate_ai_visibility_probe_template import (
+    default_queries_for_feed,
+    official_source_urls_for_feed,
+)
+from server.services.growth.ai_visibility_official_sources import (
+    ai_visibility_official_sources,
+)
+from server.services.growth.ai_visibility_plan import ai_visibility_feed_packages
+
+
+COMPARISON_QUERY = "Synapse vs paid MCP alternatives"
+COMPARISON_URL = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+OFFICIAL_HOMEPAGE = "https://www.synapse-network.ai/"
+
+
+def test_mcp_paid_api_feed_tracks_comparison_query_and_docs_page():
+    package = ai_visibility_feed_packages("mcp_paid_api_discovery").items[0]
+    chatgpt_strategy = next(
+        strategy
+        for strategy in package.platform_strategies
+        if strategy.platform == "chatgpt"
+    )
+
+    assert package.canonical_domain == OFFICIAL_HOMEPAGE
+    assert COMPARISON_QUERY in package.target_queries
+    assert COMPARISON_QUERY in chatgpt_strategy.probe_queries
+    assert COMPARISON_URL in {asset.target for asset in package.publish_assets}
+    assert any(COMPARISON_URL in command for command in package.validation_commands)
+
+
+def test_mcp_paid_api_probe_defaults_include_comparison_source():
+    source_urls = official_source_urls_for_feed("mcp_paid_api_discovery")
+
+    assert COMPARISON_QUERY in default_queries_for_feed("mcp_paid_api_discovery")
+    assert OFFICIAL_HOMEPAGE in source_urls
+    assert COMPARISON_URL in source_urls
+
+
+def test_mcp_paid_api_official_sources_include_non_blocking_comparison_page():
+    sources = {
+        item.surface_key: item for item in ai_visibility_official_sources().items
+    }
+    comparison = sources["docs_mcp_paid_api_comparison"]
+
+    assert comparison.canonical_url == COMPARISON_URL
+    assert comparison.feed_keys == ["mcp_paid_api_discovery"]
+    assert comparison.required_for_success is False

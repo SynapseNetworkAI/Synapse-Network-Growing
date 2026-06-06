@@ -163,10 +163,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
     )
-    assert any(
-        "homepage https://www.synapse-network.ai/ is reachable" in blocker
-        for blocker in release_payload["known_blockers"]
-    )
+    assert "GCloud auth fails non-interactively" in release_payload["known_blockers"][0]
     rendered_release_plan = json.dumps(release_payload)
     assert "gcloud auth login" in rendered_release_plan
     assert "X-Growing-Agent-Deploy-Token" in rendered_release_plan
@@ -197,6 +194,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "run_ai_visibility_feed_validation.py" in mcp_cycle["feed_validation_command"]
     )
     assert "--query" not in mcp_cycle["api_readiness_command"]
+    assert "public_web_search" not in mcp_cycle["external_platforms"]
     scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard")
     assert scorecard.status_code == 200
     scorecard_payload = scorecard.json()
@@ -504,6 +502,12 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert "--query" not in next_cycle_payload["api_readiness_command"]
     assert "--query" not in next_cycle_payload["api_execute_command"]
     assert "--execute" in next_cycle_payload["api_execute_command"]
+    assert next_cycle_payload["public_web_search_import_command"].startswith(
+        "python scripts/growth/import_ai_visibility_public_search_snapshot.py"
+    )
+    assert next_cycle_payload["public_web_search_import_command"].endswith(
+        "-brand_disambiguation_www-weekly-public-web-search.jsonl"
+    )
     assert next_cycle_payload["apply_command"].startswith(
         "python scripts/growth/record_ai_visibility_probe.py"
     )
@@ -629,6 +633,60 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert patched.status_code == 200
     assert patched.json()["status"] == "listed"
     assert db_session.query(GrowthDiscoveryListingRow).count() == 1
+
+
+def test_public_web_search_diagnostic_records_do_not_cover_target_platforms(
+    synced_client,
+):
+    response = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "MCP server for paid API calls Synapse",
+            "platform": "public_web_search",
+            "answer_summary": "Public web search did not return Synapse.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "competitor_mentions": ["MCPay", "Hud Remote MCP Server"],
+            "missing_facts": [
+                "Public web search returned no official Synapse result."
+            ],
+            "next_action": "Refresh IndexNow and rerun public web search.",
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-19-public-web-search",
+            "metadata": {"mode": "public_web_search_snapshot"},
+        },
+    )
+
+    assert response.status_code == 201
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-19-public-web-search"
+    ).json()["items"][0]
+    assert comparison["external_platforms"] == ["public_web_search"]
+    assert comparison["external_checks_count"] == 1
+    assert comparison["mentioned_count"] == 0
+    assert comparison["cited_count"] == 0
+    assert set(comparison["missing_platforms"]) == {
+        "chatgpt",
+        "claude",
+        "grok",
+    }
+    assert "MCPay" in comparison["top_competitors"]
+
+    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
+    mcp_score = next(
+        item
+        for item in scorecard["items"]
+        if item["feed_key"] == "mcp_paid_api_discovery"
+    )
+    assert "public_web_search" not in mcp_score["covered_platforms"]
+    assert set(mcp_score["missing_platforms"]) == {
+        "chatgpt",
+        "claude",
+        "grok",
+    }
+    assert "Refresh IndexNow and rerun public web search." in mcp_score["next_actions"]
 
 
 def test_growth_ai_visibility_live_readiness_api(monkeypatch, synced_client):

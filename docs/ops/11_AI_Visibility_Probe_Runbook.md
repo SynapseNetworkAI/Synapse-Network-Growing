@@ -387,6 +387,37 @@ can see browser profile, login, API key, and feed readiness blockers directly in
 the Growth AI Visibility panel.
 For final proof, keep the UI screenshot path in `evidence_url`.
 
+## Public Web Search Snapshots
+
+Ordinary public web search is useful for competitor and rank drift, but it is
+not a substitute for ChatGPT, Claude, or Grok answer evidence. Capture public web
+results as a snapshot JSON with `feed_key`, `run_group`, `observed_at`, and a
+`queries[]` array. Each query should include whether Synapse appeared in the
+returned result set plus the observed adjacent competitors.
+
+Convert that snapshot to diagnostic probe rows:
+
+```bash
+python scripts/growth/import_ai_visibility_public_search_snapshot.py \
+  docs/archive/evidence/growth/ai-visibility/2026-06-18-public-web-search-snapshot.json \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-public-web-search.jsonl
+```
+
+Then dry-run and record it through the normal recorder:
+
+```bash
+python scripts/growth/record_ai_visibility_probe.py \
+  docs/archive/evidence/growth/ai-visibility/2026-06-18-public-web-search.jsonl
+
+python scripts/growth/record_ai_visibility_probe.py \
+  docs/archive/evidence/growth/ai-visibility/2026-06-18-public-web-search.jsonl \
+  --apply
+```
+
+These rows use platform `public_web_search`. They appear in comparisons and
+scorecards so the operator can see competitors and next actions, but they do not
+cover the target GPT/Claude/Grok platforms and cannot close the visibility goal.
+
 Example:
 
 ```jsonl

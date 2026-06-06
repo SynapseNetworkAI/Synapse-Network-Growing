@@ -77,6 +77,43 @@ SOURCE_PRS = [
         "purpose": "Add near-name Synapse/Synap MCP collision handling for current search results.",
     },
 ]
+PENDING_SOURCE_PRS = [
+    {
+        "number": 215,
+        "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/215",
+        "state": "OPEN",
+        "head_ref": "codex/add-mcp-search-landing-pages",
+        "base_ref": "main",
+        "head_commit": "dc93e2f60d7aced44acaea3e87fb2e97576a64c3",
+        "purpose": "Add MCP search landing pages, Synapse vs paid MCP comparison, Synapse Protocol disambiguation feed assets, and JSON-LD WebPage/SoftwareApplication/FAQPage extraction signals.",
+    },
+]
+PENDING_PUBLICATION_GAPS = [
+    {
+        "surface": "docs",
+        "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy docs-front, then rerun live readiness.",
+    },
+    {
+        "surface": "www",
+        "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+    },
+    {
+        "surface": "www",
+        "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
+        "current_status": 404,
+        "expected_after_merge": 200,
+        "source_pr": 215,
+        "next_action": "Merge PR #215, deploy user-front, then rerun live readiness.",
+    },
+]
 DEPLOYMENT_GAP_BASES = [
     {
         "service_key": "docs-front",
@@ -123,9 +160,11 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
         "actor": actor,
         "source_pr": SOURCE_PR,
         "source_prs": SOURCE_PRS,
+        "pending_source_prs": PENDING_SOURCE_PRS,
         "predeploy_evidence": predeploy_evidence,
         "deploy_readiness_status": deploy_readiness,
         "deployment_gaps": _deployment_gaps(target_commit),
+        "pending_publication_gaps": PENDING_PUBLICATION_GAPS,
         "confirmed_facts": _confirmed_facts(target_commit),
         "hard_boundaries": [
             "Do not run gcloud run deploy directly.",
@@ -153,14 +192,19 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             _production_group("docs-front", actor),
             _production_group("user-front", actor),
             _production_validation_group(),
+            _indexnow_submission_group(),
             _answer_engine_probe_group(),
         ],
         "success_criteria": [
             "docs-front and user-front staging tasks complete with DeploymentRecord.status=succeeded.",
             "Production tasks promote staging image digest for target_commit_sha.",
             "https://docs.synapse-network.ai/mcp/paid-api-calls returns 200 and includes discover_services, invoke_and_pay, and get_receipt.",
+            "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp returns 200 and names MCPay, Latch, Dock0, Apiosk, and Teleport.",
+            "https://www.synapse-network.ai/mcp-server-for-paid-api-calls returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
+            "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
             "https://www.synapse-network.ai/llms.txt includes MCP Server for Paid API Calls and https://mcp.synapse-network.ai/mcp.",
             "https://mcp.synapse-network.ai/readyz returns 200 and unauthenticated /mcp returns 401.",
+            "IndexNow submission runs after production validation and includes the new www and docs AI visibility URLs.",
             "Only after production validation passes, run unchanged ChatGPT, Claude, and Grok probes and record evidence.",
         ],
 }
@@ -257,6 +301,9 @@ def _staging_validation_group() -> dict[str, Any]:
         "purpose": "Verify staging feed content before production promotion.",
         "commands": [
             "curl -fsS https://docs-staging.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
+            "curl -fsS https://docs-staging.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://staging.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
+            "curl -fsS https://staging.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
             "curl -fsS https://staging.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
         ],
     }
@@ -269,6 +316,9 @@ def _production_validation_group() -> dict[str, Any]:
         "commands": [
             f"curl -fsS {CANONICAL_HOMEPAGE}",
             "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
+            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://www.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
+            "curl -fsS https://www.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
             "curl -fsS https://www.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
             "curl -fsS https://mcp.synapse-network.ai/readyz",
             "test \"$(curl -o /tmp/synapse-mcp-unauth.out -sS -w '%{http_code}' -X POST https://mcp.synapse-network.ai/mcp)\" = \"401\"",
@@ -276,6 +326,13 @@ def _production_validation_group() -> dict[str, Any]:
             "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-cycle-summary.json",
         ],
     }
+
+
+def _indexnow_submission_group() -> dict[str, Any]:
+    script = "node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs"
+    output = "docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json"
+    validate = "python - <<'PY'\nimport json\nfrom pathlib import Path\npath = Path('docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json')\npayload = json.loads(path.read_text())\nassert payload.get('execute') is True\nhosts = {item.get('host') for item in payload.get('results', [])}\nassert {'www.synapse-network.ai', 'docs.synapse-network.ai'} <= hosts\nassert all(item.get('ok') for item in payload.get('results', []))\nPY"
+    return {"key": "post_publish_indexnow_submission", "purpose": "Submit the newly published AI visibility URLs after production validation passes.", "commands": [script, f"{script} --execute | tee {output}", validate], "notes": ["Run only after production validation proves the URLs return 200.", "The first command is a dry-run preview of the submitted URL batches.", "The evidence file records response status only; it must not include credentials."]}
 
 
 def _answer_engine_probe_group() -> dict[str, Any]:
@@ -295,15 +352,20 @@ def _answer_engine_probe_group() -> dict[str, Any]:
     }
 
 
-def _known_blockers(deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str) -> list[str]:
+def _known_blockers(
+    deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str
+) -> list[str]:
     blockers = [
         "GCloud auth fails non-interactively until a human runs gcloud auth login.",
-        "docs-front production is behind the merged MCP paid API feed commits.",
-        "user-front staging and production are behind the merged MCP paid API feed commits.",
-        "Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.",
-        "Production homepage https://www.synapse-network.ai/ is reachable, but https://www.synapse-network.ai/llms.txt does not expose the MCP paid API guide and Remote MCP endpoint yet.",
-        "External GPT/Claude/Grok probe evidence is not valid until production feed validation passes.",
     ]
+    for item in PENDING_SOURCE_PRS:
+        blockers.append(
+            (
+                f"Synapse-Network PR #{item['number']} is {item['state']}; "
+                "merge and deploy it before validating the new MCP comparison "
+                "and www landing pages."
+            )
+        )
     if deploy_readiness == "blocked_until_target_commit_matches":
         evidence_commit = _clean(str(predeploy_evidence.get("commit") or ""))
         blockers.insert(
@@ -424,10 +486,7 @@ def _load_predeploy_evidence() -> dict[str, Any]:
     }
 
 
-def _deploy_readiness_status(
-    predeploy_evidence: dict[str, Any],
-    target_commit: str,
-) -> str:
+def _deploy_readiness_status(predeploy_evidence: dict[str, Any], target_commit: str) -> str:
     if SOURCE_PR.get("state") != "MERGED":
         return "blocked_until_pr_merged"
     if predeploy_evidence.get("status") != "target_branch_ready_live_prod_blocked":

@@ -29,6 +29,7 @@ The planned route is `/growth`. It is a Human-Agent Control Plane, not an autono
 3. Current public positioning should stay consistent with the product marketing context: Synapse is the settlement layer for AI agents, a way for agents to discover, invoke, and pay for APIs with budget isolation and USDC settlement.
 4. Current robots policy broadly allows crawling while disallowing dashboard, provider, API, and Next.js data paths. The next production-site iteration should make AI crawler policy explicit instead of accidental.
 5. Live baseline on 2026-06-04 found a P0 discovery gap: `www` is the confirmed official homepage, but the production sitemap was effectively empty, some canonical / `llms.txt` links still pointed at non-`www`, and the bare domain did not permanently redirect to `www`. AI Visibility must track this as a feed experiment until fixed and rechecked.
+6. Live public search on 2026-06-05 surfaced `synapseproto.com` above the official Synapse Network site for AI-agent settlement wording. Treat Synapse Protocol as a brand-collision competitor in probe evidence; it must not count as a Synapse Network mention or citation.
 
 ## Operating Boundary
 
@@ -513,7 +514,7 @@ define query set
 
 Growing exposes `GET /api/growth/ai-visibility/optimization-plan` as the operator-facing plan source for continuous agent SEO. It is a structured read-only plan, while `AIVisibilityCheck` remains the run ledger. `GET /api/growth/ai-visibility/docs-blueprint` exports the page-level `AI Agent Payments` docs blueprint with titles, canonical URLs, definition blocks, fact tables, FAQ prompts, schema types, Stitch/Figma component notes, MDX skeletons, and validation commands. `GET /api/growth/ai-visibility/design-handoff` exports the Stitch-to-Figma handoff with Figma file name, frame prompts, reusable component specs, design tokens, import steps, implementation notes, and acceptance checks. `GET /api/growth/ai-visibility/feed-package` turns each planned feed experiment into an executable operator package: publish assets, Stitch/Figma design prompt, local validation commands, probe-template command, success metrics, and next actions. `GET /api/growth/ai-visibility/comparisons` groups checks by `feed_key + run_group` so the operator can compare GPT, Claude, and Grok search outcomes after each feed experiment. `GET /api/growth/ai-visibility/weekly-report` is the continuous optimization gate: it summarizes coverage, blockers, stable positive run count, recommended feed key, and the next probe-template command. It must keep `goal_achieved=false` until external GPT/Claude/Grok evidence and stability requirements pass.
 
-Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, bare-domain redirect state, docs robots answer-engine crawler policy, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`.
+Comparison counts intentionally separate feed validation from external search truth. Platforms such as `www_local_validation`, `docs_local_validation`, and `www_live_validation` prove that pages, `llms.txt`, sitemap, canonical metadata, bare-domain redirect state, docs robots answer-engine crawler policy, live crawl state, and screenshots are ready or blocked, but they do not prove that ChatGPT, Claude, or Grok can find Synapse. These `*_validation` rows increase `local_validation_count`; only real answer-engine rows increase external `mentioned_count` and `cited_count`. `public_web_search` is allowed as a diagnostic external row for ordinary search-result rank and competitor drift, but it does not count as ChatGPT, Claude, or Grok target-platform coverage and cannot satisfy the final visibility goal by itself.
 
 This should be a dedicated Growth submodule, not a one-off docs task. The operator surface is `Growth -> AI Visibility`, with data stored as:
 
@@ -521,7 +522,7 @@ This should be a dedicated Growth submodule, not a one-off docs task. The operat
 2. Stitch/Figma handoff: Figma file name, frame-specific Stitch prompts, reusable component specs, design tokens, import steps, and acceptance checks.
 3. Product feed packages: docs, www pages, `llms.txt`, sitemap, robots policy, schema, GitHub READMEs, MCP listings, public social/source posts, validation commands, and a probe-template command.
 4. Search probes: one `AIVisibilityCheck` row per platform/query/run group.
-5. Comparisons: grouped by `feed_key + run_group`, separating local feed validation from GPT, Claude, Grok, Perplexity, Google AI, or Bing/Copilot search truth.
+5. Comparisons: grouped by `feed_key + run_group`, separating local feed validation from GPT, Claude, Grok, Perplexity, Google AI, Bing/Copilot, or diagnostic `public_web_search` truth.
 6. Delta scoring: each run group compares against the previous run group for the same `feed_key`, exposing mention delta, citation delta, comparison status, and whether the feed was effective.
 7. Weekly report gate: `goal_achieved`, stable positive runs, missing platforms, blockers, and the recommended next probe command.
 8. Next actions: content, docs, MCP registry, GitHub, social distribution, or crawler-access tasks that the operator can turn into requirements.
@@ -534,6 +535,7 @@ live baseline
 -> create feed experiment
 -> export feed package
 -> publish docs/site/GitHub/MCP registry assets
+-> import public web search snapshot when available
 -> probe ChatGPT, Claude, and Grok
 -> record AIVisibilityCheck evidence
 -> compare against previous run
@@ -555,6 +557,7 @@ Comparison rules:
 5. Only mark an experiment effective when the comparison shows improved mention/citation counts against the previous run group.
 6. Use `GET /api/growth/ai-visibility/feed-package` or `scripts/growth/generate_ai_visibility_feed_package.py` to export the bounded feed package before publishing assets.
 7. Use `docs/ops/11_AI_Visibility_Probe_Runbook.md`, `scripts/growth/generate_ai_visibility_probe_template.py`, and `scripts/growth/record_ai_visibility_probe.py` to generate, validate, and record manual ChatGPT, Claude, and Grok probe rows.
+8. Use `scripts/growth/import_ai_visibility_public_search_snapshot.py` to convert ordinary public web search snapshots into `public_web_search` rows for competitor/rank drift. These rows inform next actions but do not cover target answer-engine platforms.
 
 Comparison statuses:
 

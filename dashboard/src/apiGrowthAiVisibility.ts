@@ -103,6 +103,7 @@ export interface GrowthAIVisibilityNextCycle {
   external_probe_gate_command: string
   api_readiness_command: string
   api_execute_command: string
+  public_web_search_import_command: string
   apply_command: string
   probe_matrix_command: string
   validate_matrix_command: string
@@ -143,6 +144,22 @@ export interface GrowthAIVisibilityReleaseCommandGroup {
   environment: string
   notes: string[]
 }
+export interface GrowthAIVisibilityPendingSourcePr {
+  number: number
+  url: string
+  state: string
+  head_ref: string
+  head_commit?: string
+  purpose?: string
+}
+export interface GrowthAIVisibilityPendingPublicationGap {
+  surface: string
+  url: string
+  current_status: number
+  expected_after_merge: number
+  source_pr: number
+  next_action: string
+}
 export interface GrowthAIVisibilityReleaseUnblockPlan {
   module_key: string
   feed_key: string
@@ -156,9 +173,11 @@ export interface GrowthAIVisibilityReleaseUnblockPlan {
   actor: string
   source_pr: Record<string, unknown>
   source_prs: Record<string, unknown>[]
+  pending_source_prs?: GrowthAIVisibilityPendingSourcePr[]
   predeploy_evidence: Record<string, unknown>
   deploy_readiness_status: string
   deployment_gaps: Record<string, unknown>[]
+  pending_publication_gaps?: GrowthAIVisibilityPendingPublicationGap[]
   confirmed_facts: string[]
   hard_boundaries: string[]
   known_blockers: string[]
@@ -179,6 +198,8 @@ export interface GrowthAIVisibilityReleaseSnapshot {
   deploy_readiness_status: string
   confirmed_facts: string[]
   deployment_gaps: Record<string, unknown>[]
+  pending_source_prs?: GrowthAIVisibilityPendingSourcePr[]
+  pending_publication_gaps?: GrowthAIVisibilityPendingPublicationGap[]
   live_readiness: Record<string, unknown>
   gcloud: Record<string, Record<string, unknown>>
   external_probe_keys: Record<string, Record<string, unknown>>

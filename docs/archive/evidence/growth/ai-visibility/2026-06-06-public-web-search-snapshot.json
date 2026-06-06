@@ -1,0 +1,65 @@
+{
+  "snapshot_type": "public_web_search_visibility",
+  "observed_at": "2026-06-05T20:23:13Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-06-www-homepage-live",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "summary": "General web search still does not surface Synapse in the first result set for paid/remote MCP discovery queries, even after the live www/docs feeds passed validation. This is a search-indexing and answer-engine visibility gap, not a feed availability failure.",
+  "queries": [
+    {
+      "query": "MCP server for paid API calls Synapse Remote MCP",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Hud Remote MCP Server",
+          "url": "https://docs.hud.io/docs/remote-mcp"
+        },
+        {
+          "name": "MCP Nest",
+          "url": "https://mcpnest.dev/"
+        },
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "AnythingMCP",
+          "url": "https://anythingmcp.com/"
+        }
+      ]
+    },
+    {
+      "query": "ChatGPT MCP app for API payments Synapse",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPay",
+          "url": "https://docs.mcpay.tech/"
+        },
+        {
+          "name": "Apiosk",
+          "url": "https://apiosk.com/"
+        },
+        {
+          "name": "OpenAI Remote MCP docs",
+          "url": "https://platform.openai.com/docs/guides/tools-remote-mcp"
+        }
+      ]
+    },
+    {
+      "query": "site:synapse-network.ai \"MCP Server for Paid API Calls\"",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": []
+    }
+  ],
+  "next_actions": [
+    "Keep the live www/docs feed validation as ready evidence.",
+    "Submit or refresh sitemap/indexing where available instead of changing canonical homepage.",
+    "Run ChatGPT, Claude, and Grok answer-engine probes after provider API keys or logged-in browser evidence are available.",
+    "Add the top observed adjacent result names to future comparison/feed copy only when the content remains factual and non-spammy."
+  ]
+}

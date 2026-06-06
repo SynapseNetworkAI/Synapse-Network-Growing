@@ -1,0 +1,184 @@
+{
+  "blockers": [
+    "GCloud auth fails non-interactively until a human runs gcloud auth login.",
+    "staging GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "production GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "chatgpt external probe key missing: OPENAI_API_KEY.",
+    "claude external probe key missing: ANTHROPIC_API_KEY.",
+    "grok external probe key missing: XAI_API_KEY."
+  ],
+  "confirmed_facts": [
+    "Official homepage canonical is https://www.synapse-network.ai/.",
+    "Synapse-Network main is pinned to merged PR #214 commit 6a1571c136c564e8c8a6202ce6bf9c4c5f491846.",
+    "Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.",
+    "Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds."
+  ],
+  "deploy_readiness_status": "ready_for_release_runner_after_gcloud_auth",
+  "deployment_gaps": [
+    {
+      "latest_production_record_id": 246,
+      "latest_staging_record_id": 244,
+      "next_action": "Re-run docs-front staging for 6a1571c136c5, then promote production.",
+      "production_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+      "service_key": "docs-front",
+      "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+      "status": "staging_and_production_behind_target",
+      "target_commit": "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
+    },
+    {
+      "latest_production_record_id": 247,
+      "latest_staging_record_id": 245,
+      "next_action": "Re-run user-front staging for 6a1571c136c5; the previous production promotion failed and must not be reused.",
+      "production_commit": "",
+      "service_key": "user-front",
+      "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
+      "status": "production_failed_for_previous_target",
+      "target_commit": "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
+    }
+  ],
+  "external_probe_keys": {
+    "chatgpt": {
+      "configured": false,
+      "env_key": "OPENAI_API_KEY"
+    },
+    "claude": {
+      "configured": false,
+      "env_key": "ANTHROPIC_API_KEY"
+    },
+    "grok": {
+      "configured": false,
+      "env_key": "XAI_API_KEY"
+    }
+  },
+  "feed_key": "mcp_paid_api_discovery",
+  "gcloud": {
+    "production": {
+      "ok": false,
+      "project_id": "synapse-network-prod",
+      "status": "failed",
+      "summary": "ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use."
+    },
+    "staging": {
+      "ok": false,
+      "project_id": "fabled-archive-494108-k5",
+      "status": "failed",
+      "summary": "ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use."
+    }
+  },
+  "generated_at": "2026-06-05T20:06:54.485845+00:00",
+  "live_readiness": {
+    "blocked_count": 0,
+    "items": [
+      {
+        "answer_summary": "Live feed validation passed: www_homepage=200; docs_mcp_paid_api_calls=200; docs_robots=200; www_llms_mcp=200; mcp_readyz=200; mcp_unauth_post=401; mcp_npm_package=200; mcp_registry=200",
+        "checked_urls": [
+          "https://www.synapse-network.ai/",
+          "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "https://docs.synapse-network.ai/robots.txt",
+          "https://www.synapse-network.ai/llms.txt",
+          "https://mcp.synapse-network.ai/readyz",
+          "https://mcp.synapse-network.ai/mcp",
+          "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+          "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+        ],
+        "checks": [
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://www.synapse-network.ai/",
+            "label": "www_homepage",
+            "ok": true,
+            "status": 200,
+            "url": "https://www.synapse-network.ai/"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+            "label": "docs_mcp_paid_api_calls",
+            "ok": true,
+            "status": 200,
+            "url": "https://docs.synapse-network.ai/mcp/paid-api-calls"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://docs.synapse-network.ai/robots.txt",
+            "label": "docs_robots",
+            "ok": true,
+            "status": 200,
+            "url": "https://docs.synapse-network.ai/robots.txt"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://www.synapse-network.ai/llms.txt",
+            "label": "www_llms_mcp",
+            "ok": true,
+            "status": 200,
+            "url": "https://www.synapse-network.ai/llms.txt"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://mcp.synapse-network.ai/readyz",
+            "label": "mcp_readyz",
+            "ok": true,
+            "status": 200,
+            "url": "https://mcp.synapse-network.ai/readyz"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://mcp.synapse-network.ai/mcp",
+            "label": "mcp_unauth_post",
+            "ok": true,
+            "status": 401,
+            "url": "https://mcp.synapse-network.ai/mcp"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+            "label": "mcp_npm_package",
+            "ok": true,
+            "status": 200,
+            "url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+            "label": "mcp_registry",
+            "ok": true,
+            "status": 200,
+            "url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+          }
+        ],
+        "external_probe_ready": true,
+        "feed_key": "mcp_paid_api_discovery",
+        "feed_ready": true,
+        "missing_facts": [],
+        "next_action": "Run MCP discovery probes and ChatGPT/Claude connector checks.",
+        "platform": "mcp_live_validation",
+        "query": "Remote MCP live readiness",
+        "run_group": "2026-06-05-mcp_paid_api_discovery-release-snapshot",
+        "status": "ready"
+      }
+    ],
+    "ready_count": 1,
+    "status": "ready_for_external_probe"
+  },
+  "module_key": "ai_visibility",
+  "next_actions": [
+    "Run gcloud auth login, then rerun this snapshot before creating release tasks.",
+    "Deploy docs-front and user-front target commit through Growing release tasks.",
+    "Rerun live readiness and external GPT/Claude/Grok probes only after feed validation passes."
+  ],
+  "official_homepage": "https://www.synapse-network.ai/",
+  "release_plan_status": "blocked_until_gcloud_auth",
+  "run_group": "2026-06-05-mcp_paid_api_discovery-release-snapshot",
+  "snapshot_type": "release_blocker",
+  "status": "blocked",
+  "target_commit_sha": "6a1571c136c564e8c8a6202ce6bf9c4c5f491846"
+}

@@ -455,7 +455,16 @@ def test_release_unblock_plan_generates_safe_release_commands():
         213,
         214,
     }
+    assert payload["pending_source_prs"][0]["number"] == 215
+    assert payload["pending_source_prs"][0]["state"] == "OPEN"
     assert payload["deployment_gaps"][0]["service_key"] == "docs-front"
+    assert {
+        item["url"] for item in payload["pending_publication_gaps"]
+    } == {
+        "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
+        "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
+    }
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
@@ -466,10 +475,8 @@ def test_release_unblock_plan_generates_safe_release_commands():
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
     )
-    assert any(
-        "homepage https://www.synapse-network.ai/ is reachable" in blocker
-        for blocker in payload["known_blockers"]
-    )
+    assert "GCloud auth fails non-interactively" in payload["known_blockers"][0]
+    assert any("PR #215" in blocker for blocker in payload["known_blockers"])
     assert set(payload["services"]) == {"docs-front", "user-front"}
     assert "gcloud auth login" in rendered
     assert "X-Growing-Agent-Deploy-Token" in rendered
@@ -480,6 +487,9 @@ def test_release_unblock_plan_generates_safe_release_commands():
     assert "YES" in rendered
     assert "https://www.synapse-network.ai/llms.txt" in rendered
     assert "https://docs.synapse-network.ai/mcp/paid-api-calls" in rendered
+    assert "post_publish_indexnow_submission" in rendered
+    assert "submit_indexnow_ai_visibility.mjs --execute" in rendered
+    assert "2026-06-05-after-prod-indexnow.json" in rendered
     commands = [
         command
         for group in payload["command_groups"]
@@ -574,6 +584,10 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     )
     assert any(
         group["key"] == "production_validation" for group in payload["command_groups"]
+    )
+    assert any(
+        group["key"] == "post_publish_indexnow_submission"
+        for group in payload["command_groups"]
     )
 
 

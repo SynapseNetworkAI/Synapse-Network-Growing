@@ -34,6 +34,7 @@ EXTERNAL_PLATFORMS = {
     "google_ai",
     "bing_copilot",
     "gemini",
+    "public_web_search",
 }
 
 
