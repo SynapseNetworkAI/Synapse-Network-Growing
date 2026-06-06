@@ -414,25 +414,26 @@ function installFetch() {
       return json({
         module_key: 'ai_visibility',
         feed_key: 'mcp_paid_api_discovery',
-        status: 'blocked_until_gcloud_auth',
+        status: 'blocked_until_target_commit_matches',
         generated_at: '2026-06-05T00:00:00Z',
         official_homepage: 'https://www.synapse-network.ai/',
         project_key: 'synapse-network',
         services: ['docs-front', 'user-front'],
         branch_name: 'main',
-        target_commit_sha: 'd8b5371e11fea2d962dcc656b9b8d08d0c1379d9',
+        target_commit_sha: '09a8e5fcb1511ca19b2ec417474ba5e780510469',
         actor: 'codex/ai-visibility-release-unblock',
         source_pr: {
-          number: 204,
+          number: 216,
           state: 'MERGED',
-          head_ref: 'codex/ai-visibility-docs-llms-endpoint',
+          head_ref: 'codex/fix-ai-visibility-jsonld-ssr',
           base_ref: 'main',
-          merged_at: '2026-06-05T00:54:23Z',
-          url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/204',
+          merged_at: '2026-06-06T01:51:16Z',
+          url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/216',
         },
         source_prs: [
           { number: 203, state: 'MERGED', merge_commit: '04c6cfd4477f86569c83322a1119580dcf01091e', purpose: 'Add MCP paid API calls visibility docs and www llms feed.' },
           { number: 204, state: 'MERGED', merge_commit: 'd8b5371e11fea2d962dcc656b9b8d08d0c1379d9', purpose: 'Expose the MCP paid API docs URL and Remote MCP endpoint in docs-front llms.txt.' },
+          { number: 216, state: 'MERGED', merge_commit: '09a8e5fcb1511ca19b2ec417474ba5e780510469', purpose: 'Move AI visibility JSON-LD into server-rendered HTML.' },
         ],
         predeploy_evidence: {
           status: 'target_branch_ready_live_prod_blocked',
@@ -448,20 +449,20 @@ function installFetch() {
             '/Users/cliff/workspace/agent/Synapse-Network-Growing/docs/archive/evidence/growth/ai-visibility-synapse-docs-mcp-paid-api-calls-local-20260605.png',
           ],
         },
-        deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth',
+        deploy_readiness_status: 'blocked_until_target_commit_matches',
         deployment_gaps: [
           {
             service_key: 'docs-front',
             status: 'production_behind_target',
             staging_commit: '04c6cfd4477f86569c83322a1119580dcf01091e',
             production_commit: '6af377ba8199193ad12a1fbc27d20ea64f0e3e18',
-            target_commit: 'd8b5371e11fea2d962dcc656b9b8d08d0c1379d9',
-            next_action: 'Re-run staging for d8b5371e, then promote docs-front production.',
+            target_commit: '09a8e5fcb1511ca19b2ec417474ba5e780510469',
+            next_action: 'Re-run staging for 09a8e5fc, then promote docs-front production.',
           },
         ],
         confirmed_facts: [
           'Official homepage canonical is https://www.synapse-network.ai/.',
-          'Synapse-Network main is pinned to merged PR #204 commit d8b5371e11fea2d962dcc656b9b8d08d0c1379d9.',
+          'Synapse-Network main is pinned to merged PR #216 commit 09a8e5fcb1511ca19b2ec417474ba5e780510469.',
           'Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.',
           'Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds.',
         ],
@@ -470,9 +471,7 @@ function installFetch() {
           'Production must promote the successful staging digest for the same commit.',
         ],
         known_blockers: [
-          'GCloud auth fails non-interactively until a human runs gcloud auth login.',
-          'Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.',
-          'Production homepage https://www.synapse-network.ai/ is reachable, but https://www.synapse-network.ai/llms.txt does not expose the MCP paid API guide and Remote MCP endpoint yet.',
+          'Target commit 09a8e5fcb151 does not match current predeploy evidence commit 6a1571c136c5.',
         ],
         environment_defaults: {
           ops_base_url: 'http://localhost:9700',
@@ -514,11 +513,11 @@ function installFetch() {
         generated_at: '2026-06-05T00:00:00Z',
         feed_key: 'mcp_paid_api_discovery',
         run_group: '2026-06-05-mcp_paid_api_discovery-release-snapshot',
-        target_commit_sha: 'd8b5371e11fea2d962dcc656b9b8d08d0c1379d9',
+        target_commit_sha: '09a8e5fcb1511ca19b2ec417474ba5e780510469',
         official_homepage: 'https://www.synapse-network.ai/',
         status: 'blocked',
-        release_plan_status: 'blocked_until_gcloud_auth',
-        deploy_readiness_status: 'ready_for_release_runner_after_gcloud_auth',
+        release_plan_status: 'blocked_until_target_commit_matches',
+        deploy_readiness_status: 'blocked_until_target_commit_matches',
         confirmed_facts: [
           'Official homepage canonical is https://www.synapse-network.ai/.',
           'Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.',
@@ -527,7 +526,7 @@ function installFetch() {
           {
             service_key: 'docs-front',
             status: 'production_behind_target',
-            target_commit: 'd8b5371e11fea2d962dcc656b9b8d08d0c1379d9',
+            target_commit: '09a8e5fcb1511ca19b2ec417474ba5e780510469',
           },
         ],
         live_readiness: {
@@ -556,13 +555,11 @@ function installFetch() {
           grok: { env_key: 'XAI_API_KEY', configured: false },
         },
         blockers: [
-          'GCloud auth fails non-interactively until a human runs gcloud auth login.',
-          'Docs /mcp/paid-api-calls page must be live.',
+          'Target commit 09a8e5fcb151 does not match current predeploy evidence commit 6a1571c136c5.',
           'chatgpt external probe key missing: OPENAI_API_KEY.',
         ],
         next_actions: [
-          'Run gcloud auth login, then rerun this snapshot before creating release tasks.',
-          'Deploy docs-front and user-front target commit through Growing release tasks.',
+          'Regenerate predeploy evidence for PR #216, then deploy user-front.',
         ],
       })
     }
