@@ -296,7 +296,7 @@ After running each platform probe, fill in `answer_summary`,
 
 Use the API runner only when local API keys are available and the operator is
 ready to spend provider tokens. It fails closed by default and does not call
-OpenAI, Anthropic, or xAI unless `--execute` is present.
+OpenAI, Anthropic, xAI, or Gemini unless `--execute` is present.
 
 Readiness check:
 
@@ -304,31 +304,32 @@ Readiness check:
 python scripts/growth/run_ai_visibility_api_probe.py \
   --feed-key agent_payment_category_pages \
   --run-group 2026-06-18-api-probe \
-  --platforms chatgpt,claude,grok
+  --platforms chatgpt,claude,grok,gemini
 ```
 
 When `--query` is omitted, the runner uses the full baseline query set so one
-round creates comparable ChatGPT, Claude, and Grok evidence for every priority
-question. Add `--query` only for focused diagnostics; do not treat a single-query
-diagnostic run as a full feed comparison.
+round creates comparable ChatGPT, Claude, Grok, and Gemini evidence for every
+priority question. Add `--query` only for focused diagnostics; do not treat a
+single-query diagnostic run as a full feed comparison.
 
 The output should be `status=ready` when the requested platform keys exist, or
 `status=blocked` with missing env names such as `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, or `XAI_API_KEY`. It must never print key values.
+`ANTHROPIC_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY or GENIMI_API_KEY`. It
+must never print key values.
 
 The Growing gate at `/api/growth/ai-visibility/external-probe-gate` also
 reports `ready_platforms`, `missing_platforms`, and
 `manual_probe_template_command`. `manual_ready_to_execute=true` means the feed is
-ready for manual ChatGPT, Claude, and Grok UI checks even when API execution is
-blocked by missing keys. If API keys are missing, run the manual template
-command, use the generated rows as a checklist in each UI, fill in answer
+ready for manual ChatGPT, Claude, Grok, and Gemini UI checks even when API
+execution is blocked by missing keys. If API keys are missing, run the manual
+template command, use the generated rows as a checklist in each UI, fill in answer
 summaries, citations, and screenshot paths, then apply the JSONL with
 `record_ai_visibility_probe.py`. When the feed is ready but only some keys exist,
 the gate returns `ready_for_partial_external_probes` and shows
 `partial_api_readiness_command` / `partial_api_execute_command` for the configured
 platforms. Use partial API probes only for focused diagnostics. Full success
-still requires comparable ChatGPT, Claude, and Grok evidence for the same feed
-and run group.
+still requires comparable ChatGPT, Claude, Grok, and Gemini evidence for the
+same feed and run group when Gemini is configured.
 
 Execute paid probes:
 
@@ -336,7 +337,7 @@ Execute paid probes:
 python scripts/growth/run_ai_visibility_api_probe.py \
   --feed-key agent_payment_category_pages \
   --run-group 2026-06-18-api-probe \
-  --platforms chatgpt,claude,grok \
+  --platforms chatgpt,claude,grok,gemini \
   --output docs/archive/evidence/growth/ai-visibility/2026-06-18-api-probe.jsonl \
   --execute
 ```
@@ -351,10 +352,13 @@ Provider behavior:
    tool.
 3. `grok` uses xAI Responses API with `web_search`; xAI's old Chat Completions
    live search path is not used.
+4. `gemini` uses Gemini `generateContent` with `google_search` grounding. Set
+   either `GEMINI_API_KEY` or the local compatibility alias `GENIMI_API_KEY`.
 
 The runner emits the same JSONL contract as the manual template. A completed API
 row still needs operator review before being treated as launch evidence, because
-the public ChatGPT/Claude/Grok UI may rank sources differently from API search.
+the public ChatGPT/Claude/Grok/Gemini UI may rank sources differently from API
+search.
 
 ## Browser Probe Fallback
 

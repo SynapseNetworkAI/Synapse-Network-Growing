@@ -49,23 +49,28 @@ from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
 XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
+GEMINI_GENERATE_CONTENT_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
 
 DEFAULT_MODELS = {
     "chatgpt": "gpt-4o-mini",
     "claude": "claude-sonnet-4-6",
     "grok": "grok-4.20-reasoning",
+    "gemini": "gemini-2.5-flash",
 }
 
 ENV_KEYS = {
-    "chatgpt": "OPENAI_API_KEY",
-    "claude": "ANTHROPIC_API_KEY",
-    "grok": "XAI_API_KEY",
+    "chatgpt": ("OPENAI_API_KEY",),
+    "claude": ("ANTHROPIC_API_KEY",),
+    "grok": ("XAI_API_KEY",),
+    "gemini": ("GEMINI_API_KEY", "GENIMI_API_KEY"),
 }
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser = argparse.ArgumentParser(
-        description="Run fail-closed API probes for ChatGPT, Claude, and Grok."
+        description="Run fail-closed API probes for ChatGPT, Claude, Grok, and Gemini."
     )
     parser.add_argument("--feed-key", default=DEFAULT_FEED_KEY)
     parser.add_argument(
@@ -75,7 +80,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument(
         "--platforms",
         default=",".join(DEFAULT_PLATFORMS),
-        help="Comma-separated platforms. Supported API probes: chatgpt,claude,grok.",
+        help="Comma-separated platforms. Supported API probes: chatgpt,claude,grok,gemini.",
     )
     parser.add_argument(
         "--query",
@@ -155,7 +160,7 @@ def parse_api_platforms(raw: str) -> list[str]:
     unsupported = [item for item in platforms if item not in ENV_KEYS]
     if unsupported:
         raise ValueError(
-            "API runner supports only chatgpt, claude, and grok; unsupported: "
+            "API runner supports only chatgpt, claude, grok, and gemini; unsupported: "
             + ", ".join(unsupported)
         )
     return platforms
@@ -164,10 +169,19 @@ def parse_api_platforms(raw: str) -> list[str]:
 def missing_key_blockers(platforms: Iterable[str]) -> list[Any]:
     blockers = []
     for platform in platforms:
-        env_key = ENV_KEYS[platform]
-        if not os.environ.get(env_key, "").strip():
-            blockers.append({"platform": platform, "missing_env": env_key})
+        if not platform_api_key(platform):
+            blockers.append(
+                {"platform": platform, "missing_env": " or ".join(ENV_KEYS[platform])}
+            )
     return blockers
+
+
+def platform_api_key(platform: str) -> str:
+    for env_key in ENV_KEYS[platform]:
+        value = os.environ.get(env_key, "").strip()
+        if value:
+            return value
+    return ""
 
 
 def emit_status(
@@ -268,6 +282,8 @@ def call_platform(
         return call_anthropic(query)
     if platform == "grok":
         return call_xai(query)
+    if platform == "gemini":
+        return call_gemini(query)
     raise ValueError(f"unsupported platform: {platform}")
 
 
@@ -283,7 +299,7 @@ def call_openai(query: str) -> Any:  # pragma: no cover - paid external API adap
     data, request_id = post_json(
         OPENAI_RESPONSES_URL,
         payload,
-        {"Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"},
+        {"Authorization": f"Bearer {platform_api_key('chatgpt')}"},
     )
     text = data.get("output_text") or extract_openai_text(data)
     urls = extract_urls(data)
@@ -308,7 +324,7 @@ def call_anthropic(query: str) -> Any:  # pragma: no cover - paid external API a
         ANTHROPIC_MESSAGES_URL,
         payload,
         {
-            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "x-api-key": platform_api_key("claude"),
             "anthropic-version": "2023-06-01",
         },
     )
@@ -333,12 +349,35 @@ def call_xai(query: str) -> Any:  # pragma: no cover - paid external API adapter
     data, request_id = post_json(
         XAI_RESPONSES_URL,
         payload,
-        {"Authorization": f"Bearer {os.environ['XAI_API_KEY']}"},
+        {"Authorization": f"Bearer {platform_api_key('grok')}"},
     )
     text = data.get("output_text") or extract_openai_text(data)
     urls = extract_urls(data)
     return answer_payload(
         platform="grok",
+        model=model,
+        text=text,
+        urls=urls,
+        request_id=request_id,
+    )
+
+
+def call_gemini(query: str) -> Any:  # pragma: no cover - paid external API adapter
+    model = os.environ.get("GEMINI_AI_VISIBILITY_MODEL", DEFAULT_MODELS["gemini"])
+    payload = {
+        "contents": [{"parts": [{"text": prompt_for_query(query)}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
+    }
+    data, request_id = post_json(
+        GEMINI_GENERATE_CONTENT_URL.format(model=model),
+        payload,
+        {"x-goog-api-key": platform_api_key("gemini")},
+    )
+    text = extract_gemini_text(data)
+    urls = extract_urls(data)
+    return answer_payload(
+        platform="gemini",
         model=model,
         text=text,
         urls=urls,
@@ -397,6 +436,17 @@ def extract_anthropic_text(data: dict[str, Any]) -> str:
     return "\n".join(parts).strip()
 
 
+def extract_gemini_text(data: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for candidate in data.get("candidates") or []:
+        content = candidate.get("content") or {}
+        for part in content.get("parts") or []:
+            text = part.get("text")
+            if isinstance(text, str):
+                parts.append(text)
+    return "\n".join(parts).strip()
+
+
 def extract_urls(value: Any) -> list[str]:
     urls: list[str] = []
     if isinstance(value, dict):
@@ -413,10 +463,11 @@ def extract_urls(value: Any) -> list[str]:
 
 def redact_secrets(value: str) -> str:
     redacted = value
-    for env_key in ENV_KEYS.values():
-        secret_value = os.environ.get(env_key, "").strip()
-        if secret_value:
-            redacted = redacted.replace(secret_value, "[REDACTED]")
+    for env_keys in ENV_KEYS.values():
+        for env_key in env_keys:
+            secret_value = os.environ.get(env_key, "").strip()
+            if secret_value:
+                redacted = redacted.replace(secret_value, "[REDACTED]")
     return redacted
 
 
