@@ -12,7 +12,7 @@ from server.services.growth.ai_visibility_plan import CANONICAL_HOMEPAGE
 DEFAULT_TARGET_COMMIT = "09a8e5fcb1511ca19b2ec417474ba5e780510469"
 DEFAULT_ACTOR = "codex/ai-visibility-release-unblock"
 PROJECT_KEY = "synapse-network"
-SERVICES = ("docs-front", "user-front")
+SERVICES = ("user-front",)
 STAGING_PROJECT_ID = "fabled-archive-494108-k5"
 PRODUCTION_PROJECT_ID = "synapse-network-prod"
 REGION = "us-central1"
@@ -98,40 +98,22 @@ SOURCE_PRS = [
     },
 ]
 PENDING_SOURCE_PRS: list[dict[str, Any]] = []
-PENDING_PUBLICATION_GAPS = [
+PENDING_PUBLICATION_GAPS: list[dict[str, Any]] = []
+VERIFIED_PUBLICATION_SURFACES = [
     {
-        "surface": "www-jsonld",
-        "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
-        "current_status": 200,
-        "expected_after_merge": 200,
-        "source_pr": 216,
-        "next_action": "Deploy user-front from merged PR #216 commit 09a8e5fcb151, then verify application/ld+json, FAQPage, and SoftwareApplication in the first HTML response.",
+        "surface": "www-jsonld", "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls", "current_status": 200, "expected_after_merge": 200, "source_pr": 216,
+        "next_action": "Verified in production HTML after user-front deployment #254.",
     },
     {
-        "surface": "www-jsonld",
-        "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
-        "current_status": 200,
-        "expected_after_merge": 200,
-        "source_pr": 216,
-        "next_action": "Deploy user-front from merged PR #216 commit 09a8e5fcb151, then verify application/ld+json, FAQPage, and SoftwareApplication in the first HTML response.",
+        "surface": "www-jsonld", "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments", "current_status": 200, "expected_after_merge": 200, "source_pr": 216,
+        "next_action": "Verified in production HTML after user-front deployment #254.",
     },
 ]
 DEPLOYMENT_GAP_BASES = [
     {
-        "service_key": "docs-front",
-        "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
-        "production_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
-        "latest_staging_record_id": 244,
-        "latest_production_record_id": 246,
-        "status": "staging_and_production_behind_target",
-    },
-    {
-        "service_key": "user-front",
-        "staging_commit": "7657d220f672dd7e94e2ed15085201fa7e5e5d64",
-        "production_commit": "",
-        "latest_staging_record_id": 245,
-        "latest_production_record_id": 247,
-        "status": "production_failed_for_previous_target",
+        "service_key": "user-front", "staging_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469", "production_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+        "latest_staging_record_id": 253, "latest_production_record_id": 254, "status": "staging_and_production_at_target",
+        "staging_release_task_id": 252, "production_release_task_id": 253, "staging_revision": "synapse-staging-user-front-00045-xgp", "production_revision": "synapse-prod-user-front-00032-2z5",
     },
 ]
 PREDEPLOY_EVIDENCE_PATH = (
@@ -167,6 +149,7 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
         "deploy_readiness_status": deploy_readiness,
         "deployment_gaps": _deployment_gaps(target_commit),
         "pending_publication_gaps": PENDING_PUBLICATION_GAPS,
+        "verified_publication_surfaces": VERIFIED_PUBLICATION_SURFACES,
         "confirmed_facts": _confirmed_facts(target_commit),
         "hard_boundaries": [
             "Do not run gcloud run deploy directly.",
@@ -188,10 +171,8 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             _gcloud_preflight_group(target_commit),
             _growing_preflight_group(),
             _task_status_group(),
-            _staging_group("docs-front", actor),
             _staging_group("user-front", actor),
             _staging_validation_group(),
-            _production_group("docs-front", actor),
             _production_group("user-front", actor),
             _production_validation_group(),
             _indexnow_submission_group(),
@@ -357,9 +338,11 @@ def _answer_engine_probe_group() -> dict[str, Any]:
 def _known_blockers(
     deploy_readiness: str, predeploy_evidence: dict[str, Any], target_commit: str
 ) -> list[str]:
-    blockers = [
-        "GCloud auth fails non-interactively until a human runs gcloud auth login.",
-    ]
+    blockers: list[str] = []
+    if deploy_readiness != "production_jsonld_verified":
+        blockers.append(
+            "GCloud auth fails non-interactively until a human runs gcloud auth login."
+        )
     for item in PENDING_SOURCE_PRS:
         blockers.append(
             (
@@ -387,6 +370,8 @@ def _confirmed_facts(target_commit: str) -> list[str]:
         f"Synapse-Network main is pinned to merged PR #{latest_pr} commit {target_commit}.",
         "Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.",
         "Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds.",
+        "Production user-front release task #253 deployed commit 09a8e5fcb151 with Cloud Run revision synapse-prod-user-front-00032-2z5.",
+        "The MCP paid API and ChatGPT MCP app pages include application/ld+json, FAQPage, and SoftwareApplication in production HTML.",
     ]
 
 
@@ -398,6 +383,11 @@ def _deployment_gaps(target_commit: str) -> list[dict[str, Any]]:
         next_action = (
             f"Re-run {service_key} staging for {target_short}, then promote production."
         )
+        if base["status"] == "staging_and_production_at_target":
+            next_action = (
+                f"{service_key} staging and production are already at {target_short}; "
+                "run external answer-engine probes next."
+            )
         if base["status"] == "production_failed_for_previous_target":
             next_action = (
                 f"Re-run {service_key} staging for {target_short}; the previous "
@@ -492,6 +482,13 @@ def _deploy_readiness_status(predeploy_evidence: dict[str, Any], target_commit: 
         return "blocked_until_source_pr_merged"
     if SOURCE_PR.get("state") != "MERGED":
         return "blocked_until_pr_merged"
+    deployed_targets = {
+        str(item.get("production_commit") or "")
+        for item in DEPLOYMENT_GAP_BASES
+        if str(item.get("status") or "") == "staging_and_production_at_target"
+    }
+    if target_commit in deployed_targets:
+        return "production_jsonld_verified"
     if predeploy_evidence.get("status") != "target_branch_ready_live_prod_blocked":
         return "blocked_until_predeploy_evidence"
     if str(predeploy_evidence.get("commit") or "") != target_commit:

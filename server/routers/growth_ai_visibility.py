@@ -24,9 +24,12 @@ from server.schemas_growth import (
     GrowthAIVisibilityOptimizationBriefOut,
     GrowthAIVisibilityOfficialSourceListOut,
     GrowthAIVisibilityOptimizationPlanOut,
+    GrowthAIVisibilityPresencePlanOut,
     GrowthAIVisibilityProbeMatrixOut,
     GrowthAIVisibilityReleaseSnapshotOut,
     GrowthAIVisibilityReleaseUnblockPlanOut,
+    GrowthAIVisibilitySourceHostExecutionChecklistOut,
+    GrowthAIVisibilitySourceHostFeedPackageOut,
     GrowthAIVisibilityWeeklyReportOut,
 )
 from server.services.growth import (
@@ -40,10 +43,12 @@ from server.services.growth import (
     ai_visibility_live_readiness,
     ai_visibility_official_sources,
     ai_visibility_plan,
+    ai_visibility_presence_plan,
     ai_visibility_probe_matrix,
     ai_visibility_release_snapshot,
     ai_visibility_release_unblock,
     ai_visibility_scorecard,
+    ai_visibility_source_host_feed,
     ai_visibility_discovery,
 )
 
@@ -227,6 +232,54 @@ def get_ai_visibility_official_sources():
 )
 def get_ai_visibility_probe_matrix(db: Session = Depends(get_db)):
     return ai_visibility_probe_matrix.ai_visibility_probe_matrix(db)
+
+
+@router.get(
+    "/ai-visibility/presence-plan",
+    response_model=GrowthAIVisibilityPresencePlanOut,
+)
+def get_ai_visibility_presence_plan(
+    feed_key: str = ai_visibility_presence_plan.DEFAULT_FEED_KEY,
+    run_group: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return ai_visibility_presence_plan.ai_visibility_presence_plan(
+        db,
+        feed_key=feed_key,
+        run_group=run_group,
+    )
+
+
+@router.get(
+    "/ai-visibility/source-host-feed-package",
+    response_model=GrowthAIVisibilitySourceHostFeedPackageOut,
+)
+def get_ai_visibility_source_host_feed_package(
+    feed_key: str = ai_visibility_presence_plan.DEFAULT_FEED_KEY,
+    run_group: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return ai_visibility_source_host_feed.ai_visibility_source_host_feed_package(
+        db,
+        feed_key=feed_key,
+        run_group=run_group,
+    )
+
+
+@router.get(
+    "/ai-visibility/source-host-execution-checklist",
+    response_model=GrowthAIVisibilitySourceHostExecutionChecklistOut,
+)
+def get_ai_visibility_source_host_execution_checklist(
+    feed_key: str = ai_visibility_presence_plan.DEFAULT_FEED_KEY,
+    run_group: str | None = None,
+    db: Session = Depends(get_db),
+):
+    return ai_visibility_source_host_feed.ai_visibility_source_host_execution_checklist(
+        db,
+        feed_key=feed_key,
+        run_group=run_group,
+    )
 
 
 @router.get(

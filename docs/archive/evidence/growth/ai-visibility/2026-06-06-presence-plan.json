@@ -1,0 +1,263 @@
+{
+  "actions": [
+    {
+      "action_type": "comparison_presence",
+      "asset": "Synapse-vs-paid-MCP comparison block plus social/GitHub references naming this alternative.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "docs.mcpay.tech",
+      "operator_notes": [
+        "Do not submit to competitor-owned docs; publish equivalent comparison evidence on owned channels."
+      ],
+      "ownership": "not_directly_editable",
+      "priority": 1,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "ChatGPT cited this competitor or alternative surface; Synapse should strengthen equivalent comparison pages and third-party mentions.",
+      "source_reference_url": "https://docs.mcpay.tech/",
+      "submission_payload": {
+        "competitor_host": "docs.mcpay.tech",
+        "owned_comparison_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "recommended_copy_angle": "Explain how Synapse differs from paid MCP alternatives by combining Remote MCP discovery, bounded agent spend, USDC settlement, and receipts.",
+        "source_hosts_to_monitor": [
+          "docs.mcpay.tech"
+        ]
+      },
+      "submit_url": "",
+      "target_surface": "https://docs.mcpay.tech/",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -i \"docs\""
+    },
+    {
+      "action_type": "comparison_presence",
+      "asset": "Synapse-vs-paid-MCP comparison block plus social/GitHub references naming this alternative.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "mcp.magpie.im",
+      "operator_notes": [
+        "Do not submit to competitor-owned docs; publish equivalent comparison evidence on owned channels."
+      ],
+      "ownership": "not_directly_editable",
+      "priority": 2,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "ChatGPT cited this competitor or alternative surface; Synapse should strengthen equivalent comparison pages and third-party mentions.",
+      "source_reference_url": "https://mcp.magpie.im/",
+      "submission_payload": {
+        "competitor_host": "mcp.magpie.im",
+        "owned_comparison_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "recommended_copy_angle": "Explain how Synapse differs from paid MCP alternatives by combining Remote MCP discovery, bounded agent spend, USDC settlement, and receipts.",
+        "source_hosts_to_monitor": [
+          "mcp.magpie.im"
+        ]
+      },
+      "submit_url": "",
+      "target_surface": "https://mcp.magpie.im/",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -i \"mcp\""
+    },
+    {
+      "action_type": "monitor_and_contextual_feed",
+      "asset": "Contextual mention opportunity or evidence-only monitor entry.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "alternativeto.net",
+      "operator_notes": [],
+      "ownership": "unknown",
+      "priority": 3,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "The host appeared in ChatGPT source evidence; inspect whether it has a directory, comparison, or roundup surface that can mention Synapse.",
+      "source_reference_url": "https://alternativeto.net/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "submit_url": "",
+      "target_surface": "https://alternativeto.net/",
+      "validation_command": "curl -I -sS \"https://alternativeto.net/\" | head -5"
+    },
+    {
+      "action_type": "comparison_presence",
+      "asset": "Synapse-vs-paid-MCP comparison block plus social/GitHub references naming this alternative.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "anythingmcp.com",
+      "operator_notes": [
+        "Do not submit to competitor-owned docs; publish equivalent comparison evidence on owned channels."
+      ],
+      "ownership": "not_directly_editable",
+      "priority": 4,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "ChatGPT cited this competitor or alternative surface; Synapse should strengthen equivalent comparison pages and third-party mentions.",
+      "source_reference_url": "https://anythingmcp.com/",
+      "submission_payload": {
+        "competitor_host": "anythingmcp.com",
+        "owned_comparison_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "recommended_copy_angle": "Explain how Synapse differs from paid MCP alternatives by combining Remote MCP discovery, bounded agent spend, USDC settlement, and receipts.",
+        "source_hosts_to_monitor": [
+          "anythingmcp.com"
+        ]
+      },
+      "submit_url": "",
+      "target_surface": "https://anythingmcp.com/",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -i \"anythingmcp\""
+    },
+    {
+      "action_type": "monitor_and_contextual_feed",
+      "asset": "Contextual mention opportunity or evidence-only monitor entry.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "chatforest.com",
+      "operator_notes": [],
+      "ownership": "unknown",
+      "priority": 5,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "The host appeared in ChatGPT source evidence; inspect whether it has a directory, comparison, or roundup surface that can mention Synapse.",
+      "source_reference_url": "https://chatforest.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "submit_url": "",
+      "target_surface": "https://chatforest.com/",
+      "validation_command": "curl -I -sS \"https://chatforest.com/\" | head -5"
+    },
+    {
+      "action_type": "monitor_and_contextual_feed",
+      "asset": "Contextual mention opportunity or evidence-only monitor entry.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "coincodecap.com",
+      "operator_notes": [],
+      "ownership": "unknown",
+      "priority": 6,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "The host appeared in ChatGPT source evidence; inspect whether it has a directory, comparison, or roundup surface that can mention Synapse.",
+      "source_reference_url": "https://coincodecap.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "submit_url": "",
+      "target_surface": "https://coincodecap.com/",
+      "validation_command": "curl -I -sS \"https://coincodecap.com/\" | head -5"
+    },
+    {
+      "action_type": "directory_listing",
+      "asset": "Synapse Remote MCP listing metadata with endpoint, tools, GitHub, npm, and docs links.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "mcp-marketplace.io",
+      "operator_notes": [
+        "Login appears required before submission; use the operator-owned directory account."
+      ],
+      "ownership": "submittable",
+      "priority": 7,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "ChatGPT cited this MCP directory or marketplace for paid MCP queries; a Synapse listing or update can become a candidate source.",
+      "source_reference_url": "https://mcp-marketplace.io/submit",
+      "submission_payload": {
+        "contact_email": "<operator email>",
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "login_required": true,
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve settlement receipts.",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "website": "https://www.synapse-network.ai/"
+      },
+      "submit_url": "https://mcp-marketplace.io/submit",
+      "target_surface": "https://mcp-marketplace.io/",
+      "validation_command": "curl -fsS \"https://mcp-marketplace.io/\" | grep -i \"synapse\""
+    },
+    {
+      "action_type": "monitor_and_contextual_feed",
+      "asset": "Contextual mention opportunity or evidence-only monitor entry.",
+      "copy_points": [
+        "Synapse Network is the settlement layer for AI agents buying paid APIs.",
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Tools: discover_services, invoke_and_pay, get_receipt",
+        "Official docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Comparison: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+      ],
+      "host": "mcpanalytics.ai",
+      "operator_notes": [],
+      "ownership": "unknown",
+      "priority": 8,
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "rationale": "The host appeared in ChatGPT source evidence; inspect whether it has a directory, comparison, or roundup surface that can mention Synapse.",
+      "source_reference_url": "https://mcpanalytics.ai/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "submit_url": "",
+      "target_surface": "https://mcpanalytics.ai/",
+      "validation_command": "curl -I -sS \"https://mcpanalytics.ai/\" | head -5"
+    }
+  ],
+  "blockers": [],
+  "compare_command": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery\"",
+  "feed_key": "mcp_paid_api_discovery",
+  "generated_at": "2026-06-06T04:20:05.361808Z",
+  "module_key": "ai_visibility",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+  "run_group": "2026-06-06-after-jsonld-prod-chatgpt-source-hosts",
+  "source_hosts": [
+    "docs.mcpay.tech",
+    "mcp.magpie.im",
+    "alternativeto.net",
+    "anythingmcp.com",
+    "chatforest.com",
+    "coincodecap.com",
+    "mcp-marketplace.io",
+    "mcpanalytics.ai"
+  ],
+  "status": "ready_for_presence_work",
+  "validation_commands": [
+    "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery",
+    "python scripts/growth/generate_ai_visibility_probe_matrix.py --feed-key mcp_paid_api_discovery",
+    "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-06-after-jsonld-prod-chatgpt-source-hosts --platforms chatgpt --execute"
+  ]
+}

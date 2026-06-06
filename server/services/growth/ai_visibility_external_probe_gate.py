@@ -12,11 +12,15 @@ from server.schemas_growth import (
 from server.services.growth import ai_visibility_live_readiness
 from server.services.growth.ai_visibility_text import unique_strings
 
-TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
+TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 ENV_KEYS = {
     "chatgpt": "OPENAI_API_KEY",
     "claude": "ANTHROPIC_API_KEY",
     "grok": "XAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+ENV_KEY_ALIASES = {
+    "gemini": ("GEMINI_API_KEY", "GENIMI_API_KEY"),
 }
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
 
@@ -99,10 +103,17 @@ def _provider_readiness() -> list[GrowthAIVisibilityExternalProbeProviderOut]:
         GrowthAIVisibilityExternalProbeProviderOut(
             platform=platform,
             env_key=ENV_KEYS[platform],
-            configured=bool(os.environ.get(ENV_KEYS[platform], "").strip()),
+            configured=_platform_configured(platform),
         )
         for platform in TARGET_PLATFORMS
     ]
+
+
+def _platform_configured(platform: str) -> bool:
+    return any(
+        os.environ.get(env_key, "").strip()
+        for env_key in ENV_KEY_ALIASES.get(platform, (ENV_KEYS[platform],))
+    )
 
 
 def _safe_run_group(
@@ -147,7 +158,7 @@ def _api_base(*, feed_key: str, run_group: str) -> str:
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok"
+        "--platforms chatgpt,claude,grok,gemini"
     )
 
 
@@ -158,7 +169,7 @@ def _manual_probe_template_command(
         "python scripts/growth/generate_ai_visibility_probe_template.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok "
+        "--platforms chatgpt,claude,grok,gemini "
         "--mode after-feed "
         f"--output {output_path}"
     )

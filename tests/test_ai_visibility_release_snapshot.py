@@ -9,6 +9,8 @@ def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GENIMI_API_KEY", raising=False)
     monkeypatch.setattr(
         snapshot,
         "ai_visibility_live_readiness",
@@ -35,15 +37,16 @@ def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
     assert payload["snapshot_type"] == "release_blocker"
     assert payload["status"] == "blocked"
     assert payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
+    assert payload["deploy_readiness_status"] == "production_jsonld_verified"
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
     )
     rendered = json.dumps(payload)
-    assert "Target commit 09a8e5fcb151" in rendered
+    assert "synapse-prod-user-front-00032-2z5" in rendered
     assert "gcloud auth login" in rendered
     assert "chatgpt external probe key missing: OPENAI_API_KEY." in rendered
+    assert "gemini external probe key missing: GEMINI_API_KEY." in rendered
     assert "OPENAI_API_KEY=" not in rendered
 
 
@@ -53,6 +56,8 @@ def test_release_snapshot_does_not_keep_stale_live_blockers_when_feed_is_ready(
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GENIMI_API_KEY", raising=False)
     monkeypatch.setattr(
         snapshot,
         "ai_visibility_live_readiness",
@@ -82,6 +87,7 @@ def test_release_snapshot_does_not_keep_stale_live_blockers_when_feed_is_ready(
     assert "does not expose the MCP paid API guide" not in rendered
     assert "gcloud auth login" in rendered
     assert "chatgpt external probe key missing: OPENAI_API_KEY." in rendered
+    assert "gemini external probe key missing: GEMINI_API_KEY." in rendered
 
 
 def test_release_snapshot_cli_writes_json(monkeypatch, tmp_path):

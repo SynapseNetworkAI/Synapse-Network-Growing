@@ -1,0 +1,187 @@
+{
+  "module_key": "ai_visibility",
+  "package_type": "source_host_feed",
+  "generated_at": "2026-06-06T04:28:49.461750Z",
+  "feed_key": "agent_payment_category_pages",
+  "run_group": "2026-06-06-after-keys-grok-gemini",
+  "status": "ready_for_operator_feed",
+  "source_hosts": [
+    "aws.amazon.com",
+    "chain.link",
+    "crossmint.com",
+    "cloud.google.com",
+    "circle.com",
+    "apideck.com",
+    "clearlypayments.com",
+    "dwaynegefferie.substack.com"
+  ],
+  "drafts": [
+    {
+      "host": "aws.amazon.com",
+      "priority": 1,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://aws.amazon.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for aws.amazon.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for aws.amazon.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://aws.amazon.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://aws.amazon.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "chain.link",
+      "priority": 2,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://chain.link/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for chain.link",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for chain.link\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://chain.link/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://chain.link/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "crossmint.com",
+      "priority": 3,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://crossmint.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for crossmint.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for crossmint.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://crossmint.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://crossmint.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "cloud.google.com",
+      "priority": 4,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://cloud.google.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for cloud.google.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for cloud.google.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://cloud.google.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://cloud.google.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "circle.com",
+      "priority": 5,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://circle.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for circle.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for circle.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://circle.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://circle.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "apideck.com",
+      "priority": 6,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://apideck.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for apideck.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for apideck.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://apideck.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://apideck.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "clearlypayments.com",
+      "priority": 7,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://clearlypayments.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for clearlypayments.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for clearlypayments.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://clearlypayments.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://clearlypayments.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    },
+    {
+      "host": "dwaynegefferie.substack.com",
+      "priority": 8,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://dwaynegefferie.substack.com/",
+      "submit_url": "",
+      "title": "Synapse Network contextual mention opportunity for dwaynegefferie.substack.com",
+      "summary": "Inspect this cited source host for a roundup, partner page, docs issue, guest post, or ecosystem listing that can truthfully mention Synapse.",
+      "body_markdown": "# Synapse Network contextual mention opportunity for dwaynegefferie.substack.com\n\nPitch angle:\n\nSynapse Network is a settlement layer for AI agents that need to discover paid APIs, invoke approved tools with bounded spend, and retrieve receipts for each call.\n\nSuggested mention:\n\n> Synapse Network provides Remote MCP discovery and paid API settlement for AI agents, with scoped credentials, USDC settlement, and receipt evidence for each metered invocation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://dwaynegefferie.substack.com/",
+      "submission_payload": {
+        "inspection_goal": "Find a directory, marketplace, roundup, guest post, or comparison surface where Synapse can be listed without misrepresenting ownership.",
+        "official_facts_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp"
+      },
+      "validation_command": "curl -I -sS \"https://dwaynegefferie.substack.com/\" | head -5",
+      "probe_followup": "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing or comparison asset is live and indexed.",
+      "operator_notes": []
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "presence_plan": "python scripts/growth/generate_ai_visibility_presence_plan.py --feed-key agent_payment_category_pages",
+    "export_package": "python scripts/growth/generate_ai_visibility_source_host_feed_package.py --feed-key agent_payment_category_pages --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-feed-package.json",
+    "after_feed_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages\""
+  }
+}

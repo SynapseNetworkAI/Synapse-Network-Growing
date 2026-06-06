@@ -1,8 +1,11 @@
 import { EmptyPane, StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityProbeMatrix, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilityCheck, GrowthAIVisibilityComparison, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityHandoffBundle, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityOfficialSourceList, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilityProbeMatrix, GrowthAIVisibilityReleaseSnapshot, GrowthAIVisibilityReleaseUnblockPlan, GrowthAIVisibilityWeeklyReport } from '../api'
+import type { GrowthAIVisibilitySourceHostFeedPackage } from '../apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilitySourceHostExecutionChecklist } from '../apiGrowthAiVisibilityPlanTypes'
 import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, GoalAuditSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
 import { HandoffBundleSummary, ReleaseSnapshotSummary, ReleaseUnblockSummary } from './GrowthAIVisibilityReleaseSummaries'
 import { Info, signed } from './GrowthAIVisibilityPanelParts'
+import { PresencePlanSummary, SourceHostExecutionChecklistSummary, SourceHostFeedPackageSummary } from './GrowthAIVisibilitySourceHostFeedSummary'
 
 function tone(value: boolean) {
   return value ? 'delivered' : 'muted'
@@ -27,6 +30,9 @@ export function GrowthAIVisibilityPanel({
   externalProbeGate,
   officialSources,
   probeMatrix,
+  presencePlan,
+  sourceHostFeedPackage,
+  sourceHostExecutionChecklist,
   plan,
   onCreate,
 }: Readonly<{
@@ -48,6 +54,9 @@ export function GrowthAIVisibilityPanel({
   externalProbeGate: GrowthAIVisibilityExternalProbeGate | null
   officialSources: GrowthAIVisibilityOfficialSourceList | null
   probeMatrix: GrowthAIVisibilityProbeMatrix | null
+  presencePlan: GrowthAIVisibilityPresencePlan | null
+  sourceHostFeedPackage: GrowthAIVisibilitySourceHostFeedPackage | null
+  sourceHostExecutionChecklist: GrowthAIVisibilitySourceHostExecutionChecklist | null
   plan: GrowthAIVisibilityOptimizationPlan | null
   onCreate: () => void
 }>) {
@@ -93,6 +102,9 @@ export function GrowthAIVisibilityPanel({
           <OptimizationBriefSummary brief={optimizationBrief} />
           <OfficialSourceMap sources={officialSources} />
           <ProbeMatrixSummary matrix={probeMatrix} />
+          <PresencePlanSummary plan={presencePlan} />
+          <SourceHostFeedPackageSummary packagePayload={sourceHostFeedPackage} />
+          <SourceHostExecutionChecklistSummary checklist={sourceHostExecutionChecklist} />
           <ExternalProbeGateSummary gate={externalProbeGate} />
           <LiveReadinessSummary readiness={liveReadiness} />
           <NextCycleSummary nextCycle={nextCycle} />

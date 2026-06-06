@@ -112,3 +112,84 @@ export interface GrowthAIVisibilityOptimizationPlan {
   growing_workflows: string[]
   success_criteria: string[]
 }
+export interface GrowthAIVisibilityPresenceAction {
+  host: string
+  priority: number
+  action_type: string
+  ownership: string
+  rationale: string
+  target_surface: string
+  asset: string
+  copy_points: string[]
+  validation_command: string
+  probe_followup: string
+  submit_url: string
+  source_reference_url: string
+  submission_payload: Record<string, unknown>
+  operator_notes: string[]
+}
+export interface GrowthAIVisibilityPresencePlan {
+  module_key: string
+  generated_at: string
+  feed_key: string
+  run_group: string
+  status: string
+  source_hosts: string[]
+  actions: GrowthAIVisibilityPresenceAction[]
+  blockers: string[]
+  validation_commands: string[]
+  next_probe_command: string
+  compare_command: string
+}
+export interface GrowthAIVisibilitySourceHostDraft {
+  host: string
+  priority: number
+  draft_type: string
+  status: string
+  target_url: string
+  submit_url: string
+  title: string
+  summary: string
+  body_markdown: string
+  source_reference_url: string
+  submission_payload: Record<string, unknown>
+  validation_command: string
+  probe_followup: string
+  operator_notes: string[]
+}
+export interface GrowthAIVisibilitySourceHostFeedPackage {
+  module_key: string
+  package_type: string
+  generated_at: string
+  feed_key: string
+  run_group: string
+  status: string
+  source_hosts: string[]
+  drafts: GrowthAIVisibilitySourceHostDraft[]
+  blockers: string[]
+  commands: Record<string, string>
+}
+export interface GrowthAIVisibilitySourceHostExecutionItem {
+  key: string
+  host: string
+  priority: number
+  draft_type: string
+  execution_status: string
+  target_url: string
+  action_required: string
+  required_evidence: string[]
+  validation_command: string
+  re_probe_command: string
+  completion_gate: string
+}
+export interface GrowthAIVisibilitySourceHostExecutionChecklist {
+  module_key: string
+  checklist_type: string
+  generated_at: string
+  feed_key: string
+  run_group: string
+  status: string
+  items: GrowthAIVisibilitySourceHostExecutionItem[]
+  blockers: string[]
+  commands: Record<string, string>
+}

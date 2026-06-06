@@ -10,6 +10,8 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
     monkeypatch.delenv("XAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GENIMI_API_KEY", raising=False)
 
     def fake_validate_feed(*, feed_key: str, run_group: str):
         return [
@@ -46,12 +48,13 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is False
     assert payload["ready_platforms"] == ["chatgpt", "claude"]
-    assert payload["missing_platforms"] == ["grok"]
+    assert payload["missing_platforms"] == ["grok", "gemini"]
     assert "--platforms chatgpt,claude" in payload["partial_api_readiness_command"]
     assert "--platforms chatgpt,claude" in payload["partial_api_execute_command"]
-    assert "--platforms chatgpt,claude,grok" in payload["api_readiness_command"]
-    assert "--platforms chatgpt,claude,grok" in payload["manual_probe_template_command"]
+    assert "--platforms chatgpt,claude,grok,gemini" in payload["api_readiness_command"]
+    assert "--platforms chatgpt,claude,grok,gemini" in payload["manual_probe_template_command"]
     assert "grok missing XAI_API_KEY." in payload["blockers"]
+    assert "gemini missing GEMINI_API_KEY." in payload["blockers"]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
 
@@ -65,6 +68,8 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
     monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GENIMI_API_KEY", "gemini-test-secret")
 
     def fake_validate_feed(*, feed_key: str, run_group: str):
         return [
@@ -100,7 +105,7 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert payload["manual_ready_to_execute"] is True
     assert payload["feed_ready"] is True
     assert payload["api_keys_ready"] is True
-    assert payload["ready_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["ready_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert payload["missing_platforms"] == []
     assert all(item["configured"] for item in payload["provider_readiness"])
     assert (
@@ -110,6 +115,7 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
     assert "xai-test-secret" not in rendered
+    assert "gemini-test-secret" not in rendered
 
 
 def test_growth_ai_visibility_release_snapshot_api(monkeypatch, synced_client):

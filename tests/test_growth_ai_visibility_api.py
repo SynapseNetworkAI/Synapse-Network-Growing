@@ -136,9 +136,9 @@ def test_growth_ai_visibility_and_discovery_listing(
     release_plan = synced_client.get("/api/growth/ai-visibility/release-unblock-plan")
     assert release_plan.status_code == 200
     release_payload = release_plan.json()
-    assert release_payload["status"] == "blocked_until_target_commit_matches"
+    assert release_payload["status"] == "production_jsonld_verified"
     assert release_payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert release_payload["services"] == ["docs-front", "user-front"]
+    assert release_payload["services"] == ["user-front"]
     assert release_payload["target_commit_sha"] == (
         "09a8e5fcb1511ca19b2ec417474ba5e780510469"
     )
@@ -153,17 +153,18 @@ def test_growth_ai_visibility_and_discovery_listing(
         215,
         216,
     }
-    assert release_payload["deployment_gaps"][0]["service_key"] == "docs-front"
+    assert release_payload["deployment_gaps"][0]["service_key"] == "user-front"
+    assert release_payload["deployment_gaps"][0]["status"] == "staging_and_production_at_target"
     assert release_payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
     assert release_payload["predeploy_evidence"]["validation_count"] >= 5
-    assert release_payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
+    assert release_payload["deploy_readiness_status"] == "production_jsonld_verified"
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
     )
-    assert "GCloud auth fails non-interactively" in release_payload["known_blockers"][0]
+    assert release_payload["known_blockers"] == []
     rendered_release_plan = json.dumps(release_payload)
     assert "gcloud auth login" in rendered_release_plan
     assert "X-Growing-Agent-Deploy-Token" in rendered_release_plan
@@ -787,9 +788,9 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["manual_ready_to_execute"] is False
     assert payload["feed_ready"] is False
     assert payload["api_keys_ready"] is False
-    assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert payload["ready_platforms"] == []
-    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
     assert (
@@ -803,7 +804,7 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
 
 
 def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client):
-    for platform in ("chatgpt", "claude", "grok"):
+    for platform in ("chatgpt", "claude", "grok", "gemini"):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
