@@ -1,0 +1,18 @@
+{
+  "execute": true,
+  "endpoint": "https://api.indexnow.org/indexnow",
+  "results": [
+    {
+      "host": "www.synapse-network.ai",
+      "status": 200,
+      "ok": true,
+      "responseText": ""
+    },
+    {
+      "host": "docs.synapse-network.ai",
+      "status": 200,
+      "ok": true,
+      "responseText": ""
+    }
+  ]
+}
