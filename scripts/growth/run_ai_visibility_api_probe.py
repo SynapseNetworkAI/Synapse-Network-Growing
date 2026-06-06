@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.error
 import urllib.parse
@@ -31,10 +30,12 @@ from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
 from scripts.growth.ai_visibility_api_probe_failures import (  # noqa: E402
     provider_failure_payload,
 )
+from scripts.growth.ai_visibility_api_probe_scoring import (  # noqa: E402
+    answer_payload,
+)
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     DEFAULT_PLATFORMS,
-    KNOWN_COLLISION_DOMAINS,
     default_queries_for_feed,
     official_source_urls_for_feed,
     parse_platforms,
@@ -408,65 +409,6 @@ def extract_urls(value: Any) -> list[str]:
         for item in value:
             urls.extend(extract_urls(item))
     return sorted({url for url in urls if url.startswith("http")})
-
-
-def answer_payload(
-    *,
-    platform: str,
-    model: str,
-    text: str,
-    urls: list[str],
-    request_id: str,
-) -> dict[str, Any]:
-    if not text.strip():
-        raise RuntimeError(f"{platform} API returned no answer text")
-    lowered = text.lower()
-    cited_synapse_urls = [url for url in urls if is_synapse_url(url)]
-    mentioned = "synapse network" in lowered or "synapsenetwork" in lowered
-    competitors = competitor_mentions(text, urls)
-    return {
-        "summary": text[:1200],
-        "synapse_mentioned": mentioned or bool(cited_synapse_urls),
-        "synapse_cited": bool(cited_synapse_urls),
-        "cited_urls": cited_synapse_urls,
-        "source_urls": urls,
-        "competitor_mentions": competitors,
-        "missing_facts": [] if mentioned else ["Synapse Network was not mentioned."],
-        "next_action": (
-            "Compare against previous run group and keep feeding cited surfaces."
-            if mentioned
-            else "Deploy/refresh feed assets and rerun the same API probe."
-        ),
-        "result_rank": 1 if mentioned else 0,
-        "model": model,
-        "request_id": request_id,
-        "platform": platform,
-    }
-
-
-def is_synapse_url(url: str) -> bool:
-    return any(
-        host in url
-        for host in (
-            "www.synapse-network.ai",
-            "docs.synapse-network.ai",
-            "github.com/SynapseNetworkAI",
-            "mcp.synapse-network.ai",
-            "registry.modelcontextprotocol.io",
-        )
-    )
-
-
-def competitor_mentions(text: str, urls: list[str]) -> list[str]:
-    haystack = " ".join([text, *urls]).lower()
-    competitors = []
-    for label in ["x402", "stripe", "rapidapi", "masumi", "locus", "payspawn"]:
-        if re.search(rf"\b{re.escape(label)}\b", haystack):
-            competitors.append(label)
-    for domain in KNOWN_COLLISION_DOMAINS:
-        if domain.lower() in haystack:
-            competitors.append(domain)
-    return competitors
 
 
 def redact_secrets(value: str) -> str:
