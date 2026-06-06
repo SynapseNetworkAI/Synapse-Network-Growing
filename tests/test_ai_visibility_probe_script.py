@@ -752,7 +752,9 @@ def test_api_probe_execute_missing_keys_fails_closed(tmp_path: Path):
     records = parse_probe_file(output_path)
     assert validate_records(records) == []
     assert {record.platform for record in records} == {"chatgpt", "claude", "grok"}
-    assert all(record.metadata["mode"] == "api_probe_readiness_blocker" for record in records)
+    assert all(
+        record.metadata["mode"] == "api_probe_readiness_blocker" for record in records
+    )
     assert all(record.synapse_mentioned is False for record in records)
     assert all(record.synapse_cited is False for record in records)
     assert "OPENAI_API_KEY" in records[0].missing_facts[0]
@@ -775,9 +777,9 @@ def test_api_readiness_blocker_records_are_valid():
     assert records[0].metadata["mode"] == "api_probe_readiness_blocker"
     assert records[0].metadata["blocked_query_count"] == "2"
     assert "OPENAI_API_KEY" in records[0].answer_summary
-    assert "https://www.synapse-network.ai/" in records[0].metadata[
-        "official_source_urls"
-    ]
+    assert (
+        "https://www.synapse-network.ai/" in records[0].metadata["official_source_urls"]
+    )
 
 
 def test_run_api_probes_generates_valid_records(monkeypatch):
