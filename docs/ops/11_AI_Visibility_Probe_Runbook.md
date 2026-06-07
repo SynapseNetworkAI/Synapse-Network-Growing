@@ -156,6 +156,43 @@ curl -fsS \
   | python -m json.tool
 ```
 
+After a real answer-engine probe captures `source_hosts`, export the source-host
+feed package. This converts the hosts that ChatGPT, Claude, Grok, or Gemini
+actually cited into operator-reviewed directory submissions, owned comparison
+updates, and contextual partner/guest-post drafts:
+
+```bash
+python scripts/growth/generate_ai_visibility_source_host_feed_package.py \
+  --feed-key agent_payment_category_pages \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-source-host-feed-package.json
+```
+
+The same draft package is available from Growing:
+
+```bash
+curl -fsS \
+  "http://localhost:9700/api/growth/ai-visibility/source-host-feed-package?feed_key=agent_payment_category_pages" \
+  | python -m json.tool
+```
+
+Export the matching execution checklist when the operator is ready to act. This
+keeps directory submissions, owned comparison updates, partner-review work,
+required evidence, validation commands, and post-feed probes in one place:
+
+```bash
+python scripts/growth/generate_ai_visibility_source_host_execution_checklist.py \
+  --feed-key agent_payment_category_pages \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-source-host-execution-checklist.json
+```
+
+Growing exposes the same checklist:
+
+```bash
+curl -fsS \
+  "http://localhost:9700/api/growth/ai-visibility/source-host-execution-checklist?feed_key=agent_payment_category_pages" \
+  | python -m json.tool
+```
+
 Each feed package includes `platform_strategies` for ChatGPT, Claude, and Grok.
 Use those entries to vary the feed surfaces without changing the measurement
 question: for example ChatGPT may prioritize Remote MCP custom-app metadata and

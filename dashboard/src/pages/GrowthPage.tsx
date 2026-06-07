@@ -378,6 +378,9 @@ export default function GrowthPage() {
           externalProbeGate={aiVisibility.externalProbeGate}
           officialSources={aiVisibility.officialSources}
           probeMatrix={aiVisibility.probeMatrix}
+          presencePlan={aiVisibility.presencePlan}
+          sourceHostFeedPackage={aiVisibility.sourceHostFeedPackage}
+          sourceHostExecutionChecklist={aiVisibility.sourceHostExecutionChecklist}
           plan={aiVisibility.plan}
           onCreate={() => setRecordModal('ai')}
         />

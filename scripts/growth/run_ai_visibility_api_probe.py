@@ -11,9 +11,6 @@ import argparse
 import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,50 +20,40 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout  # noqa: E402
-from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
-    api_readiness_blocker_records,
-)
+from scripts.growth import ai_visibility_api_probe_adapters as probe_adapters  # noqa: E402
 from scripts.growth.ai_visibility_api_probe_failures import (  # noqa: E402
     provider_failure_payload,
 )
-from scripts.growth.ai_visibility_api_probe_scoring import (  # noqa: E402
-    answer_payload,
+from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
+    api_readiness_blocker_records,
 )
-from scripts.growth.local_env import load_optional_dotenv_path  # noqa: E402
+from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout  # noqa: E402
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
-    DEFAULT_PLATFORMS,
     default_queries_for_feed,
     official_source_urls_for_feed,
     parse_platforms,
     template_record,
 )
+from scripts.growth.local_env import load_optional_dotenv_path  # noqa: E402
 from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
     record_from_payload,
     validate_records,
 )
 
-OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
-ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
-XAI_RESPONSES_URL = "https://api.x.ai/v1/responses"
-GEMINI_GENERATE_CONTENT_URL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-)
-
-DEFAULT_MODELS = {
-    "chatgpt": "gpt-4o-mini",
-    "claude": "claude-sonnet-4-6",
-    "grok": "grok-4.20-reasoning",
-    "gemini": "gemini-2.5-flash",
-}
-
-ENV_KEYS = {
-    "chatgpt": ("OPENAI_API_KEY",),
-    "claude": ("ANTHROPIC_API_KEY",),
-    "grok": ("XAI_API_KEY",),
-    "gemini": ("GEMINI_API_KEY", "GENIMI_API_KEY"),
-}
+DEFAULT_PLATFORMS = probe_adapters.API_DEFAULT_PLATFORMS
+DEFAULT_MODELS = probe_adapters.DEFAULT_MODELS
+ENV_KEYS = probe_adapters.ENV_KEYS
+ENV_KEY_ALIASES = probe_adapters.ENV_KEY_ALIASES
+OPENAI_RESPONSES_URL = probe_adapters.OPENAI_RESPONSES_URL
+answer_payload = probe_adapters.answer_payload
+api_key_for_platform = probe_adapters.api_key_for_platform
+call_gemini = probe_adapters.call_gemini
+call_platform = probe_adapters.call_platform
+platform_api_key = probe_adapters.api_key_for_platform
+post_json = probe_adapters.post_json
+redact_secrets = probe_adapters.redact_secrets
+source_hosts = probe_adapters.source_hosts
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
@@ -182,19 +169,11 @@ def parse_api_platforms(raw: str) -> list[str]:
 def missing_key_blockers(platforms: Iterable[str]) -> list[Any]:
     blockers = []
     for platform in platforms:
+        env_keys = ENV_KEY_ALIASES.get(platform, (ENV_KEYS[platform],))
         if not platform_api_key(platform):
-            blockers.append(
-                {"platform": platform, "missing_env": " or ".join(ENV_KEYS[platform])}
-            )
+            missing_env = " or ".join(env_keys)
+            blockers.append({"platform": platform, "missing_env": missing_env})
     return blockers
-
-
-def platform_api_key(platform: str) -> str:
-    for env_key in ENV_KEYS[platform]:
-        value = os.environ.get(env_key, "").strip()
-        if value:
-            return value
-    return ""
 
 
 def emit_status(
@@ -268,6 +247,7 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
                         "api_model": answer["model"],
                         "api_request_id": answer["request_id"],
                         "source_url_count": str(len(answer["source_urls"])),
+                        "source_hosts": source_hosts(answer["source_urls"])[:12],
                         "synapse_cited_url_count": str(len(answer["cited_urls"])),
                     },
                 }
@@ -286,204 +266,6 @@ def call_platform_with_failure_boundary(platform: str, query: str) -> Any:
             default_models=DEFAULT_MODELS,
             redacted_error=redact_secrets(str(exc)),
         )
-
-
-def call_platform(
-    platform: str, query: str
-) -> Any:  # pragma: no cover - adapter dispatch
-    if platform == "chatgpt":
-        return call_openai(query)
-    if platform == "claude":
-        return call_anthropic(query)
-    if platform == "grok":
-        return call_xai(query)
-    if platform == "gemini":
-        return call_gemini(query)
-    raise ValueError(f"unsupported platform: {platform}")
-
-
-def call_openai(query: str) -> Any:  # pragma: no cover - paid external API adapter
-    model = os.environ.get("OPENAI_AI_VISIBILITY_MODEL", DEFAULT_MODELS["chatgpt"])
-    payload = {
-        "model": model,
-        "tools": [{"type": "web_search"}],
-        "tool_choice": "auto",
-        "include": ["web_search_call.action.sources"],
-        "input": prompt_for_query(query),
-    }
-    data, request_id = post_json(
-        OPENAI_RESPONSES_URL,
-        payload,
-        {"Authorization": f"Bearer {platform_api_key('chatgpt')}"},
-    )
-    text = data.get("output_text") or extract_openai_text(data)
-    urls = extract_urls(data)
-    return answer_payload(
-        platform="chatgpt",
-        model=model,
-        text=text,
-        urls=urls,
-        request_id=request_id,
-    )
-
-
-def call_anthropic(query: str) -> Any:  # pragma: no cover - paid external API adapter
-    model = os.environ.get("ANTHROPIC_AI_VISIBILITY_MODEL", DEFAULT_MODELS["claude"])
-    payload = {
-        "model": model,
-        "max_tokens": 900,
-        "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
-        "messages": [{"role": "user", "content": prompt_for_query(query)}],
-    }
-    data, request_id = post_json(
-        ANTHROPIC_MESSAGES_URL,
-        payload,
-        {
-            "x-api-key": platform_api_key("claude"),
-            "anthropic-version": "2023-06-01",
-        },
-    )
-    text = extract_anthropic_text(data)
-    urls = extract_urls(data)
-    return answer_payload(
-        platform="claude",
-        model=model,
-        text=text,
-        urls=urls,
-        request_id=request_id,
-    )
-
-
-def call_xai(query: str) -> Any:  # pragma: no cover - paid external API adapter
-    model = os.environ.get("XAI_AI_VISIBILITY_MODEL", DEFAULT_MODELS["grok"])
-    payload = {
-        "model": model,
-        "input": [{"role": "user", "content": prompt_for_query(query)}],
-        "tools": [{"type": "web_search"}],
-    }
-    data, request_id = post_json(
-        XAI_RESPONSES_URL,
-        payload,
-        {"Authorization": f"Bearer {platform_api_key('grok')}"},
-    )
-    text = data.get("output_text") or extract_openai_text(data)
-    urls = extract_urls(data)
-    return answer_payload(
-        platform="grok",
-        model=model,
-        text=text,
-        urls=urls,
-        request_id=request_id,
-    )
-
-
-def call_gemini(query: str) -> Any:  # pragma: no cover - paid external API adapter
-    model = os.environ.get("GEMINI_AI_VISIBILITY_MODEL", DEFAULT_MODELS["gemini"])
-    payload = {
-        "contents": [{"parts": [{"text": prompt_for_query(query)}]}],
-        "tools": [{"google_search": {}}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
-    }
-    data, request_id = post_json(
-        GEMINI_GENERATE_CONTENT_URL.format(model=model),
-        payload,
-        {"x-goog-api-key": platform_api_key("gemini")},
-    )
-    text = extract_gemini_text(data)
-    urls = extract_urls(data)
-    return answer_payload(
-        platform="gemini",
-        model=model,
-        text=text,
-        urls=urls,
-        request_id=request_id,
-    )
-
-
-def prompt_for_query(query: str) -> str:
-    return (
-        "Use live web search. Answer the question exactly as an answer engine would, "
-        "with source citations when available. Question: "
-        f"{query}"
-    )
-
-
-def post_json(
-    url: str, payload: dict[str, Any], headers: dict[str, str]
-) -> tuple[Any, str]:  # pragma: no cover - network adapter
-    if urllib.parse.urlsplit(url).scheme != "https":
-        raise ValueError("AI visibility API probes require https URLs")
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", **headers},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:  # nosec B310
-            data = json.loads(response.read().decode("utf-8"))
-            request_id = response.headers.get("request-id") or response.headers.get(
-                "x-request-id", ""
-            )
-            return data, request_id
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")
-        safe_body = redact_secrets(body[:500])
-        raise RuntimeError(f"POST {url} failed with {exc.code}: {safe_body}") from exc
-
-
-def extract_openai_text(data: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for item in data.get("output") or []:
-        for content in item.get("content") or []:
-            text = content.get("text")
-            if isinstance(text, str):
-                parts.append(text)
-    return "\n".join(parts).strip()
-
-
-def extract_anthropic_text(data: dict[str, Any]) -> str:
-    parts = []
-    for item in data.get("content") or []:
-        text = item.get("text")
-        if isinstance(text, str):
-            parts.append(text)
-    return "\n".join(parts).strip()
-
-
-def extract_gemini_text(data: dict[str, Any]) -> str:
-    parts: list[str] = []
-    for candidate in data.get("candidates") or []:
-        content = candidate.get("content") or {}
-        for part in content.get("parts") or []:
-            text = part.get("text")
-            if isinstance(text, str):
-                parts.append(text)
-    return "\n".join(parts).strip()
-
-
-def extract_urls(value: Any) -> list[str]:
-    urls: list[str] = []
-    if isinstance(value, dict):
-        for key, next_value in value.items():
-            if key in {"url", "uri"} and isinstance(next_value, str):
-                urls.append(next_value)
-            else:
-                urls.extend(extract_urls(next_value))
-    elif isinstance(value, list):
-        for item in value:
-            urls.extend(extract_urls(item))
-    return sorted({url for url in urls if url.startswith("http")})
-
-
-def redact_secrets(value: str) -> str:
-    redacted = value
-    for env_keys in ENV_KEYS.values():
-        for env_key in env_keys:
-            secret_value = os.environ.get(env_key, "").strip()
-            if secret_value:
-                redacted = redacted.replace(secret_value, "[REDACTED]")
-    return redacted
 
 
 def emit(payload: dict[str, Any], *, stderr: bool = False) -> None:

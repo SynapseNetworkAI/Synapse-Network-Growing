@@ -16,11 +16,13 @@ import {
   type GrowthAIVisibilityOptimizationBrief,
   type GrowthAIVisibilityOfficialSourceList,
   type GrowthAIVisibilityOptimizationPlan,
+  type GrowthAIVisibilityPresencePlan,
   type GrowthAIVisibilityProbeMatrix,
   type GrowthAIVisibilityReleaseSnapshot,
   type GrowthAIVisibilityReleaseUnblockPlan,
   type GrowthAIVisibilityWeeklyReport,
 } from '../api'
+import type { GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from '../apiGrowthAiVisibilityPlanTypes'
 
 export function useGrowthAIVisibilityData() {
   const [items, setItems] = useState<GrowthAIVisibilityCheck[]>([])
@@ -41,6 +43,9 @@ export function useGrowthAIVisibilityData() {
   const [externalProbeGate, setExternalProbeGate] = useState<GrowthAIVisibilityExternalProbeGate | null>(null)
   const [officialSources, setOfficialSources] = useState<GrowthAIVisibilityOfficialSourceList | null>(null)
   const [probeMatrix, setProbeMatrix] = useState<GrowthAIVisibilityProbeMatrix | null>(null)
+  const [presencePlan, setPresencePlan] = useState<GrowthAIVisibilityPresencePlan | null>(null)
+  const [sourceHostFeedPackage, setSourceHostFeedPackage] = useState<GrowthAIVisibilitySourceHostFeedPackage | null>(null)
+  const [sourceHostExecutionChecklist, setSourceHostExecutionChecklist] = useState<GrowthAIVisibilitySourceHostExecutionChecklist | null>(null)
   const [plan, setPlan] = useState<GrowthAIVisibilityOptimizationPlan | null>(null)
 
   const load = async (options: { includeRuntimeEvidence: boolean; search: string }) => {
@@ -63,6 +68,9 @@ export function useGrowthAIVisibilityData() {
       briefPayload,
       officialSourcesPayload,
       probeMatrixPayload,
+      presencePlanPayload,
+      sourceHostFeedPackagePayload,
+      sourceHostExecutionChecklistPayload,
       comparisonPayload,
       checksPayload,
     ] = await Promise.all([
@@ -83,6 +91,9 @@ export function useGrowthAIVisibilityData() {
       api.getGrowthAIVisibilityOptimizationBrief(),
       api.getGrowthAIVisibilityOfficialSources(),
       api.getGrowthAIVisibilityProbeMatrix(),
+      api.getGrowthAIVisibilityPresencePlan(),
+      api.getGrowthAIVisibilitySourceHostFeedPackage(),
+      api.getGrowthAIVisibilitySourceHostExecutionChecklist(),
       api.getGrowthAIVisibilityComparisons({ limit: 10 }),
       api.getGrowthAIVisibilityChecks({ q: options.search || undefined, limit: 100 }),
     ])
@@ -103,6 +114,9 @@ export function useGrowthAIVisibilityData() {
     setOptimizationBrief(briefPayload)
     setOfficialSources(officialSourcesPayload)
     setProbeMatrix(probeMatrixPayload)
+    setPresencePlan(presencePlanPayload)
+    setSourceHostFeedPackage(sourceHostFeedPackagePayload)
+    setSourceHostExecutionChecklist(sourceHostExecutionChecklistPayload)
     setComparisons(comparisonPayload.items)
     setItems(checksPayload.items)
   }
@@ -112,6 +126,9 @@ export function useGrowthAIVisibilityData() {
     externalProbeGate,
     officialSources,
     probeMatrix,
+    presencePlan,
+    sourceHostFeedPackage,
+    sourceHostExecutionChecklist,
     liveReadiness,
     optimizationBrief,
     handoffBundle,

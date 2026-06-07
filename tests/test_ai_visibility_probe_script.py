@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-import urllib.error
 from pathlib import Path
 
 from scripts.growth.record_ai_visibility_probe import (
@@ -715,6 +714,7 @@ def test_api_probe_cli_readiness_does_not_require_execute(monkeypatch):
 
 def test_api_probe_chatgpt_default_uses_broad_responses_model():
     assert api_probe.DEFAULT_MODELS["chatgpt"] == "gpt-4o-mini"
+    assert api_probe.DEFAULT_MODELS["claude"] == "claude-sonnet-4-6"
 
 
 def test_api_probe_execute_missing_keys_fails_closed(tmp_path: Path):
@@ -725,7 +725,7 @@ def test_api_probe_execute_missing_keys_fails_closed(tmp_path: Path):
             sys.executable,
             "scripts/growth/run_ai_visibility_api_probe.py",
             "--platforms",
-            "chatgpt,claude,grok",
+            "chatgpt,claude,grok,gemini",
             "--query",
             "AI agent payment API",
             "--output",
@@ -746,12 +746,18 @@ def test_api_probe_execute_missing_keys_fails_closed(tmp_path: Path):
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "XAI_API_KEY",
+        "GEMINI_API_KEY or GENIMI_API_KEY",
     }
-    assert payload["record_count"] == 3
+    assert payload["record_count"] == 4
     assert output_path.exists()
     records = parse_probe_file(output_path)
     assert validate_records(records) == []
-    assert {record.platform for record in records} == {"chatgpt", "claude", "grok"}
+    assert {record.platform for record in records} == {
+        "chatgpt",
+        "claude",
+        "grok",
+        "gemini",
+    }
     assert all(
         record.metadata["mode"] == "api_probe_readiness_blocker" for record in records
     )
@@ -773,7 +779,7 @@ def test_api_readiness_blocker_records_are_valid():
 
     assert validate_records(records) == []
     assert [record.platform for record in records] == ["chatgpt", "claude"]
-    assert records[0].query == "ChatGPT Claude Grok API probe readiness"
+    assert records[0].query == "ChatGPT Claude Grok Gemini API probe readiness"
     assert records[0].metadata["mode"] == "api_probe_readiness_blocker"
     assert records[0].metadata["blocked_query_count"] == "2"
     assert "OPENAI_API_KEY" in records[0].answer_summary
@@ -786,6 +792,7 @@ def test_run_api_probes_generates_valid_records(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
     monkeypatch.setenv("XAI_API_KEY", "test-xai-key")
+    monkeypatch.setenv("GENIMI_API_KEY", "test-gemini-key")
 
     def fake_call_platform(platform: str, query: str):
         assert query == "AI agent payment API"
@@ -811,53 +818,54 @@ def test_run_api_probes_generates_valid_records(monkeypatch):
     records = api_probe.run_api_probes(
         feed_key="agent_payment_category_pages",
         run_group="2026-06-18-api-probe",
-        platforms=["chatgpt", "claude", "grok"],
+        platforms=["chatgpt", "claude", "grok", "gemini"],
         queries=["AI agent payment API"],
     )
 
-    assert len(records) == 3
+    assert len(records) == 4
     assert validate_records(records) == []
     assert records[0].evidence_url == ""
     assert records[0].metadata["mode"] == "api_probe"
     assert "api_request_id" in records[0].metadata["evidence_capture"]
     assert records[0].metadata["source_url_count"] == "2"
+    assert records[0].metadata["source_hosts"] == [
+        "docs.synapse-network.ai",
+        "synapse-network.ai",
+    ]
     assert records[0].metadata["synapse_cited_url_count"] == "1"
 
 
-def test_post_json_redacts_secret_values_on_http_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "secret-openai-value")
+def test_answer_payload_tracks_known_brand_collision_domains():
+    payload = api_probe.answer_payload(
+        platform="chatgpt",
+        model="gpt-test",
+        text=(
+            "Synapse Network appears in the result, but the cited economy layer "
+            "page is from synapsenetwork.xyz."
+        ),
+        urls=["https://www.synapsenetwork.xyz/"],
+        request_id="req-1",
+    )
 
-    class FakeError(urllib.error.HTTPError):
-        def __init__(self):
-            super().__init__(
-                "https://api.openai.com/v1/responses",
-                401,
-                "Unauthorized",
-                hdrs=None,
-                fp=None,
-            )
+    assert payload["synapse_mentioned"] is True
+    assert payload["synapse_cited"] is False
+    assert payload["cited_urls"] == []
+    assert "synapsenetwork.xyz" in payload["competitor_mentions"]
 
-        def read(self):
-            return b'{"error":"bad key secret-openai-value"}'
 
-    def fake_urlopen(*_args, **_kwargs):
-        raise FakeError()
-
-    monkeypatch.setattr(api_probe.urllib.request, "urlopen", fake_urlopen)
-
+def test_answer_payload_requires_text():
     try:
-        api_probe.post_json(
-            api_probe.OPENAI_RESPONSES_URL,
-            {"model": "test"},
-            {"Authorization": "Bearer secret-openai-value"},
+        api_probe.answer_payload(
+            platform="chatgpt",
+            model="gpt-test",
+            text="",
+            urls=[],
+            request_id="req-1",
         )
     except RuntimeError as exc:
-        message = str(exc)
+        assert "returned no answer text" in str(exc)
     else:
-        raise AssertionError("HTTPError should raise RuntimeError")
-
-    assert "secret-openai-value" not in message
-    assert "[REDACTED]" in message
+        raise AssertionError("empty API answer should fail closed")
 
 
 def write_probe_jsonl(tmp_path: Path, payloads: list[dict]) -> Path:

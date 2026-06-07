@@ -23,7 +23,7 @@ def api_readiness_blocker_records(
     official_source_urls = official_source_urls_for_feed(feed_key)
     rows = []
     generated_at = datetime.now(UTC).date().isoformat()
-    query = "ChatGPT Claude Grok API probe readiness"
+    query = "ChatGPT Claude Grok Gemini API probe readiness"
     for item in missing:
         platform = item["platform"]
         env_key = item["missing_env"]

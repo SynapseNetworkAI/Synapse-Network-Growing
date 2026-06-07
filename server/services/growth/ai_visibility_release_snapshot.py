@@ -23,6 +23,10 @@ API_ENV_KEYS = {
     "chatgpt": "OPENAI_API_KEY",
     "claude": "ANTHROPIC_API_KEY",
     "grok": "XAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+API_ENV_KEY_ALIASES = {
+    "gemini": ("GEMINI_API_KEY", "GENIMI_API_KEY"),
 }
 
 
@@ -50,7 +54,7 @@ def build_snapshot(
     external_probe_keys = {
         platform: {
             "env_key": env_key,
-            "configured": bool(os.environ.get(env_key, "").strip()),
+            "configured": _api_key_configured(platform),
         }
         for platform, env_key in API_ENV_KEYS.items()
     }
@@ -76,6 +80,9 @@ def build_snapshot(
         "pending_source_prs": release_plan.get("pending_source_prs", []),
         "pending_publication_gaps": release_plan.get(
             "pending_publication_gaps", []
+        ),
+        "verified_publication_surfaces": release_plan.get(
+            "verified_publication_surfaces", []
         ),
         "live_readiness": {
             "status": readiness["status"],
@@ -153,13 +160,19 @@ def _blockers(
     return unique_strings(blockers)
 
 
+def _api_key_configured(platform: str) -> bool:
+    return any(
+        os.environ.get(env_key, "").strip()
+        for env_key in API_ENV_KEY_ALIASES.get(platform, (API_ENV_KEYS[platform],))
+    )
+
+
 def _next_actions(blockers: list[str]) -> list[str]:
     if not blockers:
-        return ["Create staging release tasks through Growing."]
+        return ["Run external answer-engine probes and compare citation results."]
     return [
-        "Run gcloud auth login, then rerun this snapshot before creating release tasks.",
-        "Deploy docs-front and user-front target commit through Growing release tasks.",
-        "Rerun live readiness and external GPT/Claude/Grok probes only after feed validation passes.",
+        "Run gcloud auth login if GCloud checks are blocked.",
+        "Rerun live readiness and external GPT/Claude/Grok/Gemini probes after feed validation passes.",
     ]
 
 

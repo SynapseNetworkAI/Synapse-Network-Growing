@@ -1,4 +1,4 @@
-import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan } from './apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from './apiGrowthAiVisibilityPlanTypes'
 
 export type * from './apiGrowthAiVisibilityPlanTypes'
 
@@ -44,6 +44,7 @@ export interface GrowthAIVisibilityComparison {
   feed_effective: boolean
   missing_platforms: string[]
   top_competitors: string[]
+  source_hosts?: string[]
   known_collision_competitors?: string[]
   official_cited_urls?: string[]
   next_actions: string[]
@@ -59,6 +60,7 @@ export interface GrowthAIVisibilityFeedReport {
   external_platforms: string[]
   missing_platforms: string[]
   known_collision_competitors?: string[]
+  source_hosts?: string[]
   official_cited_urls?: string[]
   mentioned_count: number
   cited_count: number
@@ -464,6 +466,12 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilityOfficialSourceList>('/growth/ai-visibility/official-sources'),
     getGrowthAIVisibilityProbeMatrix: () =>
       request<GrowthAIVisibilityProbeMatrix>('/growth/ai-visibility/probe-matrix'),
+    getGrowthAIVisibilityPresencePlan: () =>
+      request<GrowthAIVisibilityPresencePlan>('/growth/ai-visibility/presence-plan'),
+    getGrowthAIVisibilitySourceHostFeedPackage: () =>
+      request<GrowthAIVisibilitySourceHostFeedPackage>('/growth/ai-visibility/source-host-feed-package'),
+    getGrowthAIVisibilitySourceHostExecutionChecklist: () =>
+      request<GrowthAIVisibilitySourceHostExecutionChecklist>('/growth/ai-visibility/source-host-execution-checklist'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }

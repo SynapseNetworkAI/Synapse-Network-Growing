@@ -20,11 +20,12 @@ def test_generate_external_probe_gate_cli_writes_missing_key_evidence(
                 "feed_key": "mcp_paid_api_discovery",
                 "run_group": "2026-06-05-external-gate",
                 "ready_to_execute": False,
-                "missing_platforms": ["chatgpt", "claude", "grok"],
+                "missing_platforms": ["chatgpt", "claude", "grok", "gemini"],
                 "blockers": [
                     "chatgpt missing OPENAI_API_KEY.",
                     "claude missing ANTHROPIC_API_KEY.",
                     "grok missing XAI_API_KEY.",
+                    "gemini missing GEMINI_API_KEY.",
                 ],
             }
 
@@ -57,4 +58,5 @@ def test_generate_external_probe_gate_cli_writes_missing_key_evidence(
     assert "OPENAI_API_KEY" in rendered
     assert "ANTHROPIC_API_KEY" in rendered
     assert "XAI_API_KEY" in rendered
+    assert "GEMINI_API_KEY" in rendered
     assert "sk-" not in rendered

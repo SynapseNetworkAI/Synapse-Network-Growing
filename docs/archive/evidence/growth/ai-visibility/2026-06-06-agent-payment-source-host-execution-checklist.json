@@ -1,0 +1,152 @@
+{
+  "module_key": "ai_visibility",
+  "checklist_type": "source_host_feed_execution",
+  "generated_at": "2026-06-06T04:41:54.542335Z",
+  "feed_key": "agent_payment_category_pages",
+  "run_group": "2026-06-06-after-keys-grok-gemini",
+  "status": "ready_for_operator_execution",
+  "items": [
+    {
+      "key": "01-aws.amazon.com-contextual_partner_or_guest_pitch",
+      "host": "aws.amazon.com",
+      "priority": 1,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://aws.amazon.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://aws.amazon.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "02-chain.link-contextual_partner_or_guest_pitch",
+      "host": "chain.link",
+      "priority": 2,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://chain.link/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://chain.link/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "03-crossmint.com-contextual_partner_or_guest_pitch",
+      "host": "crossmint.com",
+      "priority": 3,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://crossmint.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://crossmint.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "04-cloud.google.com-contextual_partner_or_guest_pitch",
+      "host": "cloud.google.com",
+      "priority": 4,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://cloud.google.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://cloud.google.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "05-circle.com-contextual_partner_or_guest_pitch",
+      "host": "circle.com",
+      "priority": 5,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://circle.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://circle.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "06-apideck.com-contextual_partner_or_guest_pitch",
+      "host": "apideck.com",
+      "priority": 6,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://apideck.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://apideck.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "07-clearlypayments.com-contextual_partner_or_guest_pitch",
+      "host": "clearlypayments.com",
+      "priority": 7,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://clearlypayments.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://clearlypayments.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "08-dwaynegefferie.substack.com-contextual_partner_or_guest_pitch",
+      "host": "dwaynegefferie.substack.com",
+      "priority": 8,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://dwaynegefferie.substack.com/",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "validation_command": "curl -I -sS \"https://dwaynegefferie.substack.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "export_feed_package": "python scripts/growth/generate_ai_visibility_source_host_feed_package.py --feed-key agent_payment_category_pages --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-feed-package.json",
+    "after_feed_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=agent_payment_category_pages\""
+  }
+}

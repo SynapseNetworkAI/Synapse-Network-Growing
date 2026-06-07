@@ -3,6 +3,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GrowthPage from './GrowthPage'
+import { presencePlan, sourceHostExecutionChecklist, sourceHostFeedPackage } from './growthPageAiVisibilityTestData'
 
 const investor = {
   id: 1,
@@ -87,13 +88,8 @@ const providerReply = {
   updated_at: '2026-06-02T13:01:00',
 }
 
-function json(data: unknown, status = 200) {
-  return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) } as Response)
-}
-
-function listPayload(items: unknown[]) {
-  return { items, total: items.length, limit: 100, offset: 0, status_counts: {}, lead_type_counts: {} }
-}
+function json(data: unknown, status = 200) { return Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) } as Response) }
+function listPayload(items: unknown[]) { return { items, total: items.length, limit: 100, offset: 0, status_counts: {}, lead_type_counts: {} } }
 
 function installFetch() {
   const calls: string[] = []
@@ -176,6 +172,15 @@ function installFetch() {
         success_criteria: ['Stable citations for three weekly runs.'],
       })
     }
+    if (url.includes('/growth/ai-visibility/presence-plan')) {
+      return json(presencePlan())
+    }
+    if (url.includes('/growth/ai-visibility/source-host-feed-package')) {
+      return json(sourceHostFeedPackage())
+    }
+    if (url.includes('/growth/ai-visibility/source-host-execution-checklist')) {
+      return json(sourceHostExecutionChecklist())
+    }
     if (url.includes('/growth/ai-visibility/feed-package')) {
       return json({
         items: [{
@@ -227,8 +232,8 @@ function installFetch() {
           next_actions: ['Publish AI Agent Payments docs category and www landing pages.'],
         }],
         total: 1,
-      })
-    }
+  })
+}
     if (url.includes('/growth/ai-visibility/feed-cycles')) {
       return json({
         module_key: 'ai_visibility',

@@ -76,6 +76,7 @@ def _comparison_out(
         ),
         missing_platforms=_missing_platforms(external_platforms),
         top_competitors=aggregate["top_competitors"],
+        source_hosts=aggregate["source_hosts"],
         known_collision_competitors=known_collision_competitors,
         official_cited_urls=official_cited_urls,
         next_actions=aggregate["next_actions"],
@@ -115,17 +116,21 @@ def _missing_platforms(external_platforms: list[str]) -> list[str]:
 
 def _comparison_row_aggregate(rows: list[GrowthAIVisibilityCheckRow]) -> dict:
     competitors: Counter[str] = Counter()
+    source_hosts: Counter[str] = Counter()
     next_actions: list[str] = []
     evidence_urls: list[str] = []
     latest_run_at = None
     for row in rows:
         competitors.update(_json_list(row.competitor_mentions_json))
+        source_hosts.update(_metadata_source_hosts(row.metadata_json))
         latest_run_at = _latest_run_at(latest_run_at, row.run_at)
         if not _is_external_api_key_setup_blocker(row.next_action):
             _append_unique(next_actions, row.next_action)
         _append_unique(evidence_urls, row.evidence_url)
+    _append_source_host_next_action(next_actions, source_hosts)
     return {
         "top_competitors": [item for item, _count in competitors.most_common(5)],
+        "source_hosts": [item for item, _count in source_hosts.most_common(8)],
         "next_actions": next_actions[:5],
         "evidence_urls": evidence_urls[:5],
         "latest_run_at": latest_run_at,
@@ -213,6 +218,7 @@ def _feed_report(
         external_platforms=comparison.external_platforms,
         missing_platforms=comparison.missing_platforms,
         known_collision_competitors=comparison.known_collision_competitors,
+        source_hosts=comparison.source_hosts,
         official_cited_urls=comparison.official_cited_urls,
         mentioned_count=comparison.mentioned_count,
         cited_count=comparison.cited_count,
@@ -447,6 +453,33 @@ def _json_list(value: str) -> list[str]:
     if not isinstance(loaded, list):
         return []
     return [str(item) for item in loaded if str(item).strip()]
+
+
+def _metadata_source_hosts(value: str) -> list[str]:
+    try:
+        loaded = json.loads(value or "{}")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(loaded, dict):
+        return []
+    hosts = loaded.get("source_hosts")
+    if not isinstance(hosts, list):
+        return []
+    return [str(item).strip().lower() for item in hosts if str(item).strip()]
+
+
+def _append_source_host_next_action(
+    next_actions: list[str], source_hosts: Counter[str]
+) -> None:
+    if not source_hosts:
+        return
+    hosts = [item for item, _count in source_hosts.most_common(3)]
+    _append_unique(
+        next_actions,
+        "Prioritize third-party presence on cited answer-engine hosts: "
+        + ", ".join(hosts)
+        + ".",
+    )
 
 
 def _utcnow() -> datetime:

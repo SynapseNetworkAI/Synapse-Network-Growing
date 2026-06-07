@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Export source-host feed drafts for AI visibility presence work."""
+
+from __future__ import annotations
+
+import argparse
+import runpy
+from pathlib import Path
+
+_BOOTSTRAP_PATH = Path(__file__).with_name("ai_visibility_cli_bootstrap.py")
+runpy.run_path(str(_BOOTSTRAP_PATH))["ensure_project_root"](__file__)
+
+from scripts.growth.ai_visibility_cli import (  # noqa: E402
+    pydantic_payload,
+    write_json_payload,
+)
+from scripts.growth.ai_visibility_db_cli import run_with_db  # noqa: E402
+
+DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
+
+
+def main() -> int:  # pragma: no cover - subprocess CLI wrapper
+    parser = argparse.ArgumentParser(
+        description="Export source-host feed drafts from AI visibility source evidence."
+    )
+    parser.add_argument("--feed-key", default=DEFAULT_FEED_KEY)
+    parser.add_argument("--run-group", default="")
+    parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
+    args = parser.parse_args()
+
+    package = run_with_db(
+        lambda db: _build_feed_package(
+            db,
+            feed_key=args.feed_key,
+            run_group=args.run_group or None,
+        )
+    )
+
+    write_json_payload(pydantic_payload(package), args.output)
+    return 0
+
+
+def _build_feed_package(db, *, feed_key: str, run_group: str | None):
+    from server.services.growth.ai_visibility_source_host_feed import (
+        ai_visibility_source_host_feed_package,
+    )
+
+    return ai_visibility_source_host_feed_package(
+        db,
+        feed_key=feed_key,
+        run_group=run_group,
+    )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

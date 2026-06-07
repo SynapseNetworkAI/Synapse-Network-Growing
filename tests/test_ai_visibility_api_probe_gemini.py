@@ -59,7 +59,7 @@ def test_call_gemini_uses_grounded_search_payload(monkeypatch):
             "gemini-request",
         )
 
-    monkeypatch.setattr(api_probe, "post_json", fake_post_json)
+    monkeypatch.setattr(api_probe.probe_adapters, "post_json", fake_post_json)
 
     payload = api_probe.call_gemini("MCP server for paid API calls")
 

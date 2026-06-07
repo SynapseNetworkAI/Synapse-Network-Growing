@@ -29,6 +29,9 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/external-probe-gate')) return json(externalProbeGate())
     if (url.includes('/growth/ai-visibility/official-sources')) return json(officialSources())
     if (url.includes('/growth/ai-visibility/probe-matrix')) return json(probeMatrix())
+    if (url.includes('/growth/ai-visibility/presence-plan')) return json(presencePlan())
+    if (url.includes('/growth/ai-visibility/source-host-feed-package')) return json(sourceHostFeedPackage())
+    if (url.includes('/growth/ai-visibility/source-host-execution-checklist')) return json(sourceHostExecutionChecklist())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -71,15 +74,26 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByTestId('ai-visibility-probe-matrix')).toBeInTheDocument()
     expect(screen.getByText('Answer-engine probe matrix')).toBeInTheDocument()
     expect(screen.getByText('ready_to_probe')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-presence-plan')).toBeInTheDocument()
+    expect(screen.getByText('Source-host presence plan')).toBeInTheDocument()
+    expect(screen.getByText('Submit: https://mcpservers.org/submit')).toBeInTheDocument()
+    expect(screen.getByText(/Payload: server_name, remote_mcp_endpoint/)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-source-host-feed-package')).toBeInTheDocument()
+    expect(screen.getByText('Source-host feed package')).toBeInTheDocument()
+    expect(screen.getByText('Synapse Network MCP Server')).toBeInTheDocument()
+    expect(screen.getByText(/ready_to_submit/)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-source-host-execution-checklist')).toBeInTheDocument()
+    expect(screen.getByText('Source-host execution checklist')).toBeInTheDocument()
+    expect(screen.getByText('pending_submission')).toBeInTheDocument()
+    expect(screen.getAllByText('mcpservers.org').length).toBeGreaterThan(0)
+    expect(screen.getByText('directory_listing')).toBeInTheDocument()
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
     expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-release-unblock-plan')).toBeInTheDocument()
-    expect(screen.getAllByText('blocked_until_target_commit_matches').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('production_jsonld_verified').length).toBeGreaterThan(0)
     expect(screen.getByText('Pending source PRs')).toBeInTheDocument()
     expect(screen.getAllByText('No pending source PRs.').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/https:\/\/www\.synapse-network\.ai\/mcp-server-for-paid-api-calls/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/www-jsonld: 200->200 via PR #216/).length).toBeGreaterThan(0)
     expect(screen.getByText('post_publish_indexnow_submission')).toBeInTheDocument()
     expect(screen.getByText(/submit_indexnow_ai_visibility\.mjs --execute/)).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-feed-cycle-matrix')).toBeInTheDocument()
@@ -176,7 +190,7 @@ function liveReadiness() {
 }
 
 function externalProbeGate() {
-  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-external', status: 'blocked_until_api_keys', ready_to_execute: false, partial_ready_to_execute: false, manual_ready_to_execute: true, feed_ready: true, api_keys_ready: false, target_platforms: ['chatgpt', 'claude', 'grok'], ready_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], provider_readiness: [{ platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false }], blockers: ['chatgpt missing OPENAI_API_KEY.'], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute', partial_api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt', partial_api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt --execute', record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/external.jsonl --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"' }
+  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-external', status: 'blocked_until_api_keys', ready_to_execute: false, partial_ready_to_execute: false, manual_ready_to_execute: true, feed_ready: true, api_keys_ready: false, target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], ready_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], provider_readiness: [{ platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false }, { platform: 'gemini', env_key: 'GEMINI_API_KEY', configured: false }], blockers: ['chatgpt missing OPENAI_API_KEY.', 'gemini missing GEMINI_API_KEY.'], feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py', record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py', manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini', api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini', api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini --execute', partial_api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt', partial_api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt --execute', record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/external.jsonl --apply', compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"' }
 }
 
 function officialSources() {
@@ -214,6 +228,99 @@ function probeMatrix() {
       blockers: [],
       next_actions: ['Run the chatgpt probe with unchanged query wording.'],
     }],
+  }
+}
+
+function presencePlan() {
+  return {
+    module_key: 'ai_visibility',
+    generated_at: '2026-06-05T00:00:00Z',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-06-source-hosts',
+    status: 'ready_for_presence_work',
+    source_hosts: ['mcpservers.org', 'docs.mcpay.tech'],
+    actions: [{
+      host: 'mcpservers.org',
+      priority: 1,
+      action_type: 'directory_listing',
+      ownership: 'submittable',
+      rationale: 'ChatGPT cited this MCP directory for paid MCP queries.',
+      target_surface: 'https://mcpservers.org/',
+      asset: 'Synapse Remote MCP listing metadata.',
+      copy_points: ['Remote MCP endpoint: https://mcp.synapse-network.ai/mcp'],
+      validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',
+      probe_followup: 'Rerun unchanged probes.',
+      submit_url: 'https://mcpservers.org/submit',
+      source_reference_url: 'https://mcpservers.org/submit',
+      submission_payload: {
+        server_name: 'Synapse Network MCP Server',
+        remote_mcp_endpoint: 'https://mcp.synapse-network.ai/mcp',
+        contact_email: '<operator email>',
+      },
+      operator_notes: [],
+    }],
+    blockers: [],
+    validation_commands: ['python scripts/growth/run_ai_visibility_feed_validation.py'],
+    next_probe_command: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini --execute',
+    compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons"',
+  }
+}
+
+function sourceHostExecutionChecklist() {
+  return {
+    module_key: 'ai_visibility',
+    checklist_type: 'source_host_feed_execution',
+    generated_at: '2026-06-05T00:00:00Z',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-06-source-hosts',
+    status: 'ready_for_operator_execution',
+    items: [{
+      key: '01-mcpservers.org-directory_submission',
+      host: 'mcpservers.org',
+      priority: 1,
+      draft_type: 'directory_submission',
+      execution_status: 'pending_submission',
+      target_url: 'https://mcpservers.org/submit',
+      action_required: 'Submit the directory form using the non-secret payload.',
+      required_evidence: ['submission_url_or_receipt', 'submitted_payload_summary', 'screenshot'],
+      validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',
+      re_probe_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
+      completion_gate: 'Do not mark complete until operator evidence proves the listing is live.',
+    }],
+    blockers: [],
+    commands: {},
+  }
+}
+
+function sourceHostFeedPackage() {
+  return {
+    module_key: 'ai_visibility',
+    package_type: 'source_host_feed',
+    generated_at: '2026-06-05T00:00:00Z',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-06-source-hosts',
+    status: 'ready_for_operator_feed',
+    source_hosts: ['mcpservers.org'],
+    drafts: [{
+      host: 'mcpservers.org',
+      priority: 1,
+      draft_type: 'directory_submission',
+      status: 'ready_to_submit',
+      target_url: 'https://mcpservers.org/submit',
+      submit_url: 'https://mcpservers.org/submit',
+      title: 'Synapse Network MCP Server',
+      summary: 'Synapse Network Remote MCP lets AI agents discover payable APIs.',
+      body_markdown: '# Synapse Network MCP Server',
+      source_reference_url: 'https://mcpservers.org/submit',
+      submission_payload: { server_name: 'Synapse Network MCP Server' },
+      validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',
+      probe_followup: 'Rerun unchanged probes.',
+      operator_notes: [],
+    }],
+    blockers: [],
+    commands: {
+      after_feed_probe: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini --execute',
+    },
   }
 }
 
@@ -268,11 +375,11 @@ function pendingPublicationGaps() {
 }
 
 function releasePlan() {
-  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', status: 'blocked_until_target_commit_matches', generated_at: '2026-06-05T00:00:00Z', official_homepage: 'https://www.synapse-network.ai/', project_key: 'synapse-network', services: ['docs-front'], branch_name: 'main', target_commit_sha: '09a8e5f', actor: 'codex', source_pr: { number: 216, state: 'MERGED', url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/216' }, source_prs: [{ number: 216, state: 'MERGED', merge_commit: '09a8e5fcb1511ca19b2ec417474ba5e780510469' }], pending_source_prs: pendingSourcePrs(), predeploy_evidence: { status: 'target_branch_ready_live_prod_blocked', validations: [] }, deploy_readiness_status: 'blocked_until_target_commit_matches', deployment_gaps: [{ service_key: 'docs-front', status: 'production_behind_target' }], pending_publication_gaps: pendingPublicationGaps(), confirmed_facts: ['Official homepage canonical is https://www.synapse-network.ai/.'], hard_boundaries: ['Do not run gcloud run deploy directly.'], known_blockers: ['Target commit 09a8e5fcb151 does not match current predeploy evidence commit 6a1571c136c5.'], environment_defaults: {}, command_groups: [{ key: 'gcloud_auth', purpose: 'Restore auth.', commands: ['gcloud auth login'], service_key: '', environment: '', notes: [] }, { key: 'post_publish_indexnow_submission', purpose: 'Submit IndexNow.', commands: ['node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs', 'node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs --execute | tee docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json'], service_key: '', environment: '', notes: [] }], success_criteria: ['llms.txt includes MCP feed.', 'IndexNow submission runs after production validation.'] }
+  return { module_key: 'ai_visibility', feed_key: 'mcp_paid_api_discovery', status: 'production_jsonld_verified', generated_at: '2026-06-05T00:00:00Z', official_homepage: 'https://www.synapse-network.ai/', project_key: 'synapse-network', services: ['user-front'], branch_name: 'main', target_commit_sha: '09a8e5f', actor: 'codex', source_pr: { number: 216, state: 'MERGED', url: 'https://github.com/SynapseNetworkAI/Synapse-Network/pull/216' }, source_prs: [{ number: 216, state: 'MERGED', merge_commit: '09a8e5fcb1511ca19b2ec417474ba5e780510469' }], pending_source_prs: pendingSourcePrs(), predeploy_evidence: { status: 'target_branch_ready_live_prod_blocked', validations: [] }, deploy_readiness_status: 'production_jsonld_verified', deployment_gaps: [{ service_key: 'user-front', status: 'staging_and_production_at_target' }], pending_publication_gaps: [], verified_publication_surfaces: pendingPublicationGaps(), confirmed_facts: ['Official homepage canonical is https://www.synapse-network.ai/.', 'Production user-front release task #253 deployed commit 09a8e5fcb151.'], hard_boundaries: ['Do not run gcloud run deploy directly.'], known_blockers: [], environment_defaults: {}, command_groups: [{ key: 'post_publish_indexnow_submission', purpose: 'Submit IndexNow.', commands: ['node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs', 'node /private/tmp/synapse-ai-visibility-publish/scripts/seo/submit_indexnow_ai_visibility.mjs --execute | tee docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-indexnow.json'], service_key: '', environment: '', notes: [] }], success_criteria: ['llms.txt includes MCP feed.', 'IndexNow submission runs after production validation.'] }
 }
 
 function releaseSnapshot() {
-  return { module_key: 'ai_visibility', snapshot_type: 'release_blocker', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-snapshot', target_commit_sha: '09a8e5f', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_plan_status: 'blocked_until_target_commit_matches', deploy_readiness_status: 'blocked_until_target_commit_matches', confirmed_facts: [], deployment_gaps: [], pending_source_prs: pendingSourcePrs(), pending_publication_gaps: pendingPublicationGaps(), live_readiness: {}, gcloud: {}, external_probe_keys: {}, blockers: ['Target commit 09a8e5fcb151 does not match current predeploy evidence commit 6a1571c136c5.'], next_actions: ['Regenerate predeploy evidence for PR #216, then deploy user-front.'] }
+  return { module_key: 'ai_visibility', snapshot_type: 'release_blocker', generated_at: '2026-06-05T00:00:00Z', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-snapshot', target_commit_sha: '09a8e5f', official_homepage: 'https://www.synapse-network.ai/', status: 'blocked', release_plan_status: 'production_jsonld_verified', deploy_readiness_status: 'production_jsonld_verified', confirmed_facts: [], deployment_gaps: [], pending_source_prs: pendingSourcePrs(), pending_publication_gaps: [], verified_publication_surfaces: pendingPublicationGaps(), live_readiness: {}, gcloud: {}, external_probe_keys: {}, blockers: ['chatgpt external probe key missing: OPENAI_API_KEY.'], next_actions: ['Run external answer-engine probes.'] }
 }
 
 function handoffBundle() {

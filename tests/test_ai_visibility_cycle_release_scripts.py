@@ -476,7 +476,7 @@ def test_release_unblock_plan_generates_safe_release_commands():
     )
     rendered = json.dumps(payload)
 
-    assert payload["status"] == "blocked_until_target_commit_matches"
+    assert payload["status"] == "production_jsonld_verified"
     assert payload["official_homepage"] == "https://www.synapse-network.ai/"
     assert payload["target_commit_sha"] == release_unblock_plan.DEFAULT_TARGET_COMMIT
     assert payload["source_pr"]["number"] == 216
@@ -491,9 +491,11 @@ def test_release_unblock_plan_generates_safe_release_commands():
         216,
     }
     assert payload["pending_source_prs"] == []
-    assert payload["deployment_gaps"][0]["service_key"] == "docs-front"
+    assert payload["deployment_gaps"][0]["service_key"] == "user-front"
+    assert payload["deployment_gaps"][0]["status"] == "staging_and_production_at_target"
+    assert payload["pending_publication_gaps"] == []
     assert {
-        item["url"] for item in payload["pending_publication_gaps"]
+        item["url"] for item in payload["verified_publication_surfaces"]
     } == {
         "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
         "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
@@ -501,14 +503,13 @@ def test_release_unblock_plan_generates_safe_release_commands():
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
-    assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
+    assert payload["deploy_readiness_status"] == "production_jsonld_verified"
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
     )
-    assert "GCloud auth fails non-interactively" in payload["known_blockers"][0]
-    assert any("Target commit 09a8e5fcb151" in blocker for blocker in payload["known_blockers"])
-    assert set(payload["services"]) == {"docs-front", "user-front"}
+    assert payload["known_blockers"] == []
+    assert set(payload["services"]) == {"user-front"}
     assert "gcloud auth login" in rendered
     assert "X-Growing-Agent-Deploy-Token" in rendered
     assert "scripts/local/run_deploy_worker.py" in rendered
@@ -609,7 +610,7 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
-    assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
+    assert payload["deploy_readiness_status"] == "production_jsonld_verified"
     assert any(
         group["key"] == "production_validation" for group in payload["command_groups"]
     )

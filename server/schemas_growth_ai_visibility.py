@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from server.schemas_growth_ai_visibility_source_host import *  # noqa: F401,F403
 
 
 class GrowthAIVisibilityCheckCreate(BaseModel):
@@ -57,6 +59,7 @@ class GrowthAIVisibilityComparisonOut(BaseModel):
     feed_effective: bool = False
     missing_platforms: list[str] = Field(default_factory=list)
     top_competitors: list[str] = Field(default_factory=list)
+    source_hosts: list[str] = Field(default_factory=list)
     known_collision_competitors: list[str] = Field(default_factory=list)
     official_cited_urls: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
@@ -78,6 +81,7 @@ class GrowthAIVisibilityFeedReportOut(BaseModel):
     external_platforms: list[str] = Field(default_factory=list)
     missing_platforms: list[str] = Field(default_factory=list)
     known_collision_competitors: list[str] = Field(default_factory=list)
+    source_hosts: list[str] = Field(default_factory=list)
     official_cited_urls: list[str] = Field(default_factory=list)
     mentioned_count: int = 0
     cited_count: int = 0
@@ -433,6 +437,37 @@ class GrowthAIVisibilityFeedScorecardOut(BaseModel):
     ranking_basis: str = ""
     items: list[GrowthAIVisibilityFeedScoreOut] = Field(default_factory=list)
     total: int = 0
+
+
+class GrowthAIVisibilityPresenceActionOut(BaseModel):
+    host: str
+    priority: int = 0
+    action_type: str
+    ownership: str
+    rationale: str
+    target_surface: str
+    asset: str
+    copy_points: list[str] = Field(default_factory=list)
+    validation_command: str
+    probe_followup: str
+    submit_url: str = ""
+    source_reference_url: str = ""
+    submission_payload: dict[str, Any] = Field(default_factory=dict)
+    operator_notes: list[str] = Field(default_factory=list)
+
+
+class GrowthAIVisibilityPresencePlanOut(BaseModel):
+    module_key: str = "ai_visibility"
+    generated_at: datetime
+    feed_key: str
+    run_group: str = ""
+    status: str
+    source_hosts: list[str] = Field(default_factory=list)
+    actions: list[GrowthAIVisibilityPresenceActionOut] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    validation_commands: list[str] = Field(default_factory=list)
+    next_probe_command: str
+    compare_command: str
 
 
 class GrowthAIVisibilityOptimizationBriefOut(BaseModel):

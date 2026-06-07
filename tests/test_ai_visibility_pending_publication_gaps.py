@@ -8,7 +8,7 @@ EXPECTED_PENDING_URLS = {
 }
 
 
-def test_release_unblock_plan_exposes_merged_jsonld_pr_and_publication_gaps():
+def test_release_unblock_plan_exposes_verified_jsonld_publication_surfaces():
     payload = release_unblock.build_release_unblock_plan(
         target_commit=release_unblock.DEFAULT_TARGET_COMMIT,
         actor="codex/test-ai-visibility",
@@ -24,15 +24,16 @@ def test_release_unblock_plan_exposes_merged_jsonld_pr_and_publication_gaps():
         item for item in payload["source_prs"] if item["number"] == 216
     )
     assert "JSON-LD" in merged_jsonld_pr["purpose"]
-    assert {item["url"] for item in payload["pending_publication_gaps"]} == (
+    assert payload["pending_publication_gaps"] == []
+    assert {item["url"] for item in payload["verified_publication_surfaces"]} == (
         EXPECTED_PENDING_URLS
     )
     assert all(
         item["current_status"] == item["expected_after_merge"] == 200
-        for item in payload["pending_publication_gaps"]
+        for item in payload["verified_publication_surfaces"]
     )
-    assert all(item["surface"] == "www-jsonld" for item in payload["pending_publication_gaps"])
-    assert any("Target commit 09a8e5fcb151" in blocker for blocker in payload["known_blockers"])
+    assert all(item["surface"] == "www-jsonld" for item in payload["verified_publication_surfaces"])
+    assert payload["known_blockers"] == []
     validation_commands = "\n".join(
         command
         for group in payload["command_groups"]
@@ -103,7 +104,7 @@ def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):
     )
 
     assert payload["pending_source_prs"] == []
-    assert {item["url"] for item in payload["pending_publication_gaps"]} == (
+    assert payload["pending_publication_gaps"] == []
+    assert {item["url"] for item in payload["verified_publication_surfaces"]} == (
         EXPECTED_PENDING_URLS
     )
-    assert any("Target commit 09a8e5fcb151" in blocker for blocker in payload["blockers"])
