@@ -22,7 +22,9 @@ def test_post_json_redacts_secret_values_on_http_error(monkeypatch):
     def fake_urlopen(*_args, **_kwargs):
         raise FakeError()
 
-    monkeypatch.setattr(api_probe.probe_adapters.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(
+        api_probe.probe_adapters.urllib.request, "urlopen", fake_urlopen
+    )
 
     try:
         api_probe.post_json(
