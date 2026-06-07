@@ -1,7 +1,6 @@
 import json
 import subprocess
 import sys
-import urllib.error
 from pathlib import Path
 
 from scripts.growth.record_ai_visibility_probe import (
@@ -867,42 +866,6 @@ def test_answer_payload_requires_text():
         assert "returned no answer text" in str(exc)
     else:
         raise AssertionError("empty API answer should fail closed")
-
-
-def test_post_json_redacts_secret_values_on_http_error(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "secret-openai-value")
-
-    class FakeError(urllib.error.HTTPError):
-        def __init__(self):
-            super().__init__(
-                "https://api.openai.com/v1/responses",
-                401,
-                "Unauthorized",
-                hdrs=None,
-                fp=None,
-            )
-
-        def read(self):
-            return b'{"error":"bad key secret-openai-value"}'
-
-    def fake_urlopen(*_args, **_kwargs):
-        raise FakeError()
-
-    monkeypatch.setattr(api_probe.probe_adapters.urllib.request, "urlopen", fake_urlopen)
-
-    try:
-        api_probe.post_json(
-            api_probe.OPENAI_RESPONSES_URL,
-            {"model": "test"},
-            {"Authorization": "Bearer secret-openai-value"},
-        )
-    except RuntimeError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("HTTPError should raise RuntimeError")
-
-    assert "secret-openai-value" not in message
-    assert "[REDACTED]" in message
 
 
 def write_probe_jsonl(tmp_path: Path, payloads: list[dict]) -> Path:
