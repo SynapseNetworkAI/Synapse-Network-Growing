@@ -99,7 +99,11 @@ def summarize_cycle(
         failed_validation,
         api_probe_blockers,
     ) = partition_records(records)
-    covered_platforms, missing_platforms = platform_coverage(external_records)
+    target_platforms = target_platforms_for(external_records)
+    covered_platforms, missing_platforms = platform_coverage(
+        external_records,
+        target_platforms=target_platforms,
+    )
     blockers = cycle_blockers(
         failed_validation=failed_validation,
         external_records=external_records,
@@ -112,7 +116,7 @@ def summarize_cycle(
         missing_platforms=missing_platforms,
         api_probe_blockers=api_probe_blockers,
     )
-    strategy_platforms = missing_platforms if missing_platforms else TARGET_PLATFORMS
+    strategy_platforms = missing_platforms if missing_platforms else target_platforms
     platform_strategies = platform_strategies_for(
         feed_key=scope["feed_key"],
         platforms=strategy_platforms,
@@ -155,7 +159,7 @@ def summarize_cycle(
         "external_cited_count": sum(
             1 for record in external_records if record.synapse_cited
         ),
-        "target_platforms": TARGET_PLATFORMS,
+        "target_platforms": target_platforms,
         "covered_platforms": covered_platforms,
         "missing_platforms": missing_platforms,
         "blockers": blockers,
@@ -203,18 +207,27 @@ def partition_records(
 
 def platform_coverage(
     external_records: list[ProbeRecord],
+    *,
+    target_platforms: list[str],
 ) -> tuple[list[str], list[str]]:
     covered_platforms = sorted(
         {
             record.platform
             for record in external_records
-            if record.platform in TARGET_PLATFORMS
+            if record.platform in target_platforms
         }
     )
     missing_platforms = [
-        platform for platform in TARGET_PLATFORMS if platform not in covered_platforms
+        platform for platform in target_platforms if platform not in covered_platforms
     ]
     return covered_platforms, missing_platforms
+
+
+def target_platforms_for(external_records: list[ProbeRecord]) -> list[str]:
+    target_platforms = list(TARGET_PLATFORMS)
+    if any(record.platform == "gemini" for record in external_records):
+        target_platforms.append("gemini")
+    return target_platforms
 
 
 def cycle_blockers(

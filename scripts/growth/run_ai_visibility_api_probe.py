@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -19,11 +20,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout  # noqa: E402
+from scripts.growth import ai_visibility_api_probe_adapters as probe_adapters  # noqa: E402
+from scripts.growth.ai_visibility_api_probe_failures import (  # noqa: E402
+    provider_failure_payload,
+)
 from scripts.growth.ai_visibility_api_probe_records import (  # noqa: E402
     api_readiness_blocker_records,
 )
-from scripts.growth import ai_visibility_api_probe_adapters as probe_adapters  # noqa: E402
+from scripts.growth.ai_visibility_cli import emit_failure, write_text_or_stdout  # noqa: E402
 from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     DEFAULT_FEED_KEY,
     default_queries_for_feed,
@@ -31,20 +35,24 @@ from scripts.growth.generate_ai_visibility_probe_template import (  # noqa: E402
     parse_platforms,
     template_record,
 )
+from scripts.growth.local_env import load_optional_dotenv_path  # noqa: E402
 from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
     record_from_payload,
     validate_records,
 )
 
-API_DEFAULT_PLATFORMS = probe_adapters.API_DEFAULT_PLATFORMS
+DEFAULT_PLATFORMS = probe_adapters.API_DEFAULT_PLATFORMS
 DEFAULT_MODELS = probe_adapters.DEFAULT_MODELS
 ENV_KEYS = probe_adapters.ENV_KEYS
+ENV_KEY_ALIASES = probe_adapters.ENV_KEY_ALIASES
 OPENAI_RESPONSES_URL = probe_adapters.OPENAI_RESPONSES_URL
 answer_payload = probe_adapters.answer_payload
 api_key_for_platform = probe_adapters.api_key_for_platform
 call_gemini = probe_adapters.call_gemini
 call_platform = probe_adapters.call_platform
+platform_api_key = probe_adapters.api_key_for_platform
 post_json = probe_adapters.post_json
+redact_secrets = probe_adapters.redact_secrets
 source_hosts = probe_adapters.source_hosts
 
 
@@ -59,7 +67,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     )
     parser.add_argument(
         "--platforms",
-        default=",".join(API_DEFAULT_PLATFORMS),
+        default=",".join(DEFAULT_PLATFORMS),
         help="Comma-separated platforms. Supported API probes: chatgpt,claude,grok,gemini.",
     )
     parser.add_argument(
@@ -74,9 +82,19 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         action="store_true",
         help="Actually call paid answer-engine APIs. Without this flag, only readiness is reported.",
     )
+    parser.add_argument(
+        "--env-file",
+        help=(
+            "Optional dotenv file for local API keys. Also supported through "
+            "AI_VISIBILITY_ENV_FILE. Key values are never printed."
+        ),
+    )
     args = parser.parse_args()
 
     try:
+        env_file_loaded = load_optional_dotenv_path(
+            args.env_file or os.environ.get("AI_VISIBILITY_ENV_FILE", "")
+        )
         platforms = parse_api_platforms(args.platforms)
         queries = args.queries or default_queries_for_feed(args.feed_key)
         missing = missing_key_blockers(platforms)
@@ -102,6 +120,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
                 missing=missing,
                 execute=args.execute,
                 output=args.output,
+                env_file_loaded=env_file_loaded,
             )
             return 2 if args.execute and missing else 0
 
@@ -112,6 +131,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
                 missing=missing,
                 execute=args.execute,
                 output=args.output,
+                env_file_loaded=env_file_loaded,
             )
             return 0
 
@@ -149,9 +169,10 @@ def parse_api_platforms(raw: str) -> list[str]:
 def missing_key_blockers(platforms: Iterable[str]) -> list[Any]:
     blockers = []
     for platform in platforms:
-        env_key = ENV_KEYS[platform]
-        if not api_key_for_platform(platform):
-            blockers.append({"platform": platform, "missing_env": env_key})
+        env_keys = ENV_KEY_ALIASES.get(platform, (ENV_KEYS[platform],))
+        if not platform_api_key(platform):
+            missing_env = " or ".join(env_keys)
+            blockers.append({"platform": platform, "missing_env": missing_env})
     return blockers
 
 
@@ -162,11 +183,13 @@ def emit_status(
     missing: list[dict[str, str]],
     execute: bool,
     output: str | None,
+    env_file_loaded: bool,
 ) -> None:
     emit(
         {
             "status": "blocked" if missing else "ready",
             "execute": execute,
+            "env_file_loaded": env_file_loaded,
             "platforms": platforms,
             "query_count": len(queries),
             "missing": missing,
@@ -201,7 +224,7 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
                 generated_at=datetime.now(UTC).date().isoformat(),
                 official_source_urls=official_source_urls,
             )
-            answer = call_platform(platform, query)
+            answer = call_platform_with_failure_boundary(platform, query)
             payload = asdict(template)
             payload.update(
                 {
@@ -231,6 +254,18 @@ def run_api_probes(  # pragma: no cover - paid external API adapter
             )
             rows.append(record_from_payload(payload, index=len(rows)))
     return rows
+
+
+def call_platform_with_failure_boundary(platform: str, query: str) -> Any:
+    try:
+        return call_platform(platform, query)
+    except Exception as exc:  # noqa: BLE001 - provider adapters must fail bounded
+        return provider_failure_payload(
+            platform=platform,
+            query=query,
+            default_models=DEFAULT_MODELS,
+            redacted_error=redact_secrets(str(exc)),
+        )
 
 
 def emit(payload: dict[str, Any], *, stderr: bool = False) -> None:

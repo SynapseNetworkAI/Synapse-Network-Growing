@@ -152,12 +152,9 @@ def call_xai(query: str) -> Any:  # pragma: no cover - paid external API adapter
 def call_gemini(query: str) -> Any:  # pragma: no cover - paid external API adapter
     model = os.environ.get("GEMINI_AI_VISIBILITY_MODEL", DEFAULT_MODELS["gemini"])
     payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": prompt_for_query(query)}],
-            }
-        ]
+        "contents": [{"role": "user", "parts": [{"text": prompt_for_query(query)}]}],
+        "tools": [{"google_search": {}}],
+        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 900},
     }
     data, request_id = post_json(
         GEMINI_GENERATE_CONTENT_URL.format(model=urllib.parse.quote(model, safe="")),

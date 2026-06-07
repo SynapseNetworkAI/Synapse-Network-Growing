@@ -333,7 +333,7 @@ After running each platform probe, fill in `answer_summary`,
 
 Use the API runner only when local API keys are available and the operator is
 ready to spend provider tokens. It fails closed by default and does not call
-OpenAI, Anthropic, or xAI unless `--execute` is present.
+OpenAI, Anthropic, xAI, or Gemini unless `--execute` is present.
 
 Readiness check:
 
@@ -341,31 +341,48 @@ Readiness check:
 python scripts/growth/run_ai_visibility_api_probe.py \
   --feed-key agent_payment_category_pages \
   --run-group 2026-06-18-api-probe \
-  --platforms chatgpt,claude,grok
+  --platforms chatgpt,claude,grok,gemini
 ```
 
 When `--query` is omitted, the runner uses the full baseline query set so one
-round creates comparable ChatGPT, Claude, and Grok evidence for every priority
-question. Add `--query` only for focused diagnostics; do not treat a single-query
-diagnostic run as a full feed comparison.
+round creates comparable ChatGPT, Claude, Grok, and Gemini evidence for every
+priority question. Add `--query` only for focused diagnostics; do not treat a
+single-query diagnostic run as a full feed comparison.
 
 The output should be `status=ready` when the requested platform keys exist, or
 `status=blocked` with missing env names such as `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, or `XAI_API_KEY`. It must never print key values.
+`ANTHROPIC_API_KEY`, `XAI_API_KEY`, or `GEMINI_API_KEY or GENIMI_API_KEY`. It
+must never print key values.
+
+If the current Codex shell cannot see operator-provided keys, put only the
+needed answer-engine keys in a local, untracked dotenv file and pass it
+explicitly:
+
+```bash
+python scripts/growth/run_ai_visibility_api_probe.py \
+  --feed-key agent_payment_category_pages \
+  --run-group 2026-06-18-api-probe \
+  --platforms chatgpt,claude,grok,gemini \
+  --env-file /path/to/local-ai-visibility.env
+```
+
+The same path can be supplied with `AI_VISIBILITY_ENV_FILE`. The runner reports
+only `env_file_loaded=true|false` plus missing key names; it never prints key
+values. Paid calls still require `--execute`.
 
 The Growing gate at `/api/growth/ai-visibility/external-probe-gate` also
 reports `ready_platforms`, `missing_platforms`, and
 `manual_probe_template_command`. `manual_ready_to_execute=true` means the feed is
-ready for manual ChatGPT, Claude, and Grok UI checks even when API execution is
-blocked by missing keys. If API keys are missing, run the manual template
-command, use the generated rows as a checklist in each UI, fill in answer
+ready for manual ChatGPT, Claude, Grok, and Gemini UI checks even when API
+execution is blocked by missing keys. If API keys are missing, run the manual
+template command, use the generated rows as a checklist in each UI, fill in answer
 summaries, citations, and screenshot paths, then apply the JSONL with
 `record_ai_visibility_probe.py`. When the feed is ready but only some keys exist,
 the gate returns `ready_for_partial_external_probes` and shows
 `partial_api_readiness_command` / `partial_api_execute_command` for the configured
 platforms. Use partial API probes only for focused diagnostics. Full success
-still requires comparable ChatGPT, Claude, and Grok evidence for the same feed
-and run group.
+still requires comparable ChatGPT, Claude, Grok, and Gemini evidence for the
+same feed and run group when Gemini is configured.
 
 Execute paid probes:
 
@@ -373,7 +390,7 @@ Execute paid probes:
 python scripts/growth/run_ai_visibility_api_probe.py \
   --feed-key agent_payment_category_pages \
   --run-group 2026-06-18-api-probe \
-  --platforms chatgpt,claude,grok \
+  --platforms chatgpt,claude,grok,gemini \
   --output docs/archive/evidence/growth/ai-visibility/2026-06-18-api-probe.jsonl \
   --execute
 ```
@@ -388,10 +405,13 @@ Provider behavior:
    tool.
 3. `grok` uses xAI Responses API with `web_search`; xAI's old Chat Completions
    live search path is not used.
+4. `gemini` uses Gemini `generateContent` with `google_search` grounding. Set
+   either `GEMINI_API_KEY` or the local compatibility alias `GENIMI_API_KEY`.
 
 The runner emits the same JSONL contract as the manual template. A completed API
 row still needs operator review before being treated as launch evidence, because
-the public ChatGPT/Claude/Grok UI may rank sources differently from API search.
+the public ChatGPT/Claude/Grok/Gemini UI may rank sources differently from API
+search.
 
 ## Browser Probe Fallback
 
@@ -454,6 +474,51 @@ python scripts/growth/record_ai_visibility_probe.py \
 These rows use platform `public_web_search`. They appear in comparisons and
 scorecards so the operator can see competitors and next actions, but they do not
 cover the target GPT/Claude/Grok platforms and cannot close the visibility goal.
+
+## Post-Probe Source-Host Diagnosis
+
+When a complete ChatGPT, Claude, Grok, and Gemini probe returns zero Synapse
+mentions or citations, do not blindly repeat the same probe. Generate a
+source-host diagnosis first:
+
+```bash
+python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
+  docs/archive/evidence/growth/ai-visibility/2026-06-18-api-probe.jsonl \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-feed-diagnosis.json \
+  --recommendations-output docs/archive/evidence/growth/ai-visibility/2026-06-18-source-host-recommendations.jsonl
+```
+
+The diagnosis emits `recommended_source_host_executions` for source hosts such as
+the Official MCP Registry, GitHub README, Smithery, Glama, X citation threads,
+and docs disambiguation pages. These rows are operator intent and planning
+evidence only; they are not external answer-engine citations. After the selected
+source hosts are actually live and independently verifiable, rerun the same
+four-platform API probe and compare the new run group against the prior one.
+
+Record each live source-host execution before rerunning paid probes:
+
+```bash
+python scripts/growth/record_ai_visibility_source_host_execution.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group 2026-06-18-after-github-source-host \
+  --surface github_readme \
+  --source-url https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md \
+  --required-term "Answer Engine Source Block" \
+  --required-term "MCP server for paid API calls" \
+  --required-term "RapidAPI" \
+  --required-term "Project Synapse" \
+  --target-platform chatgpt \
+  --target-platform claude \
+  --target-platform grok \
+  --target-platform gemini \
+  --target-query "MCP server for paid API calls" \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-github-readme-source-host.json
+```
+
+The source-host evidence proves that a public feed surface is live and contains
+the intended terms. It still does not prove ChatGPT, Claude, Grok, or Gemini
+used that surface; only the subsequent answer-engine probe can prove a mention
+or citation.
 
 Example:
 
