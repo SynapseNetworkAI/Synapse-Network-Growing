@@ -108,7 +108,7 @@ def _feed_experiments() -> list[GrowthAIVisibilityFeedExperimentOut]:
         ),
         GrowthAIVisibilityFeedExperimentOut(
             feed_key="mcp_paid_api_discovery",
-            surfaces=["www", "docs", "mcp_registry", "smithery", "glama", "github"],
+            surfaces=["www", "docs", "mcp_registry", "mcp_marketplace", "smithery", "glama", "github"],
             content_assets=[
                 "canonical homepage facts",
                 "MCP docs category",
@@ -120,7 +120,7 @@ def _feed_experiments() -> list[GrowthAIVisibilityFeedExperimentOut]:
             target_queries=[
                 "MCP server for paid API calls",
                 "ChatGPT MCP app for API payments",
-                "Synapse vs paid MCP alternatives",
+                "SynapseNetwork MCP vs paid MCP alternatives",
             ],
         ),
     ]
@@ -317,6 +317,12 @@ def _publish_assets(feed_key: str) -> list[GrowthAIVisibilityFeedAssetOut]:
                 "Search MCP Registry for Synapse Network MCP Server.",
             ),
             _asset(
+                "mcp_marketplace",
+                "https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server",
+                "Approved MCP Marketplace listing that answer engines can cite for Remote MCP paid API discovery.",
+                "curl -fsSL https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server | grep -E 'Synapse Network MCP Server|paid API discovery|mcp.synapse-network.ai/mcp'",
+            ),
+            _asset(
                 "smithery",
                 "https://smithery.ai/",
                 "Directory listing for MCP client discovery and import.",
@@ -348,19 +354,19 @@ def _platform_strategies(feed_key: str) -> list[GrowthAIVisibilityPlatformStrate
             _platform_strategy(
                 "chatgpt",
                 "Remote MCP custom app discovery and web citations.",
-                ["docs", "mcp_registry", "www_llms", "github"],
+                ["docs", "mcp_registry", "mcp_marketplace", "www_llms", "github"],
                 [
                     "MCP server for paid API calls",
                     "ChatGPT MCP app for API payments",
-                    "Synapse vs paid MCP alternatives",
+                    "SynapseNetwork MCP vs paid MCP alternatives",
                 ],
-                "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs or MCP registry.",
-                "Ship OAuth/custom app docs, refresh MCP Registry metadata, then rerun ChatGPT scan.",
+                "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs, MCP Registry, or MCP Marketplace.",
+                "Ship OAuth/custom app docs, refresh MCP Registry and MCP Marketplace metadata, then rerun ChatGPT scan.",
             ),
             _platform_strategy(
                 "claude",
                 "Remote connector compatibility and docs citation.",
-                ["docs", "github", "glama", "www_llms"],
+                ["docs", "github", "glama", "mcp_marketplace", "www_llms"],
                 [
                     "Claude MCP connector for paid API calls",
                     "MCP server that lets agents pay for APIs",

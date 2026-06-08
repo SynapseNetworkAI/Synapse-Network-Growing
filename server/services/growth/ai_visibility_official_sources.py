@@ -14,6 +14,7 @@ OFFICIAL_CITATION_PREFIXES = (
     "https://github.com/SynapseNetworkAI",
     "https://mcp.synapse-network.ai/",
     "https://registry.modelcontextprotocol.io/",
+    "https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server",
 )
 
 
@@ -97,19 +98,7 @@ def ai_visibility_official_sources() -> GrowthAIVisibilityOfficialSourceListOut:
             ),
             acceptance_signal="readyz returns 200 and unauthenticated /mcp returns a Bearer-auth 401 challenge.",
         ),
-        GrowthAIVisibilityOfficialSourceOut(
-            surface_key="official_mcp_registry",
-            surface="mcp_registry",
-            canonical_url="https://registry.modelcontextprotocol.io/",
-            citation_role="Official MCP directory listing authority for MCP client discovery.",
-            feed_keys=["mcp_paid_api_discovery"],
-            required_for_success=True,
-            validation_command=(
-                "curl -fsS 'https://registry.modelcontextprotocol.io/v0.1/servers"
-                "?search=io.github.SynapseNetworkAI/synapse-network-mcp-server'"
-            ),
-            acceptance_signal="Registry result includes Synapse Network MCP metadata and hosted Remote MCP URL.",
-        ),
+        *_mcp_directory_sources(),
     ]
     return GrowthAIVisibilityOfficialSourceListOut(
         generated_at=datetime.now(UTC),
@@ -142,6 +131,47 @@ def _mcp_paid_api_doc_sources() -> list[GrowthAIVisibilityOfficialSourceOut]:
             acceptance_signal=(
                 "Page explains Synapse versus MCPay, Latch, Dock0, Apiosk, "
                 "Teleport, Stripe MCP, and paid MCP directories."
+            ),
+        ),
+    ]
+
+
+def _mcp_directory_sources() -> list[GrowthAIVisibilityOfficialSourceOut]:
+    marketplace_url = (
+        "https://mcp-marketplace.io/server/"
+        "io-github-synapsenetworkai-synapse-network-mcp-server"
+    )
+    return [
+        GrowthAIVisibilityOfficialSourceOut(
+            surface_key="official_mcp_registry",
+            surface="mcp_registry",
+            canonical_url="https://registry.modelcontextprotocol.io/",
+            citation_role="Official MCP directory listing authority for MCP client discovery.",
+            feed_keys=["mcp_paid_api_discovery"],
+            required_for_success=True,
+            validation_command=(
+                "curl -fsS 'https://registry.modelcontextprotocol.io/v0.1/servers"
+                "?search=io.github.SynapseNetworkAI/synapse-network-mcp-server'"
+            ),
+            acceptance_signal="Registry result includes Synapse Network MCP metadata and hosted Remote MCP URL.",
+        ),
+        GrowthAIVisibilityOfficialSourceOut(
+            surface_key="mcp_marketplace_listing",
+            surface="mcp_marketplace",
+            canonical_url=marketplace_url,
+            citation_role=(
+                "Approved third-party MCP Marketplace listing for answer-engine "
+                "source-host discovery."
+            ),
+            feed_keys=["mcp_paid_api_discovery"],
+            required_for_success=False,
+            validation_command=(
+                f"curl -fsSL '{marketplace_url}' | grep -E "
+                "'Synapse Network MCP Server|paid API discovery|mcp.synapse-network.ai/mcp'"
+            ),
+            acceptance_signal=(
+                "Listing is approved and exposes the Synapse MCP name, GitHub repo, "
+                "npm package, Remote MCP URL, and paid API discovery tagline."
             ),
         ),
     ]

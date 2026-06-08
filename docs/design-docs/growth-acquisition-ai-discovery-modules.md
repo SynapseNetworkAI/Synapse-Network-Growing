@@ -546,7 +546,7 @@ P0 feed experiments:
 
 1. `brand_disambiguation_www`: make `https://www.synapse-network.ai/` and docs show up for brand queries, permanently redirect the bare domain to `www`, and distinguish Synapse Network from unrelated `synapse.network` results.
 2. `agent_payment_category_pages`: publish answer-ready docs and homepage pages for AI agent payment APIs, paid API calls, USDC settlement, receipts, and budget isolation.
-3. `mcp_paid_api_discovery`: make the Remote MCP endpoint and package visible in MCP Registry, Smithery, Glama, docs, and GitHub surfaces.
+3. `mcp_paid_api_discovery`: make the Remote MCP endpoint and package visible in MCP Registry, MCP Marketplace, Smithery, Glama, docs, and GitHub surfaces.
 
 Comparison rules:
 

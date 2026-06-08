@@ -92,7 +92,7 @@ Examples:
    and Grok prefer `https://www.synapse-network.ai/`.
 2. `agent_payment_category_pages`: AI Agent Payments docs category, `/ai-agent-payments`,
    `/agent-payment-api`, FAQ, schema, and sitemap.
-3. `mcp_paid_api_discovery`: MCP Registry, Smithery, Glama, GitHub README,
+3. `mcp_paid_api_discovery`: MCP Registry, MCP Marketplace, Smithery, Glama, GitHub README,
    and Remote MCP docs.
 
 Do not mark a feed effective just because local validation passed. It is
@@ -489,7 +489,7 @@ python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
 ```
 
 The diagnosis emits `recommended_source_host_executions` for source hosts such as
-the Official MCP Registry, GitHub README, Smithery, Glama, X citation threads,
+the Official MCP Registry, MCP Marketplace, GitHub README, Smithery, Glama, X citation threads,
 and docs disambiguation pages. These rows are operator intent and planning
 evidence only; they are not external answer-engine citations. After the selected
 source hosts are actually live and independently verifiable, rerun the same
