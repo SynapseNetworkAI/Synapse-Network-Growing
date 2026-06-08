@@ -893,3 +893,4 @@ def test_ai_visibility_weekly_report_counts_only_latest_positive_streak(synced_c
         "Fewer than three stable positive external runs have been recorded."
         in payload["blockers"]
     )
+

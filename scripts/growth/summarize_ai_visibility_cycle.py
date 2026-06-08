@@ -22,7 +22,13 @@ from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
 from server.services.growth.ai_visibility_plan import (  # noqa: E402
     ai_visibility_feed_packages,
 )
+from server.services.growth.ai_visibility_probe_failures import (  # noqa: E402
+    has_provider_failure_missing_fact,
+)
 from server.services.growth.ai_visibility_text import unique_strings  # noqa: E402
+from scripts.growth.ai_visibility_cycle_comparison import (  # noqa: E402
+    comparison_summary,
+)
 
 TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
 
@@ -98,7 +104,11 @@ def summarize_cycle(
         external_records,
         failed_validation,
         api_probe_blockers,
+        provider_failure_records,
     ) = partition_records(records)
+    completed_external_records = [
+        record for record in external_records if not is_provider_failure(record)
+    ]
     target_platforms = target_platforms_for(external_records)
     covered_platforms, missing_platforms = platform_coverage(
         external_records,
@@ -109,6 +119,7 @@ def summarize_cycle(
         external_records=external_records,
         missing_platforms=missing_platforms,
         api_probe_blockers=api_probe_blockers,
+        provider_failure_records=provider_failure_records,
     )
     status = cycle_status(
         failed_validation=failed_validation,
@@ -133,12 +144,19 @@ def summarize_cycle(
     previous_external_records = [
         record
         for record in (previous_records or [])
-        if not is_local_validation(record) and not is_api_probe_readiness_blocker(record)
+        if not is_local_validation(record)
+        and not is_api_probe_readiness_blocker(record)
+    ]
+    previous_completed_external_records = [
+        record
+        for record in previous_external_records
+        if not is_provider_failure(record)
     ]
     comparison = comparison_summary(
-        current_external_records=external_records,
-        previous_external_records=previous_external_records,
+        current_external_records=completed_external_records,
+        previous_external_records=previous_completed_external_records,
         previous_source_path=previous_source_path,
+        provider_failure_count=len(provider_failure_records),
     )
     return {
         "module_key": "ai_visibility",
@@ -152,6 +170,8 @@ def summarize_cycle(
         "record_count": len(records),
         "local_validation_count": len(validation_records),
         "external_probe_count": len(external_records),
+        "completed_external_probe_count": len(completed_external_records),
+        "provider_failure_count": len(provider_failure_records),
         "api_probe_blocker_count": len(api_probe_blockers),
         "external_mentioned_count": sum(
             1 for record in external_records if record.synapse_mentioned
@@ -187,7 +207,13 @@ def cycle_scope(records: list[ProbeRecord]) -> Any:
 
 def partition_records(
     records: list[ProbeRecord],
-) -> tuple[list[ProbeRecord], list[ProbeRecord], list[ProbeRecord], list[ProbeRecord]]:
+) -> tuple[
+    list[ProbeRecord],
+    list[ProbeRecord],
+    list[ProbeRecord],
+    list[ProbeRecord],
+    list[ProbeRecord],
+]:
     validation_records = [record for record in records if is_local_validation(record)]
     api_probe_blockers = [
         record for record in records if is_api_probe_readiness_blocker(record)
@@ -195,14 +221,24 @@ def partition_records(
     external_records = [
         record
         for record in records
-        if not is_local_validation(record) and not is_api_probe_readiness_blocker(record)
+        if not is_local_validation(record)
+        and not is_api_probe_readiness_blocker(record)
+    ]
+    provider_failure_records = [
+        record for record in external_records if is_provider_failure(record)
     ]
     failed_validation = [
         record
         for record in validation_records
         if not record.synapse_mentioned or record.missing_facts
     ]
-    return validation_records, external_records, failed_validation, api_probe_blockers
+    return (
+        validation_records,
+        external_records,
+        failed_validation,
+        api_probe_blockers,
+        provider_failure_records,
+    )
 
 
 def platform_coverage(
@@ -236,10 +272,12 @@ def cycle_blockers(
     external_records: list[ProbeRecord],
     missing_platforms: list[str],
     api_probe_blockers: list[ProbeRecord],
+    provider_failure_records: list[ProbeRecord],
 ) -> list[str]:
     blockers = unique_strings(
         [fact for record in failed_validation for fact in record.missing_facts]
         + [fact for record in api_probe_blockers for fact in record.missing_facts]
+        + [fact for record in provider_failure_records for fact in record.missing_facts]
     )
     if api_probe_blockers and not external_records:
         blockers.append(
@@ -389,60 +427,6 @@ def feed_improvements_for(records: list[ProbeRecord]) -> list[str]:
     return unique_strings(improvements)
 
 
-def comparison_summary(
-    *,
-    current_external_records: list[ProbeRecord],
-    previous_external_records: list[ProbeRecord],
-    previous_source_path: str,
-) -> Any:
-    current_mentions = sum(
-        1 for record in current_external_records if record.synapse_mentioned
-    )
-    current_citations = sum(
-        1 for record in current_external_records if record.synapse_cited
-    )
-    previous_mentions = sum(
-        1 for record in previous_external_records if record.synapse_mentioned
-    )
-    previous_citations = sum(
-        1 for record in previous_external_records if record.synapse_cited
-    )
-    mentioned_delta = current_mentions - previous_mentions
-    cited_delta = current_citations - previous_citations
-    return {
-        "previous_source_path": previous_source_path,
-        "previous_external_probe_count": len(previous_external_records),
-        "previous_mentioned_count": previous_mentions,
-        "previous_cited_count": previous_citations,
-        "mentioned_delta": mentioned_delta,
-        "cited_delta": cited_delta,
-        "comparison_status": comparison_status(
-            previous_external_records=previous_external_records,
-            current_external_records=current_external_records,
-            mentioned_delta=mentioned_delta,
-            cited_delta=cited_delta,
-        ),
-    }
-
-
-def comparison_status(
-    *,
-    previous_external_records: list[ProbeRecord],
-    current_external_records: list[ProbeRecord],
-    mentioned_delta: int,
-    cited_delta: int,
-) -> str:
-    if not current_external_records:
-        return "needs_external_probe"
-    if not previous_external_records:
-        return "baseline"
-    if mentioned_delta > 0 or cited_delta > 0:
-        return "improved"
-    if mentioned_delta < 0 or cited_delta < 0:
-        return "regressed"
-    return "flat"
-
-
 def platform_strategies_for(*, feed_key: str, platforms: list[str]) -> list[Any]:
     if feed_key == "mixed":
         return []
@@ -468,6 +452,10 @@ def is_local_validation(record: ProbeRecord) -> bool:
 
 def is_api_probe_readiness_blocker(record: ProbeRecord) -> bool:
     return str(record.metadata.get("mode", "")).strip() == "api_probe_readiness_blocker"
+
+
+def is_provider_failure(record: ProbeRecord) -> bool:
+    return has_provider_failure_missing_fact(record.missing_facts)
 
 
 def emit(payload: dict[str, Any], *, stderr: bool = False) -> None:
