@@ -48,6 +48,42 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     assert "docs.mcpay.tech" in report["source_hosts"]
 
 
+def test_ai_visibility_comparison_flags_synapse_org_source_host_collision(
+    synced_client,
+):
+    response = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "SynapseNetwork MCP vs paid MCP alternatives",
+            "platform": "chatgpt",
+            "answer_summary": "ChatGPT surfaced an unrelated Synapse MCP source.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "metadata": {
+                "source_hosts": ["python-docs.synapse.org", "mcp.synapse.org"]
+            },
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-08-synapse-org-source-collision",
+        },
+    )
+    assert response.status_code == 201
+
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-08-synapse-org-source-collision"
+    )
+
+    assert comparison.status_code == 200
+    payload = comparison.json()["items"][0]
+    assert payload["citation_quality_status"] == "brand_collision_present"
+    assert payload["known_collision_competitors"] == [
+        "mcp.synapse.org",
+        "python-docs.synapse.org",
+        "synapse.org",
+    ]
+
+
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     for host in ("mcpservers.org", "docs.mcpay.tech", "github.com"):
         response = synced_client.post(

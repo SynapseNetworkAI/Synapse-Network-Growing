@@ -26,6 +26,9 @@ from server.services.growth.ai_visibility_text import unique_strings
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
 AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 KNOWN_BRAND_COLLISION_COMPETITORS = {
+    "python-docs.synapse.org",
+    "mcp.synapse.org",
+    "synapse.org",
     "synapseproto.com",
     "synapsenetwork.xyz",
     "synapse.network",
@@ -54,7 +57,7 @@ def _comparison_out(
     counts = _comparison_counts(completed_external_rows, previous)
     official_cited_urls = _official_cited_urls(completed_external_rows)
     known_collision_competitors = _known_collision_mentions(
-        aggregate["top_competitors"]
+        aggregate["top_competitors"] + aggregate["source_hosts"]
     )
     comparison_status = comparison_status_from_counts(
         external_checks_count=len(external_rows),
@@ -329,6 +332,7 @@ def _comparison_collision_mentions(
 ) -> list[str]:
     collisions: set[str] = set()
     for item in comparisons:
+        collisions.update(item.known_collision_competitors)
         collisions.update(_known_collision_mentions(item.top_competitors))
     return sorted(collisions)
 

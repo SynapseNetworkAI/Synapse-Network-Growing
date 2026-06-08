@@ -11,6 +11,7 @@ import urllib.request
 from typing import Any
 
 from scripts.growth.generate_ai_visibility_probe_template import KNOWN_COLLISION_DOMAINS
+from scripts.growth.ai_visibility_api_probe_scoring import is_official_synapse_mention
 from server.services.growth.ai_visibility_official_sources import is_official_citation_url
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
@@ -300,7 +301,7 @@ def answer_payload(
         raise RuntimeError(f"{platform} API returned no answer text")
     lowered = text.lower()
     cited_synapse_urls = [url for url in urls if is_synapse_url(url)]
-    mentioned = "synapse network" in lowered or "synapsenetwork" in lowered
+    mentioned = is_official_synapse_mention(lowered, cited_synapse_urls)
     competitors = competitor_mentions(text, urls)
     return {
         "summary": text[:1200],
@@ -309,7 +310,11 @@ def answer_payload(
         "cited_urls": cited_synapse_urls,
         "source_urls": urls,
         "competitor_mentions": competitors,
-        "missing_facts": [] if mentioned else ["Synapse Network was not mentioned."],
+        "missing_facts": (
+            []
+            if mentioned
+            else ["Official SynapseNetworkAI source or identity was not mentioned."]
+        ),
         "next_action": (
             "Compare against previous run group and keep feeding cited surfaces."
             if mentioned

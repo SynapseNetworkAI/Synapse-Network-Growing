@@ -853,7 +853,7 @@ def test_answer_payload_tracks_known_brand_collision_domains():
         request_id="req-1",
     )
 
-    assert payload["synapse_mentioned"] is True
+    assert payload["synapse_mentioned"] is False
     assert payload["synapse_cited"] is False
     assert payload["cited_urls"] == []
     assert "synapsenetwork.xyz" in payload["competitor_mentions"]
