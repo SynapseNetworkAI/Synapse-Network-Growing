@@ -100,9 +100,17 @@ def competitor_mentions(text: str, urls: list[str]) -> list[str]:
         if re.search(rf"\b{re.escape(label)}\b", haystack):
             competitors.append(label)
     for domain in KNOWN_COLLISION_DOMAINS:
-        if domain.lower() in haystack:
+        if collision_domain_mentioned(domain, haystack):
             competitors.append(domain)
     for label in KNOWN_COLLISION_TEXT:
         if label in haystack:
             competitors.append(label)
     return competitors
+
+
+def collision_domain_mentioned(domain: str, haystack: str) -> bool:
+    lowered_domain = domain.lower()
+    if "/" in lowered_domain:
+        return lowered_domain in haystack
+    escaped = re.escape(lowered_domain)
+    return bool(re.search(rf"(?<![a-z0-9-]){escaped}(?![a-z0-9-])", haystack))
