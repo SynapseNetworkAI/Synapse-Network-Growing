@@ -42,6 +42,7 @@ COMPETITOR_HOSTS = {
     "anythingmcp.com",
     "mcpsynapse.dev",
 }
+BRAND_COLLISION_HOSTS = {"mcp.synapse.org", "python-docs.synapse.org", "synapse.org"}
 DIRECTORY_SUBMIT_URLS = {
     "mcp.directory": "https://mcp.directory/submit",
     "mcpservers.org": "https://mcpservers.org/submit",
@@ -128,6 +129,8 @@ def _action_for_host(
         return _editorial_action(normalized, index)
     if normalized in COMPETITOR_HOSTS:
         return _competitor_action(normalized, index)
+    if normalized in BRAND_COLLISION_HOSTS:
+        return _brand_collision_action(normalized, index)
     return _monitor_action(normalized, index)
 
 
@@ -218,6 +221,38 @@ def _competitor_action(host: str, index: int) -> GrowthAIVisibilityPresenceActio
         submission_payload=_comparison_payload(host),
         operator_notes=[
             "Do not submit to competitor-owned docs; publish equivalent comparison evidence on owned channels."
+        ],
+    )
+
+
+def _brand_collision_action(
+    host: str, index: int
+) -> GrowthAIVisibilityPresenceActionOut:
+    return _action(
+        host=host,
+        priority=index,
+        action_type="brand_collision_disambiguation",
+        ownership="owned",
+        rationale=(
+            "Answer-engine source evidence confused Synapse Network with an "
+            "unrelated Synapse.org/Sage surface; owned docs and llms.txt need "
+            "explicit identity and not-this-project language before rerunning probes."
+        ),
+        target_surface=COMPARISON_DOCS_URL,
+        asset=(
+            "Owned docs/llms disambiguation block naming SynapseNetworkAI, "
+            "www.synapse-network.ai, docs.synapse-network.ai, and the unrelated "
+            f"collision host {host}."
+        ),
+        validation_command=(
+            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp "
+            '| grep -E "SynapseNetworkAI|Sage|synapse.org|mcp.synapse.org"'
+        ),
+        source_reference_url=f"https://{host}/",
+        submission_payload=_brand_collision_payload(host),
+        operator_notes=[
+            "Publish only on owned SynapseNetworkAI surfaces; do not contact or edit the unrelated Synapse.org project.",
+            "The goal is disambiguation, not a competitive claim.",
         ],
     )
 
@@ -369,6 +404,26 @@ def _comparison_payload(host: str) -> dict[str, object]:
             "Remote MCP discovery, bounded agent spend, USDC settlement, and receipts."
         ),
         "source_hosts_to_monitor": [host],
+    }
+
+
+def _brand_collision_payload(host: str) -> dict[str, object]:
+    return {
+        "collision_host": host,
+        "owned_disambiguation_url": COMPARISON_DOCS_URL,
+        "llms_txt_anchor": "SynapseNetworkAI official sources",
+        "recommended_answer_block": (
+            "Synapse Network, by SynapseNetworkAI, is the AI-agent payment and "
+            "Remote MCP settlement layer at https://www.synapse-network.ai/. "
+            "It is not Sage Bionetworks Synapse, synapse.org, mcp.synapse.org, "
+            "python-docs.synapse.org, or Synapse Protocol."
+        ),
+        "required_official_links": [
+            "https://www.synapse-network.ai/",
+            OFFICIAL_DOCS_URL,
+            COMPARISON_DOCS_URL,
+            OFFICIAL_GITHUB_REPOSITORY,
+        ],
     }
 
 

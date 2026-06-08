@@ -153,6 +153,56 @@ def test_source_host_feed_package_uses_readable_competitor_labels(
     )
 
 
+def test_source_host_feed_package_handles_synapse_org_brand_collisions(
+    synced_client,
+):
+    for host in ("python-docs.synapse.org", "mcp.synapse.org"):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "SynapseNetwork MCP vs paid MCP alternatives",
+                "platform": "chatgpt",
+                "answer_summary": f"ChatGPT cited unrelated Synapse host {host}.",
+                "synapse_mentioned": False,
+                "synapse_cited": False,
+                "metadata": {"source_hosts": [host]},
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-08-synapse-org-disambiguation-feed",
+            },
+        )
+        assert response.status_code == 201
+
+    package = synced_client.get(
+        "/api/growth/ai-visibility/source-host-feed-package"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-08-synapse-org-disambiguation-feed"
+    )
+
+    assert package.status_code == 200
+    draft_by_host = {item["host"]: item for item in package.json()["drafts"]}
+    draft = draft_by_host["python-docs.synapse.org"]
+    assert draft["draft_type"] == "owned_brand_disambiguation_refresh"
+    assert draft["status"] == "ready_to_publish_on_owned_channels"
+    assert "Sage Bionetworks Synapse" in draft["body_markdown"]
+    assert "www.synapse-network.ai/llms.txt" in draft["body_markdown"]
+    assert "SynapseNetworkAI" in draft["submission_payload"]["recommended_answer_block"]
+
+    checklist = synced_client.get(
+        "/api/growth/ai-visibility/source-host-execution-checklist"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-08-synapse-org-disambiguation-feed"
+    )
+
+    assert checklist.status_code == 200
+    item_by_host = {item["host"]: item for item in checklist.json()["items"]}
+    assert item_by_host["mcp.synapse.org"]["execution_status"] == (
+        "pending_owned_publish"
+    )
+    assert "llms_txt_validation" in item_by_host["mcp.synapse.org"][
+        "required_evidence"
+    ]
+
+
 def test_generate_ai_visibility_source_host_feed_package_cli_writes_json(
     monkeypatch, tmp_path: Path
 ):

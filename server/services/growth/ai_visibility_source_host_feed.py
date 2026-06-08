@@ -103,6 +103,8 @@ def _draft_from_action(action) -> GrowthAIVisibilitySourceHostDraftOut:
         return _directory_draft(action)
     if action.action_type == "comparison_presence":
         return _comparison_draft(action)
+    if action.action_type == "brand_collision_disambiguation":
+        return _brand_collision_draft(action)
     return _contextual_draft(action)
 
 
@@ -142,6 +144,7 @@ def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
     actions = {
         "directory_submission": "Submit the directory form using the non-secret payload.",
         "owned_comparison_refresh": "Publish the comparison draft on owned docs or GitHub surfaces.",
+        "owned_brand_disambiguation_refresh": "Publish the disambiguation block on owned docs, llms.txt, and README surfaces.",
         "contextual_partner_or_guest_pitch": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
     }
     return actions.get(
@@ -154,6 +157,13 @@ def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]
         return ["submission_url_or_receipt", "submitted_payload_summary", "screenshot"]
     if draft.draft_type == "owned_comparison_refresh":
         return ["published_url", "git_commit_or_pr", "live_curl_validation"]
+    if draft.draft_type == "owned_brand_disambiguation_refresh":
+        return [
+            "published_url",
+            "git_commit_or_pr",
+            "llms_txt_validation",
+            "unchanged_probe_rerun",
+        ]
     return ["review_notes", "target_contact_or_surface", "decision_or_published_url"]
 
 
@@ -220,6 +230,53 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 "- Human confirmation for consequential paid actions",
                 "",
                 f"Official docs: {OFFICIAL_DOCS}",
+            ]
+        ),
+        source_reference_url=action.source_reference_url,
+        submission_payload=action.submission_payload,
+        validation_command=action.validation_command,
+        probe_followup=action.probe_followup,
+        operator_notes=action.operator_notes,
+    )
+
+
+def _brand_collision_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
+    collision_host = str(action.submission_payload.get("collision_host", action.host))
+    title = f"Synapse Network official identity block for {collision_host}"
+    answer_block = str(action.submission_payload.get("recommended_answer_block", ""))
+    return GrowthAIVisibilitySourceHostDraftOut(
+        host=action.host,
+        priority=action.priority,
+        draft_type="owned_brand_disambiguation_refresh",
+        status="ready_to_publish_on_owned_channels",
+        target_url=action.target_surface,
+        title=title,
+        summary=(
+            "Publish an owned disambiguation block so answer engines do not map "
+            f"SynapseNetworkAI MCP queries to `{collision_host}`."
+        ),
+        body_markdown="\n".join(
+            [
+                f"# {title}",
+                "",
+                "Answer-engine disambiguation block:",
+                "",
+                f"> {answer_block}",
+                "",
+                "Add this block to:",
+                "",
+                "- `docs.synapse-network.ai/mcp/synapse-vs-paid-mcp`",
+                "- `www.synapse-network.ai/llms.txt` under official sources",
+                "- SynapseNetworkAI MCP README / directory description",
+                "",
+                "Required official links:",
+                "",
+                *[
+                    f"- {url}"
+                    for url in action.submission_payload.get(
+                        "required_official_links", []
+                    )
+                ],
             ]
         ),
         source_reference_url=action.source_reference_url,
