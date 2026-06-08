@@ -161,7 +161,7 @@ function installFetch() {
         canonical_domain: 'https://www.synapse-network.ai/',
         critical_fixes: ['Use www canonical domain.'],
         baseline_queries: [
-          { query: 'What is Synapse Network for AI agents?', intent: 'brand_disambiguation', target_platforms: ['chatgpt', 'claude', 'grok'], success_signal: 'Official citation appears.' },
+          { query: 'What is Synapse Network for AI agents?', intent: 'brand_disambiguation', target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], success_signal: 'Official citation appears.' },
         ],
         feed_experiments: [
           { feed_key: 'brand_disambiguation_www', surfaces: ['www', 'docs'], content_assets: ['canonical homepage metadata'], target_queries: ['What is Synapse Network for AI agents?'], measurement_window_days: 14 },
@@ -238,7 +238,7 @@ function installFetch() {
       return json({
         module_key: 'ai_visibility',
         generated_at: '2026-06-05T00:00:00Z',
-        target_platforms: ['chatgpt', 'claude', 'grok'],
+        target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         recommended_feed_key: 'mcp_paid_api_discovery',
         items: [
           {
@@ -251,7 +251,7 @@ function installFetch() {
             external_probe_ready: false,
             feed_effective: false,
             external_platforms: [],
-            missing_platforms: ['chatgpt', 'claude', 'grok'],
+            missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
             mentioned_count: 0,
             cited_count: 0,
             blockers: ['Production docs page https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.'],
@@ -259,8 +259,8 @@ function installFetch() {
             publish_surfaces: ['www', 'docs', 'mcp_registry'],
             feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-mcp_paid_api_discovery-weekly',
             manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
-            api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok',
-            api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok --execute',
+            api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini',
+            api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini --execute',
             compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"',
             latest_run_at: null,
           },
@@ -273,7 +273,7 @@ function installFetch() {
         module_key: 'ai_visibility',
         generated_at: '2026-06-05T00:00:00Z',
         recommended_feed_key: 'mcp_paid_api_discovery',
-        ranking_basis: 'Impact score rewards feed readiness, GPT/Claude/Grok coverage, Synapse mentions, citations, positive deltas, and durable feed effectiveness.',
+        ranking_basis: 'Impact score rewards feed readiness, GPT/Claude/Grok/Gemini coverage, Synapse mentions, citations, positive deltas, and durable feed effectiveness.',
         items: [
           {
             feed_key: 'mcp_paid_api_discovery',
@@ -286,9 +286,9 @@ function installFetch() {
             feed_ready: false,
             external_probe_ready: false,
             feed_effective: false,
-            target_platforms: ['chatgpt', 'claude', 'grok'],
+            target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
             covered_platforms: [],
-            missing_platforms: ['chatgpt', 'claude', 'grok'],
+            missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
             external_checks_count: 0,
             local_validation_count: 0,
             mentioned_count: 0,
@@ -299,8 +299,8 @@ function installFetch() {
             next_actions: ['Resolve feed blockers before external probes.'],
             recommended_action: 'Resolve feed blockers, then rerun live readiness before external probes.',
             feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery',
-            api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok',
-            api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok --execute',
+            api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini',
+            api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini --execute',
             compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"',
           },
         ],
@@ -364,7 +364,7 @@ function installFetch() {
         goal_achieved: false,
         required_stable_runs: 3,
         stable_positive_runs: 1,
-        target_platforms: ['chatgpt', 'claude', 'grok'],
+        target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         covered_platforms: ['chatgpt', 'claude'],
         missing_platforms: ['grok'],
         total_external_checks: 3,
@@ -399,8 +399,8 @@ function installFetch() {
         feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-feed-validation.jsonl',
         manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --mode after-feed',
         external_probe_gate_command: 'python scripts/growth/generate_ai_visibility_external_probe_gate.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-external-probe-gate.json',
-        api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API"',
-        api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok --query "AI agent payment API" --execute',
+        api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok,gemini --query "AI agent payment API"',
+        api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key agent_payment_category_pages --run-group 2026-06-05-agent_payment_category_pages-weekly --platforms chatgpt,claude,grok,gemini --query "AI agent payment API" --execute',
         public_web_search_import_command: 'python scripts/growth/import_ai_visibility_public_search_snapshot.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-public-web-search-snapshot.json --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-public-web-search.jsonl',
         apply_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly.jsonl --apply',
         probe_matrix_command: 'python scripts/growth/generate_ai_visibility_probe_matrix.py --output docs/archive/evidence/growth/ai-visibility/2026-06-05-agent_payment_category_pages-weekly-probe-matrix.json',
@@ -413,7 +413,7 @@ function installFetch() {
       })
     }
     if (url.includes('/growth/ai-visibility/goal-audit')) {
-      return json({ module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', status: 'incomplete', goal_achieved: false, official_homepage: 'https://www.synapse-network.ai/', target_platforms: ['chatgpt', 'claude', 'grok'], completed_count: 5, total_required: 8, requirements: [{ key: 'external_search_evidence', title: 'GPT/Claude/Grok search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing external evidence.', next_action: 'Run full external probes.' }], blockers: ['Missing external evidence.'], next_actions: ['Run full external probes.'], export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py' })
+      return json({ module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', status: 'incomplete', goal_achieved: false, official_homepage: 'https://www.synapse-network.ai/', target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], completed_count: 5, total_required: 8, requirements: [{ key: 'external_search_evidence', title: 'GPT/Claude/Grok/Gemini search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing external evidence.', next_action: 'Run full external probes.' }], blockers: ['Missing external evidence.'], next_actions: ['Run full external probes.'], export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py' })
     }
     if (url.includes('/growth/ai-visibility/release-unblock-plan')) {
       return json({
@@ -590,7 +590,7 @@ function installFetch() {
         commands: {
           rerun_handoff: 'python scripts/growth/generate_ai_visibility_handoff_bundle.py --feed-key mcp_paid_api_discovery',
           feed_validation: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery',
-          api_readiness: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok',
+          api_readiness: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini',
           partial_api_readiness: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude',
           goal_audit: 'python scripts/growth/generate_ai_visibility_goal_audit.py',
           compare: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery"',
@@ -609,9 +609,9 @@ function installFetch() {
         manual_ready_to_execute: false,
         feed_ready: false,
         api_keys_ready: false,
-        target_platforms: ['chatgpt', 'claude', 'grok'],
+        target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         ready_platforms: [],
-        missing_platforms: ['chatgpt', 'claude', 'grok'],
+        missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         provider_readiness: [
           { platform: 'chatgpt', env_key: 'OPENAI_API_KEY', configured: false },
           { platform: 'claude', env_key: 'ANTHROPIC_API_KEY', configured: false },
@@ -624,8 +624,8 @@ function installFetch() {
         feed_validation_command: 'python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery',
         record_readiness_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-feed-validation.jsonl --allow-local-validation --apply',
         manual_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery',
-        api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok',
-        api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok --execute',
+        api_readiness_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini',
+        api_execute_command: 'python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --platforms chatgpt,claude,grok,gemini --execute',
         record_probe_command: 'python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-external-probes.jsonl --apply',
         compare_command: 'curl -fsS "http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery" | python -m json.tool',
       })
@@ -668,7 +668,7 @@ function installFetch() {
       return json({
         module_key: 'ai_visibility',
         generated_at: '2026-06-05T00:00:00Z',
-        target_platforms: ['chatgpt', 'claude', 'grok'],
+        target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         recommended_feed_key: 'mcp_paid_api_discovery',
         total: 1,
         rows: [
@@ -701,7 +701,7 @@ function installFetch() {
         generated_at: '2026-06-05T00:00:00Z',
         official_homepage: 'https://www.synapse-network.ai/',
         recommended_feed_key: 'mcp_paid_api_discovery',
-        target_platforms: ['chatgpt', 'claude', 'grok'],
+        target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
         blockers: ['Production https://docs.synapse-network.ai/mcp/paid-api-calls is not live yet.'],
         next_actions: ['Resolve feed blockers before external probes.'],
         artifact_path: 'docs/archive/evidence/growth/ai-visibility/2026-06-05-operator-brief-optimization-brief.md',
@@ -733,7 +733,7 @@ function installFetch() {
             answer_summary: 'Live feed validation passed.',
             checked_urls: ['https://www.synapse-network.ai/llms.txt'],
             missing_facts: [],
-            next_action: 'Run GPT/Claude/Grok brand probes with generated template.',
+            next_action: 'Run GPT/Claude/Grok/Gemini brand probes with generated template.',
             checks: [
               {
                 label: 'llms',

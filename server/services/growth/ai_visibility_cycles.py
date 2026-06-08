@@ -72,7 +72,7 @@ def _cycle_for_package(package, comparison, validation: dict | None):
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok"
+        "--platforms chatgpt,claude,grok,gemini"
     )
     return GrowthAIVisibilityFeedCycleOut(
         feed_key=feed_key,
@@ -162,7 +162,7 @@ def _next_actions(
             blockers + ["Resolve feed blockers before external probes."]
         )[:6]
     if status == "ready_for_external_probe":
-        return ["Run unchanged ChatGPT, Claude, and Grok probes for this feed."]
+        return ["Run unchanged ChatGPT, Claude, Grok, and Gemini probes for this feed."]
     if status == "partial_external_probe":
         return [f"Complete missing external probes: {', '.join(missing_platforms)}."]
     if status in {"citation_observed", "mention_observed"}:

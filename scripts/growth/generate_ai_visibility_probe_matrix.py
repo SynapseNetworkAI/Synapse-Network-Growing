@@ -23,7 +23,7 @@ from server.services.growth.ai_visibility_probe_matrix import (  # noqa: E402
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser = argparse.ArgumentParser(
-        description="Export the ChatGPT/Claude/Grok probe matrix for AI visibility."
+        description="Export the ChatGPT/Claude/Grok/Gemini probe matrix for AI visibility."
     )
     parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
     args = parser.parse_args()

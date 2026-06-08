@@ -57,7 +57,7 @@ def brand_feed_missing(
 
 def brand_next_action(passed: bool) -> str:
     if passed:
-        return "Run GPT/Claude/Grok brand probes with generated template."
+        return "Run GPT/Claude/Grok/Gemini brand probes with generated template."
     return (
         "Deploy canonical www redirect, robots, llms.txt, sitemap, and GitHub "
         "organization profile fixes before external probes."

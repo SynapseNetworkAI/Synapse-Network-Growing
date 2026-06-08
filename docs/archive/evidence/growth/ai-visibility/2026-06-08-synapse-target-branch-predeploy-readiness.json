@@ -1,0 +1,53 @@
+{
+  "status": "target_branch_ready_live_prod_blocked",
+  "generated_at": "2026-06-08T09:27:39.767621+00:00",
+  "target_worktree": "/private/tmp/synapse-network-ai-visibility-pr223-readiness",
+  "branch": "origin/main detached",
+  "commit": "b0fab9bcdfaed5715b62e0aa8dbc21136d983055",
+  "commit_subject": "Strengthen AI visibility source host feed (#223)",
+  "source_pr": 223,
+  "validation": [
+    {
+      "command": "npm run ci:ai-visibility-assets",
+      "result": "passed"
+    },
+    {
+      "command": "npm run ci:seo-public-assets",
+      "result": "passed"
+    },
+    {
+      "command": "npm run ci:llms-links",
+      "result": "passed"
+    },
+    {
+      "command": "rg 'agent402|mcpay\\.fun|Cashfree|https://mcp\\.synapse-network\\.ai/mcp|discover_services|invoke_and_pay|get_receipt' services/docs-front/src/app/llms.txt/route.ts services/docs-front/content/docs/mcp/paid-api-calls.mdx services/docs-front/content/docs/mcp/synapse-vs-paid-mcp.mdx services/user-front/public/llms.txt services/user-front/public/llms-full.txt",
+      "result": "passed",
+      "matched": [
+        "agent402",
+        "mcpay.fun",
+        "Cashfree",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ]
+    },
+    {
+      "command": "cd services/docs-front && yarn install --frozen-lockfile && yarn build",
+      "result": "passed"
+    },
+    {
+      "command": "cd services/user-front && NEXT_PUBLIC_GATEWAY_BASE_URL=http://127.0.0.1:8000 NEXT_PUBLIC_ANALYTICS_ENDPOINT=http://127.0.0.1:8000/api/v1/events NEXT_PUBLIC_APP_ENV=local NEXT_PUBLIC_DOCS_BASE_URL=http://localhost:3100 NEXT_PUBLIC_SUPPORT_EMAIL=support@synapse-network.ai yarn build",
+      "result": "passed",
+      "notes": [
+        "Build emitted an existing react-hooks/exhaustive-deps warning in ConsumerWithdrawPage.tsx."
+      ]
+    }
+  ],
+  "live_prod_blockers": [
+    "GCloud auth refresh fails non-interactively until a human runs gcloud auth login.",
+    "docs-front and user-front still need Growing release-task staging and production deployment for this commit.",
+    "Production docs/www live readiness is blocked until source-host terms agent402, mcpay.fun, and Cashfree are visible publicly."
+  ],
+  "screenshots": []
+}

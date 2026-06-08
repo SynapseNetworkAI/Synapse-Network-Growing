@@ -60,7 +60,7 @@ def test_generate_handoff_bundle_writes_all_operator_files(monkeypatch, tmp_path
     assert manifest["status"] == "blocked"
     assert manifest["official_homepage"] == "https://www.synapse-network.ai/"
     assert manifest["ready_platforms"] == ["chatgpt", "claude"]
-    assert manifest["missing_platforms"] == ["grok"]
+    assert manifest["missing_platforms"] == ["grok", "gemini"]
     assert "GCloud auth fails non-interactively." in manifest["blockers"]
     assert "Docs /mcp/paid-api-calls page must be live." in manifest["blockers"]
     assert "--platforms chatgpt,claude" in manifest["commands"]["partial_api_readiness"]
@@ -118,7 +118,7 @@ def test_growth_ai_visibility_handoff_bundle_api(monkeypatch, synced_client):
                 "goal_audit_status": "incomplete",
                 "goal_achieved": False,
                 "ready_platforms": ["chatgpt", "claude"],
-                "missing_platforms": ["grok"],
+                "missing_platforms": ["grok", "gemini"],
                 "blockers": ["Docs /mcp/paid-api-calls page must be live."],
                 "next_actions": ["Run gcloud auth login."],
                 "files": {"manifest": "docs/archive/evidence/manifest.json"},
@@ -142,7 +142,7 @@ def test_growth_ai_visibility_handoff_bundle_api(monkeypatch, synced_client):
     assert payload["official_homepage"] == "https://www.synapse-network.ai/"
     assert payload["external_probe_gate_status"] == "blocked_until_feed_ready"
     assert payload["ready_platforms"] == ["chatgpt", "claude"]
-    assert payload["missing_platforms"] == ["grok"]
+    assert payload["missing_platforms"] == ["grok", "gemini"]
 
 
 class FakeLiveReadiness:
@@ -175,11 +175,11 @@ class FakeExternalGate:
             "ready_to_execute": False,
             "partial_ready_to_execute": True,
             "ready_platforms": ["chatgpt", "claude"],
-            "missing_platforms": ["grok"],
-            "blockers": ["grok missing XAI_API_KEY."],
+            "missing_platforms": ["grok", "gemini"],
+            "blockers": ["grok missing XAI_API_KEY.", "gemini missing GEMINI_API_KEY."],
             "api_readiness_command": (
                 "python scripts/growth/run_ai_visibility_api_probe.py "
-                "--platforms chatgpt,claude,grok"
+                "--platforms chatgpt,claude,grok,gemini"
             ),
             "partial_api_readiness_command": (
                 "python scripts/growth/run_ai_visibility_api_probe.py "
@@ -187,7 +187,7 @@ class FakeExternalGate:
             ),
             "api_execute_command": (
                 "python scripts/growth/run_ai_visibility_api_probe.py "
-                "--platforms chatgpt,claude,grok --execute"
+                "--platforms chatgpt,claude,grok,gemini --execute"
             ),
             "record_probe_command": (
                 "python scripts/growth/record_ai_visibility_probe.py probes.jsonl --apply"
@@ -245,6 +245,6 @@ class FakeGoalAudit:
         return {
             "status": "incomplete",
             "goal_achieved": False,
-            "blockers": ["Missing real external GPT/Claude/Grok evidence."],
+            "blockers": ["Missing real external GPT/Claude/Grok/Gemini evidence."],
             "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py",
         }

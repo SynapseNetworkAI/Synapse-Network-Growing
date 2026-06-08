@@ -204,7 +204,7 @@ def validate_agent_payment_feed(run_group: str) -> list[ProbeRecord]:
             checks=checks,
             missing_facts=missing,
             next_action=(
-                "Run GPT/Claude/Grok category probes for AI agent payment queries."
+                "Run GPT/Claude/Grok/Gemini category probes for AI agent payment queries."
                 if passed
                 else "Deploy AI Agent Payments www/docs pages before external probes."
             ),

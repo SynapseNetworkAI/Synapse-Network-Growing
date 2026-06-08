@@ -200,7 +200,7 @@ def _feed_readiness_requirement(
         external_gate=external_gate,
         ready_cycles=ready_cycles,
     )
-    blocker = "Run and pass live feed readiness before external GPT/Claude/Grok probes."
+    blocker = "Run and pass live feed readiness before external GPT/Claude/Grok/Gemini probes."
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="feed_readiness",
         title="Live feed readiness",
@@ -251,12 +251,12 @@ def _external_probe_requirement(weekly) -> GrowthAIVisibilityGoalAuditRequiremen
     cited = weekly.total_cited_count
     passed = not missing and cited >= len(AI_VISIBILITY_TARGET_PLATFORMS)
     blocker = (
-        "Missing real external GPT/Claude/Grok evidence: "
+        "Missing real external GPT/Claude/Grok/Gemini evidence: "
         f"{', '.join(missing) or 'official citations are still insufficient'}."
     )
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="external_search_evidence",
-        title="GPT/Claude/Grok search evidence",
+        title="GPT/Claude/Grok/Gemini search evidence",
         status="completed" if passed else "blocked",
         evidence=(
             f"Covered {', '.join(weekly.covered_platforms)} with "

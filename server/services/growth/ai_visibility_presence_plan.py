@@ -248,7 +248,7 @@ def _action(
         ],
         validation_command=validation_command,
         probe_followup=(
-            "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing "
+            "Rerun the unchanged ChatGPT/Claude/Grok/Gemini probe matrix after the listing "
             "or comparison asset is live and indexed."
         ),
         submit_url=submit_url,

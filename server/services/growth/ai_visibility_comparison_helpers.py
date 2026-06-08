@@ -108,7 +108,7 @@ def _previous_run_group(previous: GrowthAIVisibilityComparisonOut | None) -> str
 
 
 def _missing_platforms(external_platforms: list[str]) -> list[str]:
-    target_platforms = ["chatgpt", "claude", "grok"]
+    target_platforms = ["chatgpt", "claude", "grok", "gemini"]
     return [
         platform for platform in target_platforms if platform not in external_platforms
     ]
@@ -264,7 +264,7 @@ def _weekly_blockers(
 ) -> list[str]:
     blockers: list[str] = list(validation_blockers)
     if not comparisons:
-        blockers.append("No external GPT/Claude/Grok probe evidence has been recorded.")
+        blockers.append("No external GPT/Claude/Grok/Gemini probe evidence has been recorded.")
     if "chatgpt" in missing_platforms:
         blockers.append("ChatGPT probe evidence is missing.")
     if "claude" in missing_platforms:
@@ -312,7 +312,7 @@ def _weekly_next_actions(
             f"{', '.join(collision_mentions)}."
         )
     if not actions:
-        actions.append("Schedule the next weekly GPT/Claude/Grok stability probe.")
+        actions.append("Schedule the next weekly GPT/Claude/Grok/Gemini stability probe.")
     return unique_strings(actions)[:6]
 
 

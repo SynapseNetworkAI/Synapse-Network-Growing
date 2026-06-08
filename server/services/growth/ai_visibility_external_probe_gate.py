@@ -10,6 +10,7 @@ from server.schemas_growth import (
     GrowthAIVisibilityExternalProbeProviderOut,
 )
 from server.services.growth import ai_visibility_live_readiness
+from server.services.growth import ai_visibility_feed_validation as feed_validation
 from server.services.growth.ai_visibility_text import unique_strings
 
 TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
@@ -23,6 +24,14 @@ ENV_KEY_ALIASES = {
     "gemini": ("GEMINI_API_KEY", "GENIMI_API_KEY"),
 }
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
+SOURCE_HOST_REQUIRED_TERMS = ("agent402", "mcpay.fun", "Cashfree")
+SOURCE_HOST_SURFACES = (
+    (
+        "docs_synapse_vs_paid_mcp",
+        "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+    ),
+    ("www_llms", "https://www.synapse-network.ai/llms.txt"),
+)
 
 
 def ai_visibility_external_probe_gate(
@@ -38,13 +47,18 @@ def ai_visibility_external_probe_gate(
         run_group=run_group,
     )
     readiness = _readiness(feed_key=safe_feed_key, run_group=safe_run_group)
+    source_host_blockers = _source_host_blockers(feed_key=safe_feed_key)
     provider_readiness = _provider_readiness()
     provider_summary = _provider_summary(provider_readiness)
     ready_platforms = provider_summary["ready_platforms"]
     missing_platforms = provider_summary["missing_platforms"]
-    feed_ready = _feed_ready(readiness)
+    feed_ready = _feed_ready(readiness) and not source_host_blockers
     api_keys_ready = provider_summary["api_keys_ready"]
-    blockers = _blockers(readiness=readiness, providers=provider_readiness)
+    blockers = _blockers(
+        readiness=readiness,
+        providers=provider_readiness,
+        source_host_blockers=source_host_blockers,
+    )
     status = _status(
         feed_ready=feed_ready,
         api_keys_ready=api_keys_ready,
@@ -102,7 +116,7 @@ def _provider_readiness() -> list[GrowthAIVisibilityExternalProbeProviderOut]:
     return [
         GrowthAIVisibilityExternalProbeProviderOut(
             platform=platform,
-            env_key=ENV_KEYS[platform],
+            env_key=_platform_env_label(platform),
             configured=_platform_configured(platform),
         )
         for platform in TARGET_PLATFORMS
@@ -114,6 +128,13 @@ def _platform_configured(platform: str) -> bool:
         os.environ.get(env_key, "").strip()
         for env_key in ENV_KEY_ALIASES.get(platform, (ENV_KEYS[platform],))
     )
+
+
+def _platform_env_label(platform: str) -> str:
+    aliases = ENV_KEY_ALIASES.get(platform)
+    if aliases:
+        return " or ".join(aliases)
+    return ENV_KEYS[platform]
 
 
 def _safe_run_group(
@@ -204,12 +225,38 @@ def _status(
     return "blocked_until_api_keys"
 
 
-def _blockers(*, readiness, providers) -> list[str]:
+def _source_host_blockers(*, feed_key: str) -> list[str]:
+    if feed_key != DEFAULT_FEED_KEY:
+        return []
+    missing_by_surface: list[str] = []
+    for label, url in SOURCE_HOST_SURFACES:
+        result = feed_validation.fetch(label, url)
+        content = result.body_match_text or result.body_snippet
+        missing_terms = [
+            term
+            for term in SOURCE_HOST_REQUIRED_TERMS
+            if term.casefold() not in content.casefold()
+        ]
+        if not result.ok or missing_terms:
+            missing_by_surface.append(
+                f"{label} missing {', '.join(missing_terms or SOURCE_HOST_REQUIRED_TERMS)}"
+            )
+    if not missing_by_surface:
+        return []
+    return [
+        "Production source-host feed terms agent402, mcpay.fun, and Cashfree are not live on docs/www yet.",
+        "External GPT/Claude/Grok/Gemini probe evidence is not valid until production source-host feed validation passes.",
+        *missing_by_surface,
+    ]
+
+
+def _blockers(*, readiness, providers, source_host_blockers: list[str]) -> list[str]:
     blockers: list[str] = []
     for item in readiness.items:
         blockers.extend(item.missing_facts)
         if item.next_action and not item.feed_ready:
             blockers.append(item.next_action)
+    blockers.extend(source_host_blockers)
     for provider in providers:
         if not provider.configured:
             blockers.append(f"{provider.platform} missing {provider.env_key}.")

@@ -3,7 +3,7 @@
 
 The script does not call a search engine. It converts an operator-captured
 snapshot into the same JSONL contract used by record_ai_visibility_probe.py so
-Growing can compare web-search result drift alongside GPT/Claude/Grok probes.
+Growing can compare web-search result drift alongside GPT/Claude/Grok/Gemini probes.
 """
 
 from __future__ import annotations
@@ -183,7 +183,7 @@ def _next_action(snapshot: dict[str, Any], *, synapse_found: bool) -> str:
     for action in actions:
         if action:
             return action
-    return "Refresh indexing feeds and rerun public web search plus GPT/Claude/Grok probes."
+    return "Refresh indexing feeds and rerun public web search plus GPT/Claude/Grok/Gemini probes."
 
 
 if __name__ == "__main__":

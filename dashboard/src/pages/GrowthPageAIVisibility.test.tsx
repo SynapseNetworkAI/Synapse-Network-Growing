@@ -101,7 +101,7 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('Validate matrix')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-goal-audit')).toBeInTheDocument()
     expect(screen.getByText('Objective still requires external evidence')).toBeInTheDocument()
-    expect(screen.getByText('GPT/Claude/Grok search evidence')).toBeInTheDocument()
+    expect(screen.getByText('GPT/Claude/Grok/Gemini search evidence')).toBeInTheDocument()
     expect(screen.getAllByText('mcp_paid_api_discovery').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
   })
@@ -145,7 +145,7 @@ function feedCycles() {
   return {
     module_key: 'ai_visibility',
     generated_at: '2026-06-05T00:00:00Z',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     recommended_feed_key: 'mcp_paid_api_discovery',
     total: 1,
     items: [{
@@ -158,7 +158,7 @@ function feedCycles() {
       external_probe_ready: false,
       feed_effective: false,
       external_platforms: [],
-      missing_platforms: ['chatgpt', 'claude', 'grok'],
+      missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
       mentioned_count: 0,
       cited_count: 0,
       blockers: ['Docs /mcp/paid-api-calls page must be live.'],
@@ -210,7 +210,7 @@ function probeMatrix() {
   return {
     module_key: 'ai_visibility',
     generated_at: '2026-06-05T00:00:00Z',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     recommended_feed_key: 'mcp_paid_api_discovery',
     total: 1,
     rows: [{
@@ -333,7 +333,7 @@ function designHandoff() {
 }
 
 function weeklyReport() {
-  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', goal_status: 'optimizing', goal_achieved: false, required_stable_runs: 3, stable_positive_runs: 0, target_platforms: ['chatgpt', 'claude', 'grok'], covered_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], total_external_checks: 0, total_mentioned_count: 0, total_cited_count: 0, latest_feed_key: 'mcp_paid_api_discovery', latest_run_group: '', latest_comparison_status: 'needs_external_probe', feed_reports: [], blockers: ['Fewer than three stable positive external runs have been recorded.'], next_actions: ['Run probes.'], recommended_feed_key: 'mcp_paid_api_discovery', recommended_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py' }
+  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', goal_status: 'optimizing', goal_achieved: false, required_stable_runs: 3, stable_positive_runs: 0, target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], covered_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], total_external_checks: 0, total_mentioned_count: 0, total_cited_count: 0, latest_feed_key: 'mcp_paid_api_discovery', latest_run_group: '', latest_comparison_status: 'needs_external_probe', feed_reports: [], blockers: ['Fewer than three stable positive external runs have been recorded.'], next_actions: ['Run probes.'], recommended_feed_key: 'mcp_paid_api_discovery', recommended_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py' }
 }
 
 function nextCycle() {
@@ -397,14 +397,14 @@ function goalAudit() {
     status: 'incomplete',
     goal_achieved: false,
     official_homepage: 'https://www.synapse-network.ai/',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     completed_count: 5,
     total_required: 8,
     requirements: [
       { key: 'strategy', title: 'Agent optimization strategy', status: 'completed', required: true, evidence: '3 feed experiments.', blocker: '', next_action: '' },
-      { key: 'external_search_evidence', title: 'GPT/Claude/Grok search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing real external GPT/Claude/Grok evidence.', next_action: 'Run full external probes and record evidence.' },
+      { key: 'external_search_evidence', title: 'GPT/Claude/Grok/Gemini search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing real external GPT/Claude/Grok/Gemini evidence.', next_action: 'Run full external probes and record evidence.' },
     ],
-    blockers: ['Missing real external GPT/Claude/Grok evidence.'],
+    blockers: ['Missing real external GPT/Claude/Grok/Gemini evidence.'],
     next_actions: ['Run full external probes and record evidence.'],
     export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py',
   }

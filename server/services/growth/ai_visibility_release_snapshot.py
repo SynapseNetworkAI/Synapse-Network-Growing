@@ -53,7 +53,7 @@ def build_snapshot(
     }
     external_probe_keys = {
         platform: {
-            "env_key": env_key,
+            "env_key": _api_key_label(platform),
             "configured": _api_key_configured(platform),
         }
         for platform, env_key in API_ENV_KEYS.items()
@@ -164,6 +164,12 @@ def _api_key_configured(platform: str) -> bool:
     return any(
         os.environ.get(env_key, "").strip()
         for env_key in API_ENV_KEY_ALIASES.get(platform, (API_ENV_KEYS[platform],))
+    )
+
+
+def _api_key_label(platform: str) -> str:
+    return " or ".join(
+        API_ENV_KEY_ALIASES.get(platform, (API_ENV_KEYS[platform],))
     )
 
 

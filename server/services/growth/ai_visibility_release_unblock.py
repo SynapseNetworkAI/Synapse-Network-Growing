@@ -9,22 +9,14 @@ from typing import Any
 
 from server.services.growth.ai_visibility_plan import CANONICAL_HOMEPAGE
 
-DEFAULT_TARGET_COMMIT = "09a8e5fcb1511ca19b2ec417474ba5e780510469"
+DEFAULT_TARGET_COMMIT = "b0fab9bcdfaed5715b62e0aa8dbc21136d983055"
 DEFAULT_ACTOR = "codex/ai-visibility-release-unblock"
 PROJECT_KEY = "synapse-network"
-SERVICES = ("user-front",)
+SERVICES = ("docs-front", "user-front")
 STAGING_PROJECT_ID = "fabled-archive-494108-k5"
 PRODUCTION_PROJECT_ID = "synapse-network-prod"
 REGION = "us-central1"
-SOURCE_PR = {
-    "number": 216,
-    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/216",
-    "state": "MERGED",
-    "head_ref": "codex/fix-ai-visibility-jsonld-ssr",
-    "base_ref": "main",
-    "merged_at": "2026-06-06T01:51:16Z",
-    "merge_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
-}
+SOURCE_PR = {"number": 223, "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/223", "state": "MERGED", "head_ref": "codex/ai-visibility-four-platform-source-host-feed", "base_ref": "main", "merged_at": "2026-06-08T08:42:35Z", "merge_commit": DEFAULT_TARGET_COMMIT}
 SOURCE_PRS = [
     {
         "number": 203,
@@ -96,6 +88,7 @@ SOURCE_PRS = [
         "merge_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
         "purpose": "Move AI visibility WebPage/SoftwareApplication/FAQPage JSON-LD into server-rendered HTML for answer-engine crawlers.",
     },
+    {"number": 223, "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/223", "state": "MERGED", "head_ref": "codex/ai-visibility-four-platform-source-host-feed", "base_ref": "main", "merged_at": "2026-06-08T08:42:35Z", "merge_commit": DEFAULT_TARGET_COMMIT, "purpose": "Add source-host feed terms for agent402, mcpay.fun, Cashfree, and related paid MCP discovery sources."},
 ]
 PENDING_SOURCE_PRS: list[dict[str, Any]] = []
 PENDING_PUBLICATION_GAPS: list[dict[str, Any]] = []
@@ -111,14 +104,19 @@ VERIFIED_PUBLICATION_SURFACES = [
 ]
 DEPLOYMENT_GAP_BASES = [
     {
+        "service_key": "docs-front", "staging_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469", "production_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+        "latest_staging_record_id": 253, "latest_production_record_id": 254, "status": "staging_and_production_behind_target",
+        "staging_release_task_id": 252, "production_release_task_id": 253, "staging_revision": "", "production_revision": "",
+    },
+    {
         "service_key": "user-front", "staging_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469", "production_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
-        "latest_staging_record_id": 253, "latest_production_record_id": 254, "status": "staging_and_production_at_target",
+        "latest_staging_record_id": 253, "latest_production_record_id": 254, "status": "staging_and_production_behind_target",
         "staging_release_task_id": 252, "production_release_task_id": 253, "staging_revision": "synapse-staging-user-front-00045-xgp", "production_revision": "synapse-prod-user-front-00032-2z5",
     },
 ]
 PREDEPLOY_EVIDENCE_PATH = (
     "docs/archive/evidence/growth/ai-visibility/"
-    "2026-06-05-synapse-target-branch-predeploy-readiness.json"
+    "2026-06-08-synapse-target-branch-predeploy-readiness.json"
 )
 
 
@@ -171,8 +169,10 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             _gcloud_preflight_group(target_commit),
             _growing_preflight_group(),
             _task_status_group(),
+            _staging_group("docs-front", actor),
             _staging_group("user-front", actor),
             _staging_validation_group(),
+            _production_group("docs-front", actor),
             _production_group("user-front", actor),
             _production_validation_group(),
             _indexnow_submission_group(),
@@ -182,13 +182,13 @@ def build_release_unblock_plan(*, target_commit: str, actor: str) -> dict[str, A
             "docs-front and user-front staging tasks complete with DeploymentRecord.status=succeeded.",
             "Production tasks promote staging image digest for target_commit_sha.",
             "https://docs.synapse-network.ai/mcp/paid-api-calls returns 200 and includes discover_services, invoke_and_pay, and get_receipt.",
-            "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp returns 200 and names MCPay, Latch, Dock0, Apiosk, and Teleport.",
+            "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp returns 200 and names agent402, mcpay.fun, and Cashfree source-host feed terms.",
             "https://www.synapse-network.ai/mcp-server-for-paid-api-calls returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
             "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments returns 200 and includes JSON-LD FAQPage and SoftwareApplication extraction signals.",
-            "https://www.synapse-network.ai/llms.txt includes MCP Server for Paid API Calls and https://mcp.synapse-network.ai/mcp.",
+            "https://www.synapse-network.ai/llms.txt includes MCP Server for Paid API Calls, https://mcp.synapse-network.ai/mcp, agent402, mcpay.fun, and Cashfree.",
             "https://mcp.synapse-network.ai/readyz returns 200 and unauthenticated /mcp returns 401.",
             "IndexNow submission runs after production validation and includes the new www and docs AI visibility URLs.",
-            "Only after production validation passes, run unchanged ChatGPT, Claude, and Grok probes and record evidence.",
+            "Only after production validation passes, run unchanged ChatGPT, Claude, Grok, and Gemini probes and record evidence.",
         ],
 }
 
@@ -284,10 +284,10 @@ def _staging_validation_group() -> dict[str, Any]:
         "purpose": "Verify staging feed content before production promotion.",
         "commands": [
             "curl -fsS https://docs-staging.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
-            "curl -fsS https://docs-staging.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://docs-staging.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'agent402|mcpay.fun|Cashfree'",
             "curl -fsS https://staging.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
             "curl -fsS https://staging.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
-            "curl -fsS https://staging.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
+            "curl -fsS https://staging.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp|agent402|mcpay.fun|Cashfree'",
         ],
     }
 
@@ -295,18 +295,18 @@ def _staging_validation_group() -> dict[str, Any]:
 def _production_validation_group() -> dict[str, Any]:
     return {
         "key": "production_validation",
-        "purpose": "Verify the public feed that GPT, Claude, and Grok can crawl.",
+        "purpose": "Verify the public feed that GPT, Claude, Grok, and Gemini can crawl.",
         "commands": [
             f"curl -fsS {CANONICAL_HOMEPAGE}",
             "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -E 'MCP Server for Paid API Calls|discover_services|invoke_and_pay|get_receipt'",
-            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'Synapse vs Paid MCP Alternatives|MCPay|Latch|Dock0|Apiosk|Teleport'",
+            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -E 'agent402|mcpay.fun|Cashfree'",
             "curl -fsS https://www.synapse-network.ai/mcp-server-for-paid-api-calls | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|MCP server for paid API calls'",
             "curl -fsS https://www.synapse-network.ai/chatgpt-mcp-app-api-payments | grep -E 'application/ld\\+json|FAQPage|SoftwareApplication|ChatGPT MCP app for API payments'",
-            "curl -fsS https://www.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp'",
+            "curl -fsS https://www.synapse-network.ai/llms.txt | grep -E 'MCP Server for Paid API Calls|https://mcp.synapse-network.ai/mcp|agent402|mcpay.fun|Cashfree'",
             "curl -fsS https://mcp.synapse-network.ai/readyz",
             "test \"$(curl -o /tmp/synapse-mcp-unauth.out -sS -w '%{http_code}' -X POST https://mcp.synapse-network.ai/mcp)\" = \"401\"",
-            "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-after-prod --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl",
-            "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-feed-validation.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-cycle-summary.json",
+            "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-08-after-source-host-prod --output docs/archive/evidence/growth/ai-visibility/2026-06-08-after-source-host-prod-feed-validation.jsonl",
+            "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-08-after-source-host-prod-feed-validation.jsonl --output docs/archive/evidence/growth/ai-visibility/2026-06-08-after-source-host-prod-cycle-summary.json",
         ],
     }
 
@@ -323,14 +323,14 @@ def _answer_engine_probe_group() -> dict[str, Any]:
         "key": "post_publish_answer_engine_probe",
         "purpose": "Run external probes only after production feed validation has passed.",
         "commands": [
-            "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-after-prod --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-external-probes.jsonl",
-            "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-after-prod --platforms chatgpt,claude,grok",
-            "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-05-after-prod --platforms chatgpt,claude,grok --execute",
-            "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-05-after-prod-external-probes.jsonl --apply",
+            "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-08-after-source-host-prod --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-08-after-source-host-prod-external-probes.jsonl",
+            "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-08-after-source-host-prod --platforms chatgpt,claude,grok,gemini",
+            "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-08-after-source-host-prod --platforms chatgpt,claude,grok,gemini --execute",
+            "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-08-after-source-host-prod-external-probes.jsonl --apply",
         ],
         "notes": [
             "The readiness command is safe; the --execute command requires provider API keys in the local environment.",
-            "Manual ChatGPT/Claude/Grok screenshots are acceptable evidence when API probing is unavailable.",
+            "Manual ChatGPT/Claude/Grok/Gemini screenshots are acceptable evidence when API probing is unavailable.",
         ],
     }
 
@@ -340,9 +340,11 @@ def _known_blockers(
 ) -> list[str]:
     blockers: list[str] = []
     if deploy_readiness != "production_jsonld_verified":
-        blockers.append(
-            "GCloud auth fails non-interactively until a human runs gcloud auth login."
-        )
+        blockers.extend([
+            "GCloud auth fails non-interactively until a human runs gcloud auth login.",
+            "Production source-host feed terms agent402, mcpay.fun, and Cashfree are not live on docs/www yet.",
+            "External GPT/Claude/Grok/Gemini probe evidence is not valid until production source-host feed validation passes.",
+        ])
     for item in PENDING_SOURCE_PRS:
         blockers.append(
             (
@@ -372,6 +374,7 @@ def _confirmed_facts(target_commit: str) -> list[str]:
         "Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds.",
         "Production user-front release task #253 deployed commit 09a8e5fcb151 with Cloud Run revision synapse-prod-user-front-00032-2z5.",
         "The MCP paid API and ChatGPT MCP app pages include application/ld+json, FAQPage, and SoftwareApplication in production HTML.",
+        "Synapse-Network PR #223 adds the next source-host feed terms; those terms must be published before external answer-engine probes.",
     ]
 
 
