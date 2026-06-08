@@ -20,7 +20,12 @@ DIRECTORY_HOSTS = {
     "mcpservers.org",
     "mcp.directory",
     "mcp-marketplace.io",
+    "mcp.so",
     "lobehub.com",
+}
+EDITORIAL_HOSTS = {
+    "chatforest.com",
+    "coincodecap.com",
 }
 CONTROLLED_HOSTS = {
     "github.com",
@@ -41,6 +46,7 @@ DIRECTORY_SUBMIT_URLS = {
     "mcp.directory": "https://mcp.directory/submit",
     "mcpservers.org": "https://mcpservers.org/submit",
     "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
+    "mcp.so": "https://mcp.so/submit",
 }
 OFFICIAL_GITHUB_REPOSITORY = (
     "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"
@@ -118,6 +124,8 @@ def _action_for_host(
         return _directory_action(normalized, index)
     if normalized in CONTROLLED_HOSTS:
         return _controlled_action(normalized, index)
+    if normalized in EDITORIAL_HOSTS:
+        return _editorial_action(normalized, index)
     if normalized in COMPETITOR_HOSTS:
         return _competitor_action(normalized, index)
     return _monitor_action(normalized, index)
@@ -126,7 +134,7 @@ def _action_for_host(
 def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceActionOut:
     submit_url = DIRECTORY_SUBMIT_URLS.get(host, "")
     operator_notes = []
-    if host == "mcp-marketplace.io":
+    if host in {"mcp-marketplace.io", "mcp.so"}:
         operator_notes.append(
             "Login appears required before submission; use the operator-owned directory account."
         )
@@ -164,6 +172,29 @@ def _controlled_action(host: str, index: int) -> GrowthAIVisibilityPresenceActio
         validation_command=f'curl -fsS "https://{host}/" >/dev/null',
         source_reference_url=f"https://{host}/",
         submission_payload=_controlled_payload(host),
+    )
+
+
+def _editorial_action(host: str, index: int) -> GrowthAIVisibilityPresenceActionOut:
+    payload = _editorial_payload(host)
+    return _action(
+        host=host,
+        priority=index,
+        action_type="editorial_pitch",
+        ownership="partner_or_editorial_review",
+        rationale=(
+            "ChatGPT cited this editorial/source host for MCP or agent-payment "
+            "queries; a factual pitch can create a citable third-party mention."
+        ),
+        target_surface=f"https://{host}/",
+        asset="Editorial pitch for a Synapse Remote MCP review, comparison, or roundup mention.",
+        validation_command=f'curl -fsS "{payload["target_url"]}" | grep -i "synapse"',
+        source_reference_url=payload["target_url"],
+        submission_payload=payload,
+        operator_notes=[
+            "Do not imply an existing partnership; submit as an editorial correction, review request, or topic pitch.",
+            "Use only public facts and links; do not include credentials, API keys, or private billing data.",
+        ],
     )
 
 
@@ -289,6 +320,25 @@ def _directory_payload(host: str) -> dict[str, object]:
             "category": "Finance & Payments",
             "premium_listing": False,
         }
+    if host == "mcp.so":
+        return {
+            **base_payload,
+            "name": "Synapse Network MCP Server",
+            "url": OFFICIAL_GITHUB_REPOSITORY,
+            "server_config": {
+                "mcpServers": {
+                    "synapse-agentpay": {
+                        "command": "npx",
+                        "args": ["-y", OFFICIAL_NPM_PACKAGE],
+                        "env": {
+                            "SYNAPSE_AGENT_KEY": "agt_xxx",
+                            "SYNAPSE_ENV": "prod",
+                        },
+                    }
+                }
+            },
+            "login_required": True,
+        }
     return {
         **base_payload,
         "login_required": host == "mcp-marketplace.io",
@@ -319,6 +369,33 @@ def _comparison_payload(host: str) -> dict[str, object]:
             "Remote MCP discovery, bounded agent spend, USDC settlement, and receipts."
         ),
         "source_hosts_to_monitor": [host],
+    }
+
+
+def _editorial_payload(host: str) -> dict[str, object]:
+    contacts = {
+        "chatforest.com": "https://chatforest.com/reviews/",
+        "coincodecap.com": "https://coincodecap.com/contact",
+    }
+    angles = {
+        "chatforest.com": (
+            "Review Synapse Network MCP Server as a Remote MCP for paid API "
+            "discovery, bounded invocation, USDC settlement, and receipts."
+        ),
+        "coincodecap.com": (
+            "Cover Synapse Network as AI-agent payment infrastructure for MCP "
+            "paid API calls, USDC micropayments, and API provider monetization."
+        ),
+    }
+    return {
+        "target_url": contacts.get(host, f"https://{host}/"),
+        "pitch_subject": "Synapse Network Remote MCP for paid API calls",
+        "pitch_angle": angles.get(host, LISTING_DESCRIPTION),
+        "official_facts_url": OFFICIAL_DOCS_URL,
+        "comparison_url": COMPARISON_DOCS_URL,
+        "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
+        "remote_mcp_endpoint": REMOTE_MCP_ENDPOINT,
+        "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
     }
 
 
