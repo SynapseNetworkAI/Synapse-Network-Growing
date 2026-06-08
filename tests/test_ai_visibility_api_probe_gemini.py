@@ -71,6 +71,40 @@ def test_call_gemini_uses_grounded_search_payload(monkeypatch):
     assert payload["cited_urls"] == ["https://www.synapse-network.ai/"]
 
 
+def test_api_probe_normalizes_markdown_citation_url_suffixes():
+    urls = api_probe.probe_adapters.extract_urls(
+        {
+            "answer": (
+                "Endpoint: https://mcp.synapse-network.ai/mcp.**[[1]] "
+                "or `https://mcp.synapse-network.ai/mcp`."
+            )
+        }
+    )
+
+    assert urls == ["https://mcp.synapse-network.ai/mcp"]
+
+
+def test_api_probe_collision_domains_use_boundaries():
+    official = api_probe.answer_payload(
+        platform="grok",
+        model="grok-test",
+        text="SynapseNetwork.ai documents the Remote MCP endpoint.",
+        urls=["https://github.com/synapsenetworkai/synapse-network-mcp-server"],
+        request_id="req-1",
+    )
+    collision = api_probe.answer_payload(
+        platform="grok",
+        model="grok-test",
+        text="The unrelated Synapse Protocol site is https://synapse.network/.",
+        urls=["https://synapse.network/"],
+        request_id="req-2",
+    )
+
+    assert official["synapse_cited"] is True
+    assert "synapse.network" not in official["competitor_mentions"]
+    assert "synapse.network" in collision["competitor_mentions"]
+
+
 def test_redact_secrets_includes_genimi_alias(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "secret-openai")
     monkeypatch.setenv("GENIMI_API_KEY", "secret-genimi")

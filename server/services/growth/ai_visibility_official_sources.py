@@ -9,6 +9,7 @@ from server.schemas_growth import (
 
 OFFICIAL_CITATION_PREFIXES = (
     "https://www.synapse-network.ai/",
+    "https://synapse-network.ai/",
     "https://docs.synapse-network.ai/",
     "https://github.com/SynapseNetworkAI",
     "https://mcp.synapse-network.ai/",
@@ -147,4 +148,7 @@ def _mcp_paid_api_doc_sources() -> list[GrowthAIVisibilityOfficialSourceOut]:
 
 
 def is_official_citation_url(url: str) -> bool:
-    return any(url.startswith(prefix) for prefix in OFFICIAL_CITATION_PREFIXES)
+    normalized = url.strip().lower()
+    return any(
+        normalized.startswith(prefix.lower()) for prefix in OFFICIAL_CITATION_PREFIXES
+    )
