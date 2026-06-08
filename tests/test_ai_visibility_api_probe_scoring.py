@@ -40,6 +40,35 @@ def test_answer_payload_rejects_synapse_protocol_collision_without_official_iden
     assert "synapse protocol" in payload["competitor_mentions"]
 
 
+def test_competitor_mentions_do_not_flag_official_synapsenetwork_text():
+    payload = scoring.answer_payload(
+        platform="grok",
+        model="grok-test",
+        text=(
+            "SynapseNetwork.ai is the official SynapseNetwork MCP server for "
+            "paid API calls. The hosted endpoint is "
+            "https://mcp.synapse-network.ai/mcp."
+        ),
+        urls=["https://github.com/SynapseNetworkAI/synapse-network-mcp-server"],
+        request_id="req-1",
+    )
+
+    assert payload["synapse_mentioned"] is True
+    assert "synapse.network" not in payload["competitor_mentions"]
+
+
+def test_competitor_mentions_still_flag_collision_domain_with_boundaries():
+    payload = scoring.answer_payload(
+        platform="grok",
+        model="grok-test",
+        text="The unrelated Synapse Protocol site is https://synapse.network/.",
+        urls=["https://synapse.network/"],
+        request_id="req-1",
+    )
+
+    assert "synapse.network" in payload["competitor_mentions"]
+
+
 def test_answer_payload_accepts_official_synapse_citation():
     payload = scoring.answer_payload(
         platform="grok",
