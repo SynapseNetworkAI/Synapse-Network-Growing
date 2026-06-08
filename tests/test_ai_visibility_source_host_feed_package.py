@@ -116,6 +116,43 @@ def test_source_host_feed_package_handles_mcp_so_login_and_editorial_hosts(
     )
 
 
+def test_source_host_feed_package_uses_readable_competitor_labels(
+    synced_client,
+):
+    for host in ("docs.mcpay.tech", "mcp.magpie.im"):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "MCP server for paid API calls",
+                "platform": "chatgpt",
+                "answer_summary": f"ChatGPT cited {host}.",
+                "synapse_mentioned": False,
+                "synapse_cited": False,
+                "metadata": {"source_hosts": [host]},
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-08-competitor-labels",
+            },
+        )
+        assert response.status_code == 201
+
+    package = synced_client.get(
+        "/api/growth/ai-visibility/source-host-feed-package"
+        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-08-competitor-labels"
+    )
+
+    assert package.status_code == 200
+    draft_by_host = {item["host"]: item for item in package.json()["drafts"]}
+    assert draft_by_host["docs.mcpay.tech"]["draft_type"] == (
+        "owned_comparison_refresh"
+    )
+    assert draft_by_host["docs.mcpay.tech"]["title"] == (
+        "Synapse Network vs MCPay for paid MCP and agent payments"
+    )
+    assert draft_by_host["mcp.magpie.im"]["title"] == (
+        "Synapse Network vs Magpie for paid MCP and agent payments"
+    )
+
+
 def test_generate_ai_visibility_source_host_feed_package_cli_writes_json(
     monkeypatch, tmp_path: Path
 ):

@@ -21,6 +21,15 @@ from server.services.growth.ai_visibility_presence_plan import (
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
 OFFICIAL_DOCS = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 COMPARISON_DOCS = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+COMPETITOR_LABELS = {
+    "anythingmcp.com": "AnythingMCP",
+    "docs.latchmcp.app": "Latch MCP",
+    "docs.mcpay.tech": "MCPay",
+    "docs.stripe.com": "Stripe",
+    "mcp.magpie.im": "Magpie",
+    "mcpsynapse.dev": "MCP Synapse",
+    "teleport.ltd": "Teleport",
+}
 
 
 def ai_visibility_source_host_feed_package(
@@ -183,7 +192,7 @@ def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
 
 
 def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
-    competitor = action.host.split(".")[0]
+    competitor = _competitor_label(action.host)
     title = f"Synapse Network vs {competitor} for paid MCP and agent payments"
     return GrowthAIVisibilitySourceHostDraftOut(
         host=action.host,
@@ -219,6 +228,14 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
         probe_followup=action.probe_followup,
         operator_notes=action.operator_notes,
     )
+
+
+def _competitor_label(host: str) -> str:
+    normalized = host.strip().lower()
+    if normalized in COMPETITOR_LABELS:
+        return COMPETITOR_LABELS[normalized]
+    parts = [part for part in normalized.split(".") if part and part != "docs"]
+    return parts[0] if parts else normalized
 
 
 def _contextual_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
