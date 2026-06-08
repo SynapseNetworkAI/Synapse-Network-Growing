@@ -279,9 +279,10 @@ def test_ai_visibility_weekly_report_ignores_stale_api_key_validation_blocker(
     assert "Set XAI_API_KEY locally and rerun grok --execute." not in weekly[
         "next_actions"
     ]
-    assert "Run and record missing platform probes: chatgpt, claude, grok." in weekly[
-        "next_actions"
-    ]
+    assert (
+        "Run and record missing platform probes: chatgpt, claude, grok, gemini."
+        in weekly["next_actions"]
+    )
 
 
 def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
@@ -320,7 +321,7 @@ def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
         for item in report["feed_reports"]
         if item["feed_key"] == "mcp_paid_api_discovery"
     )
-    assert latest_report["missing_platforms"] == ["claude", "grok"]
+    assert latest_report["missing_platforms"] == ["claude", "grok", "gemini"]
 
     audit = synced_client.get("/api/growth/ai-visibility/goal-audit").json()
     external = next(
@@ -330,3 +331,4 @@ def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
     )
     assert "claude" in external["blocker"]
     assert "grok" in external["blocker"]
+    assert "gemini" in external["blocker"]

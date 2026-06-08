@@ -122,7 +122,7 @@ def test_cycle_summary_marks_flat_provider_failure_run_inconclusive(
 
 
 def test_weekly_report_skips_provider_failure_for_stability_streak(synced_client):
-    for platform in ("chatgpt", "claude"):
+    for platform in ("chatgpt", "claude", "grok", "gemini"):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={

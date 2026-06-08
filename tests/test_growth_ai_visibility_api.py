@@ -4,6 +4,9 @@ from types import SimpleNamespace
 from server.database_growth import GrowthDiscoveryListingRow
 
 
+TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
+
+
 def _fake_external_probe_gate():
     return SimpleNamespace(
         status="ready_for_partial_external_probes",
@@ -32,11 +35,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert any("synapsenetwork.xyz" in fix for fix in plan_payload["critical_fixes"])
     assert plan_payload["product_docs"]["docs_category"] == "AI Agent Payments"
-    assert plan_payload["baseline_queries"][0]["target_platforms"] == [
-        "chatgpt",
-        "claude",
-        "grok",
-    ]
+    assert plan_payload["baseline_queries"][0]["target_platforms"] == TARGET_PLATFORMS
     assert {
         experiment["feed_key"] for experiment in plan_payload["feed_experiments"]
     } >= {
@@ -67,8 +66,8 @@ def test_growth_ai_visibility_and_discovery_listing(
     probe_matrix = synced_client.get("/api/growth/ai-visibility/probe-matrix")
     assert probe_matrix.status_code == 200
     matrix_payload = probe_matrix.json()
-    assert matrix_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
-    assert matrix_payload["total"] == 9
+    assert matrix_payload["target_platforms"] == TARGET_PLATFORMS
+    assert matrix_payload["total"] == 12
     mcp_chatgpt = next(
         row
         for row in matrix_payload["rows"]
@@ -124,7 +123,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert {
         strategy["platform"]
         for strategy in mcp_package.json()["items"][0]["platform_strategies"]
-    } == {"chatgpt", "claude", "grok"}
+    } == {"chatgpt", "claude", "grok", "gemini"}
     assert any(
         "Remote MCP custom app" in strategy["feed_focus"]
         for strategy in mcp_package.json()["items"][0]["platform_strategies"]
@@ -178,7 +177,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert feed_cycles.status_code == 200
     cycle_payload = feed_cycles.json()
     assert cycle_payload["total"] == 3
-    assert cycle_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert cycle_payload["target_platforms"] == TARGET_PLATFORMS
     assert {item["feed_key"] for item in cycle_payload["items"]} == {
         "brand_disambiguation_www",
         "agent_payment_category_pages",
@@ -379,6 +378,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     ]
     assert comparison_payload["known_collision_competitors"] == []
     assert "grok" in comparison_payload["missing_platforms"]
+    assert "gemini" in comparison_payload["missing_platforms"]
     assert "RapidAPI" in comparison_payload["top_competitors"]
     assert (
         synced_client.get("/api/growth/ai-visibility/checks?q=MCP").json()["total"] == 3
@@ -388,6 +388,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         ("chatgpt", True),
         ("claude", True),
         ("grok", False),
+        ("gemini", False),
     ):
         synced_client.post(
             "/api/growth/ai-visibility/checks",
@@ -395,7 +396,7 @@ def test_growth_ai_visibility_and_discovery_listing(
                 "query": "MCP server for paid API calls",
                 "platform": platform,
                 "answer_summary": f"{platform} after feed",
-                "synapse_mentioned": True,
+                "synapse_mentioned": platform != "gemini",
                 "synapse_cited": cited,
                 "cited_urls": ["https://www.synapse-network.ai/"] if cited else [],
                 "competitor_mentions": ["RapidAPI"] if not cited else [],
@@ -439,7 +440,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert weekly_payload["goal_status"] == "optimizing"
     assert weekly_payload["stable_positive_runs"] == 1
     assert weekly_payload["required_stable_runs"] == 3
-    assert weekly_payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
+    assert weekly_payload["covered_platforms"] == sorted(TARGET_PLATFORMS)
     assert (
         "Fewer than three stable positive external runs have been recorded."
         in weekly_payload["blockers"]
@@ -555,7 +556,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert goal_payload["goal_achieved"] is False
     assert goal_payload["status"] == "incomplete"
     assert goal_payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert goal_payload["target_platforms"] == TARGET_PLATFORMS
     assert goal_payload["completed_count"] < goal_payload["total_required"]
     requirement_by_key = {
         item["key"]: item for item in goal_payload["requirements"]
@@ -587,11 +588,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert local_comparison["local_validation_count"] == 1
     assert local_comparison["external_checks_count"] == 0
     assert local_comparison["cited_count"] == 0
-    assert set(local_comparison["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
+    assert set(local_comparison["missing_platforms"]) == set(TARGET_PLATFORMS)
 
     live_validation = synced_client.post(
         "/api/growth/ai-visibility/checks",
@@ -668,11 +665,7 @@ def test_public_web_search_diagnostic_records_do_not_cover_target_platforms(
     assert comparison["external_checks_count"] == 1
     assert comparison["mentioned_count"] == 0
     assert comparison["cited_count"] == 0
-    assert set(comparison["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
+    assert set(comparison["missing_platforms"]) == set(TARGET_PLATFORMS)
     assert "MCPay" in comparison["top_competitors"]
 
     scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
@@ -682,11 +675,7 @@ def test_public_web_search_diagnostic_records_do_not_cover_target_platforms(
         if item["feed_key"] == "mcp_paid_api_discovery"
     )
     assert "public_web_search" not in mcp_score["covered_platforms"]
-    assert set(mcp_score["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
+    assert set(mcp_score["missing_platforms"]) == set(TARGET_PLATFORMS)
     assert "Refresh IndexNow and rerun public web search." in mcp_score["next_actions"]
 
 
@@ -788,9 +777,9 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["manual_ready_to_execute"] is False
     assert payload["feed_ready"] is False
     assert payload["api_keys_ready"] is False
-    assert payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
+    assert payload["target_platforms"] == TARGET_PLATFORMS
     assert payload["ready_platforms"] == []
-    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
+    assert payload["missing_platforms"] == TARGET_PLATFORMS
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
     assert (
@@ -804,7 +793,7 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
 
 
 def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client):
-    for platform in ("chatgpt", "claude", "grok", "gemini"):
+    for platform in TARGET_PLATFORMS:
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
@@ -828,7 +817,7 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
 
     assert report.status_code == 200
     payload = report.json()
-    assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["covered_platforms"] == sorted(TARGET_PLATFORMS)
     assert payload["stable_positive_runs"] == 0
     assert any("synapsenetwork.xyz" in blocker for blocker in payload["blockers"])
     assert any(
@@ -858,7 +847,7 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
 
 def test_ai_visibility_weekly_report_counts_only_latest_positive_streak(synced_client):
     def record_run(run_group: str, *, positive: bool) -> None:
-        for platform in ("chatgpt", "claude"):
+        for platform in TARGET_PLATFORMS:
             response = synced_client.post(
                 "/api/growth/ai-visibility/checks",
                 json={
@@ -893,4 +882,3 @@ def test_ai_visibility_weekly_report_counts_only_latest_positive_streak(synced_c
         "Fewer than three stable positive external runs have been recorded."
         in payload["blockers"]
     )
-

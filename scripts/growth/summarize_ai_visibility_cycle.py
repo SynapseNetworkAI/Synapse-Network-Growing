@@ -30,7 +30,7 @@ from scripts.growth.ai_visibility_cycle_comparison import (  # noqa: E402
     comparison_summary,
 )
 
-TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
+TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
@@ -260,10 +260,7 @@ def platform_coverage(
 
 
 def target_platforms_for(external_records: list[ProbeRecord]) -> list[str]:
-    target_platforms = list(TARGET_PLATFORMS)
-    if any(record.platform == "gemini" for record in external_records):
-        target_platforms.append("gemini")
-    return target_platforms
+    return list(TARGET_PLATFORMS)
 
 
 def cycle_blockers(
@@ -379,7 +376,7 @@ def commands_for(*, feed_key: str, run_group: str) -> Any:
             "python scripts/growth/run_ai_visibility_api_probe.py "
             f"--feed-key {safe_feed_key} "
             f"--run-group {safe_run_group} "
-            "--platforms chatgpt,claude,grok"
+            f"--platforms {','.join(TARGET_PLATFORMS)}"
         ),
         "public_web_search_import": (
             "python scripts/growth/import_ai_visibility_public_search_snapshot.py "

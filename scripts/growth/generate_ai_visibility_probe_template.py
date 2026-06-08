@@ -2,7 +2,7 @@
 """Generate manual answer-engine probe templates for AI visibility checks.
 
 The template is intentionally blank evidence: operators run ChatGPT, Claude,
-Grok, or another answer engine, then fill the generated rows before applying
+Grok, Gemini, or another answer engine, then fill the generated rows before applying
 them with scripts/growth/record_ai_visibility_probe.py.
 """
 
@@ -41,7 +41,7 @@ KNOWN_COLLISION_DOMAINS = [
     "forbes.com/digital-assets/assets/synapse-network-zksnp",
 ]
 DEFAULT_FEED_KEY = "agent_payment_category_pages"
-DEFAULT_PLATFORMS = ["chatgpt", "claude", "grok"]
+DEFAULT_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 DEFAULT_MODE = "manual_template"
 PLATFORM_ENTRY_URLS = {
     "chatgpt": "https://chatgpt.com/",
@@ -74,7 +74,7 @@ class ProbeTemplateRecord:
 
 def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser = argparse.ArgumentParser(
-        description="Generate JSONL rows for manual ChatGPT/Claude/Grok AI visibility probes."
+        description="Generate JSONL rows for manual ChatGPT/Claude/Grok/Gemini AI visibility probes."
     )
     parser.add_argument("--feed-key", default=DEFAULT_FEED_KEY)
     parser.add_argument(
@@ -85,7 +85,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument(
         "--platforms",
         default=",".join(DEFAULT_PLATFORMS),
-        help="Comma-separated platforms. Defaults to chatgpt,claude,grok.",
+        help="Comma-separated platforms. Defaults to chatgpt,claude,grok,gemini.",
     )
     parser.add_argument(
         "--query",

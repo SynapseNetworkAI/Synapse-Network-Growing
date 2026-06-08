@@ -24,6 +24,7 @@ from server.services.growth.ai_visibility_probe_failures import (
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
+AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 KNOWN_BRAND_COLLISION_COMPETITORS = {
     "synapseproto.com",
     "synapsenetwork.xyz",
@@ -123,9 +124,10 @@ def _previous_run_group(previous: GrowthAIVisibilityComparisonOut | None) -> str
 
 
 def _missing_platforms(external_platforms: list[str]) -> list[str]:
-    target_platforms = ["chatgpt", "claude", "grok"]
     return [
-        platform for platform in target_platforms if platform not in external_platforms
+        platform
+        for platform in AI_VISIBILITY_TARGET_PLATFORMS
+        if platform not in external_platforms
     ]
 
 
@@ -247,6 +249,8 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
     return (
         "chatgpt" in platforms
         and "claude" in platforms
+        and "grok" in platforms
+        and "gemini" in platforms
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}

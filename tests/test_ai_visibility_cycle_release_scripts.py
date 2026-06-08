@@ -122,6 +122,7 @@ def test_cycle_summary_marks_failed_feed_validation_blocked(tmp_path: Path):
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     }
     assert any(
         "Remote MCP custom app" in strategy["feed_focus"]
@@ -194,7 +195,7 @@ def test_cycle_summary_detects_external_citation(tmp_path: Path):
                         ),
                     }
                 )
-                for platform in ("chatgpt", "claude", "grok")
+                for platform in ("chatgpt", "claude", "grok", "gemini")
             ]
         ),
         encoding="utf-8",
@@ -207,14 +208,15 @@ def test_cycle_summary_detects_external_citation(tmp_path: Path):
     )
 
     assert payload["status"] == "citation_observed"
-    assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
-    assert payload["external_mentioned_count"] == 3
+    assert payload["covered_platforms"] == ["chatgpt", "claude", "gemini", "grok"]
+    assert payload["external_mentioned_count"] == 4
     assert payload["external_cited_count"] == 1
     assert payload["missing_platforms"] == []
     assert {strategy["platform"] for strategy in payload["platform_strategies"]} == {
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     }
     assert (
         "comparisons?feed_key=mcp_paid_api_discovery" in payload["commands"]["compare"]
@@ -282,11 +284,12 @@ def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
                         },
                     }
                 )
-                for platform, env_key in (
-                    ("chatgpt", "OPENAI_API_KEY"),
-                    ("claude", "ANTHROPIC_API_KEY"),
-                    ("grok", "XAI_API_KEY"),
-                )
+                    for platform, env_key in (
+                        ("chatgpt", "OPENAI_API_KEY"),
+                        ("claude", "ANTHROPIC_API_KEY"),
+                        ("grok", "XAI_API_KEY"),
+                        ("gemini", "GEMINI_API_KEY or GENIMI_API_KEY"),
+                    )
             ]
         ),
         encoding="utf-8",
@@ -297,11 +300,11 @@ def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
 
     assert payload["status"] == "external_probe_blocked"
     assert payload["external_probe_count"] == 0
-    assert payload["api_probe_blocker_count"] == 3
+    assert payload["api_probe_blocker_count"] == 4
     assert payload["external_mentioned_count"] == 0
     assert payload["external_cited_count"] == 0
     assert payload["covered_platforms"] == []
-    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["missing_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert "OPENAI_API_KEY missing; no paid chatgpt probe executed." in payload[
         "blockers"
     ]
@@ -369,7 +372,7 @@ def test_cycle_summary_compares_against_previous_probe_file(tmp_path: Path):
                         "synapse_cited": False,
                     }
                 )
-                for platform in ("chatgpt", "claude", "grok")
+                for platform in ("chatgpt", "claude", "grok", "gemini")
             ]
         ),
         encoding="utf-8",
@@ -393,7 +396,7 @@ def test_cycle_summary_compares_against_previous_probe_file(tmp_path: Path):
                         ),
                     }
                 )
-                for platform in ("chatgpt", "claude", "grok")
+                for platform in ("chatgpt", "claude", "grok", "gemini")
             ]
         ),
         encoding="utf-8",
@@ -416,10 +419,10 @@ def test_cycle_summary_compares_against_previous_probe_file(tmp_path: Path):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert payload["status"] == "citation_observed"
-    assert payload["comparison"]["previous_external_probe_count"] == 3
+    assert payload["comparison"]["previous_external_probe_count"] == 4
     assert payload["comparison"]["previous_mentioned_count"] == 1
     assert payload["comparison"]["previous_cited_count"] == 0
-    assert payload["comparison"]["mentioned_delta"] == 2
+    assert payload["comparison"]["mentioned_delta"] == 3
     assert payload["comparison"]["cited_delta"] == 2
     assert payload["comparison"]["comparison_status"] == "improved"
 
@@ -438,7 +441,7 @@ def test_operator_brief_renders_executable_mcp_package(tmp_path: Path):
                         "python scripts/growth/run_ai_visibility_api_probe.py "
                         "--feed-key mcp_paid_api_discovery "
                         "--run-group 2026-06-05-weekly "
-                        "--platforms chatgpt,claude,grok"
+                        "--platforms chatgpt,claude,grok,gemini"
                     )
                 },
             }
@@ -459,13 +462,13 @@ def test_operator_brief_renders_executable_mcp_package(tmp_path: Path):
     assert "AI Agent Payments Docs Landing" in brief
     assert "Synapse Network is a payment and settlement layer" in brief
     assert "### chatgpt" in brief
-    assert "--platforms chatgpt,claude,grok" in brief
+    assert "--platforms chatgpt,claude,grok,gemini" in brief
     assert "--query" not in brief
     assert (
         "python scripts/growth/run_ai_visibility_api_probe.py "
         "--feed-key mcp_paid_api_discovery "
         "--run-group 2026-06-05-weekly "
-        "--platforms chatgpt,claude,grok --execute"
+        "--platforms chatgpt,claude,grok,gemini --execute"
     ) in brief
 
 
@@ -693,9 +696,9 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                 "manual_ready_to_execute": True,
                 "feed_ready": True,
                 "api_keys_ready": False,
-                "target_platforms": ["chatgpt", "claude", "grok"],
+                "target_platforms": ["chatgpt", "claude", "grok", "gemini"],
                 "ready_platforms": ["chatgpt"],
-                "missing_platforms": ["claude", "grok"],
+                "missing_platforms": ["claude", "grok", "gemini"],
                 "provider_readiness": [
                     {
                         "platform": "chatgpt",
@@ -720,17 +723,17 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                 "manual_probe_template_command": (
                     "python scripts/growth/generate_ai_visibility_probe_template.py "
                     "--feed-key brand_disambiguation_www "
-                    "--platforms chatgpt,claude,grok --mode after-feed"
+                    "--platforms chatgpt,claude,grok,gemini --mode after-feed"
                 ),
                 "api_readiness_command": (
                     "python scripts/growth/run_ai_visibility_api_probe.py "
                     "--feed-key brand_disambiguation_www "
-                    "--platforms chatgpt,claude,grok"
+                    "--platforms chatgpt,claude,grok,gemini"
                 ),
                 "api_execute_command": (
                     "python scripts/growth/run_ai_visibility_api_probe.py "
                     "--feed-key brand_disambiguation_www "
-                    "--platforms chatgpt,claude,grok --execute"
+                    "--platforms chatgpt,claude,grok,gemini --execute"
                 ),
                 "partial_api_readiness_command": (
                     "python scripts/growth/run_ai_visibility_api_probe.py "
