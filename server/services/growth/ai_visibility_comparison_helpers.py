@@ -11,6 +11,9 @@ from server.schemas_growth import (
     GrowthAIVisibilityComparisonOut,
     GrowthAIVisibilityFeedReportOut,
 )
+from server.services.growth.ai_visibility_collision_policy import (
+    known_collision_mentions,
+)
 from server.services.growth.ai_visibility_comparison_status import (
     comparison_status_from_counts,
 )
@@ -25,15 +28,6 @@ from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
 AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
-KNOWN_BRAND_COLLISION_COMPETITORS = {
-    "python-docs.synapse.org",
-    "mcp.synapse.org",
-    "synapse.org",
-    "synapseproto.com",
-    "synapsenetwork.xyz",
-    "synapse.network",
-    "forbes.com/digital-assets/assets/synapse-network-zksnp",
-}
 
 
 def _comparison_out(
@@ -56,7 +50,7 @@ def _comparison_out(
     aggregate = _comparison_row_aggregate(rows)
     counts = _comparison_counts(completed_external_rows, previous)
     official_cited_urls = _official_cited_urls(completed_external_rows)
-    known_collision_competitors = _known_collision_mentions(
+    known_collision_competitors = known_collision_mentions(
         aggregate["top_competitors"] + aggregate["source_hosts"]
     )
     comparison_status = comparison_status_from_counts(
@@ -98,10 +92,25 @@ def _comparison_out(
         source_hosts=aggregate["source_hosts"],
         known_collision_competitors=known_collision_competitors,
         official_cited_urls=official_cited_urls,
-        next_actions=aggregate["next_actions"],
+        next_actions=_comparison_next_actions(
+            aggregate["next_actions"],
+            known_collision_competitors=known_collision_competitors,
+        ),
         evidence_urls=aggregate["evidence_urls"],
         latest_run_at=aggregate["latest_run_at"],
     )
+
+
+def _comparison_next_actions(
+    actions: list[str], *, known_collision_competitors: list[str]
+) -> list[str]:
+    if known_collision_competitors:
+        actions = [
+            "Add or strengthen disambiguation copy for known collision domains: "
+            f"{', '.join(known_collision_competitors)}.",
+            *actions,
+        ]
+    return unique_strings(actions)[:5]
 
 
 def _comparison_counts(
@@ -257,7 +266,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
-        and not _known_collision_mentions(item.top_competitors)
+        and not known_collision_mentions(item.top_competitors)
     )
 
 
@@ -333,7 +342,7 @@ def _comparison_collision_mentions(
     collisions: set[str] = set()
     for item in comparisons:
         collisions.update(item.known_collision_competitors)
-        collisions.update(_known_collision_mentions(item.top_competitors))
+        collisions.update(known_collision_mentions(item.top_competitors))
     return sorted(collisions)
 
 
@@ -357,16 +366,6 @@ def _citation_quality_status(
     if not official_cited_urls:
         return "missing_official_citation"
     return "official_citation_verified"
-
-
-def _known_collision_mentions(values: list[str]) -> list[str]:
-    collisions: set[str] = set()
-    for value in values:
-        normalized = str(value or "").strip().lower()
-        for collision in KNOWN_BRAND_COLLISION_COMPETITORS:
-            if collision in normalized:
-                collisions.add(collision)
-    return sorted(collisions)
 
 
 def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:
