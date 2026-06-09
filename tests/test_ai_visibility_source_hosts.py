@@ -138,7 +138,28 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     )
     assert "pulsemcp.com" in action_by_host["pulsemcp.com"]["validation_command"]
     assert action_by_host["docs.mcpay.tech"]["ownership"] == "not_directly_editable"
+    assert action_by_host["docs.mcpay.tech"]["submission_payload"]["cited_terms"] == [
+        "MCPay",
+        "mcpay.fun",
+        "x402",
+    ]
+    assert (
+        "MCP server for paid API calls"
+        in action_by_host["docs.mcpay.tech"]["submission_payload"][
+            "answer_engine_queries"
+        ]
+    )
+    assert (
+        "bounded USDC spend"
+        in action_by_host["docs.mcpay.tech"]["submission_payload"][
+            "answer_engine_source_block"
+        ]
+    )
     assert action_by_host["cashfree.com"]["action_type"] == "comparison_presence"
+    assert (
+        "Cashfree"
+        in action_by_host["cashfree.com"]["submission_payload"]["cited_terms"]
+    )
     assert action_by_host["rapid-mcp.com"]["action_type"] == "comparison_presence"
     assert action_by_host["docs-dev.seamless.ai"]["action_type"] == (
         "comparison_presence"

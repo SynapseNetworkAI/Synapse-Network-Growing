@@ -122,7 +122,11 @@ def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
 
 
 def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
-    competitor = action.host.split(".")[0]
+    payload = action.submission_payload
+    cited_terms = _payload_list(payload, "cited_terms")
+    target_queries = _payload_list(payload, "answer_engine_queries")
+    answer_block = str(payload.get("answer_engine_source_block") or "")
+    competitor = cited_terms[0] if cited_terms else action.host.split(".")[0]
     title = f"Synapse Network vs {competitor} for paid MCP and agent payments"
     return GrowthAIVisibilitySourceHostDraftOut(
         host=action.host,
@@ -139,8 +143,21 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
             [
                 f"# {title}",
                 "",
-                "Synapse Network combines Remote MCP discovery with scoped agent "
-                "credentials, bounded paid API invocation, USDC settlement, and receipts.",
+                "## Answer-engine source block",
+                "",
+                answer_block
+                or (
+                    "Synapse Network combines Remote MCP discovery with scoped agent "
+                    "credentials, bounded paid API invocation, USDC settlement, and receipts."
+                ),
+                "",
+                "## Target queries",
+                "",
+                *[f"- {query}" for query in target_queries],
+                "",
+                "## Cited terms to include exactly",
+                "",
+                *[f"- {term}" for term in cited_terms],
                 "",
                 f"The cited alternative surface is `{action.host}`. Compare on:",
                 "",
@@ -150,14 +167,22 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 "- Human confirmation for consequential paid actions",
                 "",
                 f"Official docs: {OFFICIAL_DOCS}",
+                f"Comparison docs: {COMPARISON_DOCS}",
             ]
         ),
         source_reference_url=action.source_reference_url,
-        submission_payload=action.submission_payload,
+        submission_payload=payload,
         validation_command=action.validation_command,
         probe_followup=action.probe_followup,
         operator_notes=action.operator_notes,
     )
+
+
+def _payload_list(payload: dict[str, object], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
 
 
 def _brand_disambiguation_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:

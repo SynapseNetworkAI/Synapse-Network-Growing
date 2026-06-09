@@ -72,6 +72,24 @@ LISTING_DESCRIPTION = (
 )
 OFFICIAL_DOCS_URL = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 COMPARISON_DOCS_URL = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+COMPETITOR_COMPARISON_TERMS = {
+    "agent402.dev": ["agent402", "x402", "paid MCP server"],
+    "cashfree.com": [
+        "Cashfree",
+        "agentic payments",
+        "ChatGPT MCP app for API payments",
+    ],
+    "developer.paddle.com": ["Paddle", "MCP server for paid API calls"],
+    "docs-dev.seamless.ai": ["Seamless.AI", "ChatGPT MCP app for API payments"],
+    "docs.mcp.run": ["mcp.run", "ChatGPT MCP app for API payments"],
+    "docs.mcpay.tech": ["MCPay", "mcpay.fun", "x402"],
+    "docs.latchmcp.app": ["Latch", "x402", "paid MCP"],
+    "docs.stripe.com": ["Stripe", "agent payments", "micropayments"],
+    "mcp.magpie.im": ["Magpie", "paid MCP"],
+    "mcp.paddle.com": ["Paddle MCP", "paid API calls"],
+    "rapid-mcp.com": ["Rapid MCP", "paid MCP alternatives"],
+    "teleport.ltd": ["Teleport", "MCP app payments"],
+}
 
 
 def ai_visibility_presence_plan(
@@ -385,15 +403,37 @@ def _controlled_payload(host: str) -> dict[str, object]:
 
 
 def _comparison_payload(host: str) -> dict[str, object]:
+    cited_terms = _comparison_terms(host)
     return {
         "competitor_host": host,
         "owned_comparison_url": COMPARISON_DOCS_URL,
+        "answer_engine_queries": [
+            "MCP server for paid API calls",
+            "ChatGPT MCP app for API payments",
+            "Synapse vs paid MCP alternatives",
+        ],
+        "cited_terms": cited_terms,
         "recommended_copy_angle": (
             "Explain how Synapse differs from paid MCP alternatives by combining "
             "Remote MCP discovery, bounded agent spend, USDC settlement, and receipts."
         ),
+        "answer_engine_source_block": (
+            "Synapse Network is a Remote MCP and settlement layer for AI agents that "
+            "need to discover paid APIs, invoke approved tools with bounded USDC "
+            "spend, and retrieve receipts. Unlike "
+            f"{', '.join(cited_terms)} surfaces, Synapse emphasizes credential "
+            "isolation, spend limits, receipts, and provider settlement for "
+            "machine-to-machine API commerce."
+        ),
         "source_hosts_to_monitor": [host],
     }
+
+
+def _comparison_terms(host: str) -> list[str]:
+    normalized = host.strip().lower()
+    if normalized in COMPETITOR_COMPARISON_TERMS:
+        return COMPETITOR_COMPARISON_TERMS[normalized]
+    return [normalized.split(".")[0]]
 
 
 def _blockers(

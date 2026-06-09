@@ -342,6 +342,49 @@ def test_ai_visibility_source_host_live_spot_check_detects_candidate(
     )
 
 
+def test_ai_visibility_source_host_feed_package_outputs_comparison_answer_blocks(
+    synced_client,
+):
+    for host in ("docs.mcpay.tech", "cashfree.com"):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "ChatGPT MCP app for API payments",
+                "platform": "chatgpt",
+                "answer_summary": f"ChatGPT cited {host}.",
+                "synapse_mentioned": False,
+                "synapse_cited": False,
+                "metadata": {"source_hosts": [host]},
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-comparison-answer-blocks",
+            },
+        )
+        assert response.status_code == 201
+
+    package = synced_client.get(
+        "/api/growth/ai-visibility/source-host-feed-package"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-10-comparison-answer-blocks"
+    )
+
+    assert package.status_code == 200
+    draft_by_host = {item["host"]: item for item in package.json()["drafts"]}
+    mcpay = draft_by_host["docs.mcpay.tech"]
+    cashfree = draft_by_host["cashfree.com"]
+
+    assert mcpay["draft_type"] == "owned_comparison_refresh"
+    assert mcpay["title"].startswith("Synapse Network vs MCPay")
+    assert "## Answer-engine source block" in mcpay["body_markdown"]
+    assert "MCP server for paid API calls" in mcpay["body_markdown"]
+    assert "MCPay" in mcpay["body_markdown"]
+    assert "mcpay.fun" in mcpay["body_markdown"]
+    assert "x402" in mcpay["body_markdown"]
+    assert "bounded USDC spend" in mcpay["body_markdown"]
+    assert cashfree["title"].startswith("Synapse Network vs Cashfree")
+    assert "Cashfree" in cashfree["body_markdown"]
+    assert "ChatGPT MCP app for API payments" in cashfree["body_markdown"]
+
+
 def test_ai_visibility_source_host_checklist_keeps_reserved_mcp_directories(
     db_session,
 ):
