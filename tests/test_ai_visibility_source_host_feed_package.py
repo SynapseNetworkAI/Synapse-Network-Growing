@@ -95,10 +95,14 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         draft_by_host["alternativeto.net"]["operator_notes"]
     )
     assert draft_by_host["alternativeto.net"]["status"] == "operator_login_required"
-    assert draft_by_host["alternativeto.net"]["submit_url"] == "https://alternativeto.net/"
+    assert (
+        draft_by_host["alternativeto.net"]["submit_url"] == "https://alternativeto.net/"
+    )
     assert (
         "authenticated/manual community submission path"
-        in draft_by_host["alternativeto.net"]["submission_payload"]["submission_blocker"]
+        in draft_by_host["alternativeto.net"]["submission_payload"][
+            "submission_blocker"
+        ]
     )
     assert "Synapse Network MCP Server" in draft_by_host["mcpservers.org"]["title"]
     assert draft_by_host["aws.amazon.com"]["draft_type"] == (
@@ -111,12 +115,16 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert draft_by_host["python-docs.synapse.org"]["status"] == (
         "ready_to_publish_on_owned_channels"
     )
-    assert "Synapse.org and Sage Bionetworks" in draft_by_host[
-        "python-docs.synapse.org"
-    ]["submission_payload"]["recommended_copy"]
-    assert "SynapseNetworkAI/Synapse-Network-MCP-Server" in draft_by_host[
-        "python-docs.synapse.org"
-    ]["body_markdown"]
+    assert (
+        "Synapse.org and Sage Bionetworks"
+        in draft_by_host["python-docs.synapse.org"]["submission_payload"][
+            "recommended_copy"
+        ]
+    )
+    assert (
+        "SynapseNetworkAI/Synapse-Network-MCP-Server"
+        in draft_by_host["python-docs.synapse.org"]["body_markdown"]
+    )
     assert "after_feed_probe" in payload["commands"]
 
     checklist = synced_client.get(
@@ -173,12 +181,23 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         "operator-owned browser session"
         in item_by_host["mcp.directory"]["submission_steps"][0]
     )
-    assert (
-        "--surface mcp_directory"
-        in item_by_host["mcp.directory"]["evidence_recording_steps"][0]
+    assert any(
+        "--surface mcp_directory" in step
+        for step in item_by_host["mcp.directory"]["evidence_recording_steps"]
     )
     assert item_by_host["mcp.directory"]["live_listing_search_urls"][0] == (
         "https://mcp.directory/?q=Synapse%20Network"
+    )
+    assert item_by_host["mcp.directory"]["latest_live_evidence_status"] == (
+        "missing_required_terms"
+    )
+    assert (
+        "mcp.synapse-network.ai"
+        in item_by_host["mcp.directory"]["latest_live_missing_terms"]
+    )
+    assert (
+        "Latest live check failed"
+        in item_by_host["mcp.directory"]["evidence_recording_steps"][0]
     )
     assert (
         "--evidence-mode live-listing"
@@ -232,10 +251,12 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         item_by_host["alternativeto.net"]["execution_status"]
         == "pending_operator_login"
     )
-    assert item_by_host["alternativeto.net"]["target_url"] == "https://alternativeto.net/"
-    assert "operator-owned account" in item_by_host["alternativeto.net"][
-        "action_required"
-    ]
+    assert (
+        item_by_host["alternativeto.net"]["target_url"] == "https://alternativeto.net/"
+    )
+    assert (
+        "operator-owned account" in item_by_host["alternativeto.net"]["action_required"]
+    )
     assert any(
         field["label"] == "Website URL"
         and field["value"] == "https://www.synapse-network.ai/"

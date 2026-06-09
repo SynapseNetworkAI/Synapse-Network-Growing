@@ -58,6 +58,10 @@ class GrowthAIVisibilitySourceHostExecutionItemOut(BaseModel):
     evidence_recording_steps: list[str] = Field(default_factory=list)
     live_listing_search_urls: list[str] = Field(default_factory=list)
     live_listing_validation_steps: list[str] = Field(default_factory=list)
+    latest_live_evidence_status: str = ""
+    latest_live_missing_terms: list[str] = Field(default_factory=list)
+    latest_live_evidence_url: str = ""
+    latest_live_validation_summary: str = ""
     required_evidence: list[str] = Field(default_factory=list)
     submission_confirmation_command: str = ""
     validation_command: str

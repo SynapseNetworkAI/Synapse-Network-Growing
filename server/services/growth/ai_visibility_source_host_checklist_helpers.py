@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+from server.config import PROJECT_ROOT
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostDraftOut,
     GrowthAIVisibilitySourceHostExecutionItemOut,
@@ -16,6 +21,7 @@ from server.services.growth.ai_visibility_source_host_live_listing import (
 from server.services.growth.ai_visibility_source_host_surfaces import (
     source_host_surface,
 )
+from server.services.growth.ai_visibility_text import unique_strings
 
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
@@ -93,10 +99,19 @@ SUBMISSION_FIELD_KEYS_BY_HOST = {
 }
 
 
+@dataclass(frozen=True)
+class LatestLiveEvidence:
+    status: str = ""
+    missing_terms: list[str] = field(default_factory=list)
+    source_url: str = ""
+    validation_summary: str = ""
+
+
 def source_host_execution_item(
     draft: GrowthAIVisibilitySourceHostDraftOut,
     commands: dict[str, str],
 ) -> GrowthAIVisibilitySourceHostExecutionItemOut:
+    latest_live = _latest_live_evidence(draft.host)
     return GrowthAIVisibilitySourceHostExecutionItemOut(
         key=f"{draft.priority:02d}-{draft.host}-{draft.draft_type}",
         host=draft.host,
@@ -120,6 +135,10 @@ def source_host_execution_item(
             host=draft.host,
             draft_type=draft.draft_type,
         ),
+        latest_live_evidence_status=latest_live.status,
+        latest_live_missing_terms=latest_live.missing_terms,
+        latest_live_evidence_url=latest_live.source_url,
+        latest_live_validation_summary=latest_live.validation_summary,
         required_evidence=_required_evidence(draft),
         submission_confirmation_command=_submission_confirmation_command(draft),
         validation_command=draft.validation_command,
@@ -338,12 +357,23 @@ def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> li
     if draft.draft_type != "directory_submission":
         return []
     surface = source_host_surface(draft.host)
-    return [
+    steps = [
         f"Record submission confirmation with --surface {surface}.",
         "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
         "Use evidence-mode live-listing only after the public listing URL is accessible.",
         "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists.",
     ]
+    latest_live = _latest_live_evidence(draft.host)
+    if latest_live.status == "missing_required_terms":
+        missing = ", ".join(latest_live.missing_terms) or "required terms"
+        steps.insert(
+            0,
+            (
+                "Latest live check failed for this source host; missing terms: "
+                f"{missing}. Treat this as an operator submission/update blocker."
+            ),
+        )
+    return steps
 
 
 def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
@@ -379,3 +409,53 @@ def _submission_confirmation_command(
         "--output docs/archive/evidence/growth/ai-visibility/"
         f"YYYY-MM-DD-{surface}-submission-confirmation.json"
     )
+
+
+def _latest_live_evidence(host: str) -> LatestLiveEvidence:
+    surface = source_host_surface(host)
+    root = PROJECT_ROOT / "docs/archive/evidence/growth/ai-visibility"
+    latest: tuple[datetime, str, dict[str, object]] | None = None
+    for path in sorted(root.glob("*.json")) if root.exists() else []:
+        payload = _read_json(path)
+        if payload.get("module_key") != "ai_visibility_source_host_execution":
+            continue
+        if str(payload.get("surface") or "") != surface:
+            continue
+        status = str(payload.get("status") or "")
+        if status not in {"live_verified", "missing_required_terms"}:
+            continue
+        candidate = (_evidence_timestamp(payload), path.name, payload)
+        if latest is None or candidate[:2] > latest[:2]:
+            latest = candidate
+    if latest is None:
+        return LatestLiveEvidence()
+    payload = latest[2]
+    return LatestLiveEvidence(
+        status=str(payload.get("status") or ""),
+        missing_terms=unique_strings(
+            [str(item) for item in payload.get("missing_terms", []) or []]
+        ),
+        source_url=str(payload.get("source_url") or ""),
+        validation_summary=str(payload.get("validation_summary") or ""),
+    )
+
+
+def _read_json(path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _evidence_timestamp(payload: dict[str, object]) -> datetime:
+    value = str(payload.get("checked_at") or payload.get("verified_at") or "").strip()
+    if not value:
+        return datetime.min.replace(tzinfo=UTC)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
