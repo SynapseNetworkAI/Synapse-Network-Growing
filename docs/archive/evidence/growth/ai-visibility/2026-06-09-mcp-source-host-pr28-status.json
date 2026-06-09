@@ -1,21 +1,43 @@
 {
   "module_key": "ai_visibility_source_host_pr_status",
-  "generated_at": "2026-06-09T04:50:00Z",
+  "generated_at": "2026-06-09T04:55:00Z",
   "feed_key": "mcp_paid_api_discovery",
-  "run_group": "2026-06-09-after-source-host-prod-rerun",
-  "source_host_surface": "github_readme",
+  "run_group": "2026-06-09-after-provider-key-refresh",
+  "source_host_surface": "github_readme_plus_directory_submission_assets",
   "target_repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
   "pull_request": {
     "number": 28,
     "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/28",
     "title": "Strengthen MCP citation facts for answer engines",
     "head_ref": "codex/strengthen-mcp-citation-facts",
-    "head_sha": "1d1eae09d07f492a52842268d3f0f35555b79493",
+    "head_sha": "cb596d0dc4513dbd36848c59be6a25e461fba27b",
     "base_ref": "main",
     "state": "OPEN",
     "is_draft": false,
     "merge_state_status": "CLEAN",
     "mergeable": "MERGEABLE"
+  },
+  "latest_pr28_update": {
+    "commit": "cb596d0dc4513dbd36848c59be6a25e461fba27b",
+    "summary": "Added AIToolNet and AlternativeTo as observed source-host / directory submission targets, refreshed directory submission copy, README, llms.txt, and CI metadata coverage.",
+    "validation": [
+      "npm run ci:directory-metadata",
+      "npm run release:readiness"
+    ],
+    "submission_targets_added": [
+      {
+        "surface": "AIToolNet",
+        "submit_url": "https://www.aitoolnet.com/finish",
+        "status": "pending_operator_browser_submission",
+        "note": "CLI probe received site-level 403; do not mark as submitted/listed until browser form confirmation exists."
+      },
+      {
+        "surface": "AlternativeTo",
+        "submit_url": "https://alternativeto.net/software/submit/",
+        "status": "pending_operator_browser_submission",
+        "note": "CLI probe received site-level 403; do not mark as submitted/listed until browser form confirmation exists."
+      }
+    ]
   },
   "live_status": "github_readme_live_on_origin_main_via_pr27",
   "main_branch_evidence": {
@@ -36,13 +58,15 @@
   "evidence": [
     "MCP README branch contains Citation Facts For Answer Engines and Answer Engine Source Block.",
     "origin/main now contains the GitHub README answer-engine source block through PR #27, so the GitHub README source-host is live.",
-    "PR #28 remains open and mergeable as an additional citation-facts refresh, but it is no longer the blocker for the GitHub README source-host.",
+    "PR #28 remains open and mergeable as an additional citation-facts and directory submission asset refresh, but it is no longer the blocker for the GitHub README source-host.",
+    "PR #28 now contains pending operator submission assets for AIToolNet and AlternativeTo, which appeared in the 2026-06-09 ChatGPT source-host set.",
     "Agents must not count this as an external answer-engine citation until PR #28 is merged and a follow-up probe cites or mentions Synapse."
   ],
   "next_actions": [
     "Keep PR #28 available for human review as an additional metadata refresh.",
+    "After PR #28 merges, submit or refresh AIToolNet and AlternativeTo through browser/form flows and record durable review/listing confirmation.",
     "Use docs/archive/evidence/growth/ai-visibility/2026-06-09-github-readme-source-host-live.json as the live GitHub README source-host evidence.",
-    "Rerun the same ChatGPT/Claude/Grok/Gemini probe with run_group 2026-06-09-after-source-host-prod-rerun-after-source-hosts.",
+    "Rerun the same ChatGPT/Claude/Grok/Gemini probe with run_group 2026-06-09-after-provider-key-refresh-after-source-hosts after the source-host actions are live.",
     "Compare mention/citation deltas in /growth AI Visibility."
   ],
   "non_goals": [
