@@ -245,10 +245,11 @@ def _source_host_submission_requirement(
     required_hosts = _required_directory_hosts(facts)
     missing = missing_hosts(facts.submitted_or_live_surfaces, required_hosts)
     passed = not missing
-    blocker = (
-        "Missing source-host submission confirmation evidence for "
-        f"{', '.join(missing)}."
+    blocker = _submission_blocker(
+        missing=missing,
+        submission_blockers=getattr(facts, "submission_blockers", []),
     )
+    next_action = _submission_next_action(getattr(facts, "submission_blockers", []))
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="source_host_submission_evidence",
         title="Directory submission evidence",
@@ -259,10 +260,31 @@ def _source_host_submission_requirement(
             else ""
         ),
         blocker="" if passed else blocker,
-        next_action=""
-        if passed
-        else "Submit current P0 directory forms and record confirmation evidence.",
+        next_action="" if passed else next_action,
     )
+
+
+def _submission_blocker(
+    *,
+    missing: list[str],
+    submission_blockers: list[str],
+) -> str:
+    blocker = (
+        "Missing source-host submission confirmation evidence for "
+        f"{', '.join(missing)}."
+    )
+    if submission_blockers:
+        blocker += " Known submission blocker(s): " + " | ".join(submission_blockers)
+    return blocker
+
+
+def _submission_next_action(submission_blockers: list[str]) -> str:
+    if submission_blockers:
+        return (
+            "Resolve known directory submission blockers with an operator-owned "
+            "browser/account, then record submission-confirmation evidence."
+        )
+    return "Submit current P0 directory forms and record confirmation evidence."
 
 
 def _source_host_live_requirement(

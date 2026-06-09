@@ -26,6 +26,7 @@ class SourceHostAuditFacts:
     framed_checklist_hosts: list[str] = field(default_factory=list)
     submission_command_hosts: list[str] = field(default_factory=list)
     submitted_surfaces: list[str] = field(default_factory=list)
+    submission_blockers: list[str] = field(default_factory=list)
     live_surfaces: list[str] = field(default_factory=list)
     evidence_files: list[str] = field(default_factory=list)
     checklist_generated_at: datetime | None = None
@@ -48,6 +49,7 @@ def source_host_audit_facts(
     command_hosts: list[str] = []
     required_hosts: list[str] = []
     submitted: list[str] = []
+    blockers: list[str] = []
     live: list[str] = []
     evidence_files: list[str] = []
     latest_checklist = _latest_checklist_payload(root)
@@ -72,6 +74,7 @@ def source_host_audit_facts(
             _collect_execution_evidence(
                 payload,
                 submitted=submitted,
+                blockers=blockers,
                 live=live,
                 evidence_files=evidence_files,
                 path=path,
@@ -83,6 +86,7 @@ def source_host_audit_facts(
         framed_checklist_hosts=unique_strings(framed_hosts),
         submission_command_hosts=unique_strings(command_hosts),
         submitted_surfaces=unique_strings(submitted),
+        submission_blockers=unique_strings(blockers),
         live_surfaces=unique_strings(live),
         evidence_files=unique_strings(evidence_files),
         checklist_generated_at=_generated_at(payload) if latest_checklist else None,
@@ -106,6 +110,9 @@ def merge_source_host_audit_facts(
         ),
         submitted_surfaces=unique_strings(
             first.submitted_surfaces + second.submitted_surfaces
+        ),
+        submission_blockers=unique_strings(
+            first.submission_blockers + second.submission_blockers
         ),
         live_surfaces=unique_strings(first.live_surfaces + second.live_surfaces),
         evidence_files=unique_strings(first.evidence_files + second.evidence_files),
@@ -205,6 +212,7 @@ def _collect_execution_evidence(
     payload: dict[str, Any],
     *,
     submitted: list[str],
+    blockers: list[str],
     live: list[str],
     evidence_files: list[str],
     path: Path,
@@ -215,9 +223,22 @@ def _collect_execution_evidence(
     if payload.get("status") == "submission_recorded":
         submitted.append(surface)
         evidence_files.append(_relative_evidence_path(path))
+    if payload.get("status") == "submission_blocked":
+        blockers.append(_submission_blocker_text(payload, surface))
+        evidence_files.append(_relative_evidence_path(path))
     if payload.get("status") == "live_verified":
         live.append(surface)
         evidence_files.append(_relative_evidence_path(path))
+
+
+def _submission_blocker_text(payload: dict[str, Any], surface: str) -> str:
+    blocker = str(payload.get("blocker") or "").strip()
+    next_action = str(payload.get("next_action") or "").strip()
+    if blocker and next_action:
+        return f"{surface}: {blocker} Next action: {next_action}"
+    if blocker:
+        return f"{surface}: {blocker}"
+    return f"{surface}: submission was blocked; operator follow-up is required."
 
 
 def _host_surface(value: str) -> str:

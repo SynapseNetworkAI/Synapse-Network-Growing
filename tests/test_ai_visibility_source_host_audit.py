@@ -111,6 +111,47 @@ def test_source_host_audit_uses_latest_checklist_for_required_hosts(tmp_path: Pa
     assert "mcp-marketplace.io" not in submission.blocker
 
 
+def test_source_host_audit_surfaces_submission_blocker_without_counting_submitted(
+    tmp_path: Path,
+):
+    _write_json(
+        tmp_path / "source-host-checklist.json",
+        {
+            "module_key": "ai_visibility",
+            "checklist_type": "source_host_feed_execution",
+            "items": [
+                _checklist_item("alternativeto.net", priority=1),
+            ],
+        },
+    )
+    _write_json(
+        tmp_path / "alternativeto-submission-blocked.json",
+        {
+            "module_key": "ai_visibility_source_host_execution",
+            "evidence_type": "submission_blocker",
+            "status": "submission_blocked",
+            "surface": "alternativeto",
+            "blocker": "AlternativeTo presented Cloudflare security verification.",
+            "next_action": "Use an operator-owned browser/account.",
+        },
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+    submission = _source_host_submission_requirement(facts)
+
+    assert facts.submitted_or_live_surfaces == []
+    assert facts.submission_blockers == [
+        (
+            "alternativeto: AlternativeTo presented Cloudflare security "
+            "verification. Next action: Use an operator-owned browser/account."
+        )
+    ]
+    assert submission.status == "blocked"
+    assert "Known submission blocker" in submission.blocker
+    assert "Cloudflare security verification" in submission.blocker
+    assert "operator-owned browser/account" in submission.next_action
+
+
 def test_source_host_audit_prefers_generated_at_over_filename_order(tmp_path: Path):
     _write_json(
         tmp_path
