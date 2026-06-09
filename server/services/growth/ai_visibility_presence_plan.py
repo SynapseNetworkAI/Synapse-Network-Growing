@@ -19,6 +19,7 @@ DEFAULT_RUN_GROUP = "latest"
 DIRECTORY_HOSTS = {
     "aitoolnet.com",
     "alternativeto.net",
+    "glama.ai",
     "mcpservers.org",
     "mcp.directory",
     "mcp-marketplace.io",
@@ -28,7 +29,6 @@ CONTROLLED_HOSTS = {
     "github.com",
     "registry.modelcontextprotocol.io",
     "smithery.ai",
-    "glama.ai",
 }
 COMPETITOR_HOSTS = {
     "docs.mcpay.tech",
@@ -42,6 +42,7 @@ COMPETITOR_HOSTS = {
 DIRECTORY_SUBMIT_URLS = {
     "aitoolnet.com": "https://www.aitoolnet.com/finish",
     "alternativeto.net": "https://alternativeto.net/software/submit/",
+    "glama.ai": "https://glama.ai/mcp/servers",
     "mcp.directory": "https://mcp.directory/submit",
     "mcpservers.org": "https://mcpservers.org/submit",
     "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
@@ -134,7 +135,7 @@ def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceAction
         operator_notes.append(
             "Login appears required before submission; use the operator-owned directory account."
         )
-    if host in {"aitoolnet.com", "alternativeto.net"}:
+    if host in {"aitoolnet.com", "alternativeto.net", "glama.ai"}:
         operator_notes.extend(
             [
                 "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the browser form.",
@@ -316,6 +317,28 @@ def _directory_payload(host: str) -> dict[str, object]:
                 "paid API discovery",
                 "AI agent payments",
                 "API monetization",
+                "discover_services",
+                "invoke_and_pay",
+                "get_receipt",
+            ],
+            "browser_submission_required": True,
+        }
+    if host == "glama.ai":
+        return {
+            **base_payload,
+            "submission_method": "Submit GitHub repository for Glama indexing.",
+            "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
+            "listing_type": "open-source MCP server",
+            "indexed_metadata": [
+                "tools",
+                "schemas",
+                "annotations",
+                "Remote MCP endpoint",
+            ],
+            "acceptance_terms": [
+                "MCP server for paid API calls",
+                "Remote MCP",
+                "AgentPay",
                 "discover_services",
                 "invoke_and_pay",
                 "get_receipt",

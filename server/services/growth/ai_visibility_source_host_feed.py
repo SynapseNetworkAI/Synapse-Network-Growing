@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostExecutionChecklistOut,
     GrowthAIVisibilitySourceHostExecutionItemOut,
+    GrowthAIVisibilitySourceHostSubmissionFieldOut,
     GrowthAIVisibilitySourceHostDraftOut,
     GrowthAIVisibilitySourceHostFeedPackageOut,
 )
@@ -16,6 +17,10 @@ from server.services.growth.ai_visibility_presence_plan import (
     DEFAULT_FEED_KEY,
     REMOTE_MCP_ENDPOINT,
     ai_visibility_presence_plan,
+)
+from server.services.growth.ai_visibility_source_host_live_listing import (
+    live_listing_search_urls,
+    live_listing_validation_steps,
 )
 from server.services.growth.ai_visibility_source_host_surfaces import (
     source_host_surface,
@@ -115,6 +120,18 @@ def _execution_item(
             draft.submission_payload.get("stitch_figma_frame") or ""
         ),
         action_required=_action_required(draft),
+        submission_fields=_submission_fields(draft),
+        submission_steps=_submission_steps(draft),
+        evidence_recording_steps=_evidence_recording_steps(draft),
+        live_listing_search_urls=live_listing_search_urls(
+            host=draft.host,
+            draft_type=draft.draft_type,
+            target_url=draft.target_url,
+        ),
+        live_listing_validation_steps=live_listing_validation_steps(
+            host=draft.host,
+            draft_type=draft.draft_type,
+        ),
         required_evidence=_required_evidence(draft),
         submission_confirmation_command=_submission_confirmation_command(draft),
         validation_command=draft.validation_command,
@@ -145,6 +162,139 @@ def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
     return actions.get(
         draft.draft_type, "Review the draft and decide the next safe action."
     )
+
+
+def _submission_fields(
+    draft: GrowthAIVisibilitySourceHostDraftOut,
+) -> list[GrowthAIVisibilitySourceHostSubmissionFieldOut]:
+    if draft.draft_type != "directory_submission":
+        return []
+    payload = draft.submission_payload
+    common = {
+        "server_name": _field(
+            "Server or product name",
+            str(payload.get("server_name") or draft.title),
+            "Use this for name/title fields.",
+        ),
+        "short_description": _field(
+            "Short description",
+            str(payload.get("short_description") or draft.summary),
+            "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts.",
+        ),
+        "github_repository_url": _field(
+            "GitHub repository URL",
+            str(payload.get("github_repository_url") or ""),
+            "Use the public SynapseNetworkAI MCP repository.",
+        ),
+        "npm_package": _field(
+            "NPM package",
+            str(payload.get("npm_package") or ""),
+            "Leave unchanged unless the published package name changes.",
+        ),
+        "pypi_package": _field(
+            "PyPI package",
+            str(payload.get("pypi_package") or ""),
+            "Use blank or not applicable if the form supports it.",
+        ),
+        "contact_email": _field(
+            "Contact email",
+            str(payload.get("contact_email") or "<operator email>"),
+            "Operator-owned email only; do not enter API keys or bearer tokens.",
+        ),
+        "website_url": _field(
+            "Website URL",
+            str(payload.get("website_url") or payload.get("website") or OFFICIAL_HOME),
+            "Prefer the canonical www homepage.",
+        ),
+        "remote_mcp_endpoint": _field(
+            "Remote MCP endpoint",
+            str(payload.get("remote_mcp_endpoint") or REMOTE_MCP_ENDPOINT),
+            "If the form lacks this field, include it in the description.",
+        ),
+        "tools": _field(
+            "Tools",
+            ", ".join(str(tool) for tool in payload.get("tools", [])),
+            "If the form lacks this field, include these in the description.",
+        ),
+        "docs": _field(
+            "Docs URL",
+            str(payload.get("docs") or OFFICIAL_DOCS),
+            "Use as the documentation/reference URL when available.",
+        ),
+    }
+    field_keys = _submission_field_keys(draft.host)
+    return [common[key] for key in field_keys if key in common]
+
+
+def _field(
+    label: str,
+    value: str,
+    notes: str = "",
+) -> GrowthAIVisibilitySourceHostSubmissionFieldOut:
+    return GrowthAIVisibilitySourceHostSubmissionFieldOut(
+        label=label,
+        value=value,
+        notes=notes,
+    )
+
+
+def _submission_field_keys(host: str) -> list[str]:
+    if host == "mcp.directory":
+        return [
+            "github_repository_url",
+            "npm_package",
+            "pypi_package",
+            "short_description",
+            "contact_email",
+            "remote_mcp_endpoint",
+            "tools",
+        ]
+    if host == "alternativeto.net":
+        return [
+            "server_name",
+            "website_url",
+            "short_description",
+            "github_repository_url",
+            "npm_package",
+            "remote_mcp_endpoint",
+            "tools",
+            "docs",
+        ]
+    return [
+        "server_name",
+        "website_url",
+        "short_description",
+        "github_repository_url",
+        "npm_package",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+        "contact_email",
+    ]
+
+
+def _submission_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
+    if draft.draft_type != "directory_submission":
+        return []
+    return [
+        f"Open {draft.submit_url or draft.target_url} in an operator-owned browser session.",
+        "Fill only the non-secret submission fields from this checklist.",
+        "Add the Remote MCP endpoint and tool list to the description if the form has no dedicated fields.",
+        "Submit or save draft only after the browser preview matches the Synapse Remote MCP facts.",
+        "Capture a screenshot or public receipt URL before marking the item submitted.",
+    ]
+
+
+def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
+    if draft.draft_type != "directory_submission":
+        return []
+    surface = source_host_surface(draft.host)
+    return [
+        f"Record submission confirmation with --surface {surface}.",
+        "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
+        "Use evidence-mode live-listing only after the public listing URL is accessible.",
+        "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists.",
+    ]
 
 
 def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:

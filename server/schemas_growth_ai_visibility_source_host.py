@@ -23,6 +23,12 @@ class GrowthAIVisibilitySourceHostDraftOut(BaseModel):
     operator_notes: list[str] = Field(default_factory=list)
 
 
+class GrowthAIVisibilitySourceHostSubmissionFieldOut(BaseModel):
+    label: str
+    value: str
+    notes: str = ""
+
+
 class GrowthAIVisibilitySourceHostFeedPackageOut(BaseModel):
     module_key: str = "ai_visibility"
     package_type: str = "source_host_feed"
@@ -45,6 +51,13 @@ class GrowthAIVisibilitySourceHostExecutionItemOut(BaseModel):
     target_url: str
     design_handoff_frame: str = ""
     action_required: str
+    submission_fields: list[GrowthAIVisibilitySourceHostSubmissionFieldOut] = Field(
+        default_factory=list
+    )
+    submission_steps: list[str] = Field(default_factory=list)
+    evidence_recording_steps: list[str] = Field(default_factory=list)
+    live_listing_search_urls: list[str] = Field(default_factory=list)
+    live_listing_validation_steps: list[str] = Field(default_factory=list)
     required_evidence: list[str] = Field(default_factory=list)
     submission_confirmation_command: str = ""
     validation_command: str
@@ -60,6 +73,32 @@ class GrowthAIVisibilitySourceHostExecutionChecklistOut(BaseModel):
     run_group: str = ""
     status: str
     items: list[GrowthAIVisibilitySourceHostExecutionItemOut] = Field(
+        default_factory=list
+    )
+    blockers: list[str] = Field(default_factory=list)
+    commands: dict[str, str] = Field(default_factory=dict)
+
+
+class GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(BaseModel):
+    host: str
+    search_url: str
+    status: str
+    http_status: int = 0
+    matched_terms: list[str] = Field(default_factory=list)
+    missing_terms: list[str] = Field(default_factory=list)
+    evidence_excerpt: str = ""
+    next_action: str = ""
+
+
+class GrowthAIVisibilitySourceHostLiveSpotCheckOut(BaseModel):
+    module_key: str = "ai_visibility"
+    check_type: str = "source_host_live_spot_check"
+    generated_at: datetime
+    feed_key: str
+    run_group: str = ""
+    execute: bool = False
+    status: str
+    items: list[GrowthAIVisibilitySourceHostLiveSpotCheckItemOut] = Field(
         default_factory=list
     )
     blockers: list[str] = Field(default_factory=list)

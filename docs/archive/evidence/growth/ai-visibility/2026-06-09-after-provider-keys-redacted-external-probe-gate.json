@@ -1,0 +1,62 @@
+{
+  "module_key": "ai_visibility",
+  "generated_at": "2026-06-09T06:21:30.073414Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-provider-keys-redacted",
+  "status": "blocked_until_api_keys",
+  "ready_to_execute": false,
+  "partial_ready_to_execute": false,
+  "manual_ready_to_execute": true,
+  "feed_ready": true,
+  "api_keys_ready": false,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "ready_platforms": [],
+  "missing_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "provider_readiness": [
+    {
+      "platform": "chatgpt",
+      "env_key": "OPENAI_API_KEY",
+      "configured": false
+    },
+    {
+      "platform": "claude",
+      "env_key": "ANTHROPIC_API_KEY",
+      "configured": false
+    },
+    {
+      "platform": "grok",
+      "env_key": "XAI_API_KEY",
+      "configured": false
+    },
+    {
+      "platform": "gemini",
+      "env_key": "GEMINI_API_KEY or GENIMI_API_KEY",
+      "configured": false
+    }
+  ],
+  "blockers": [
+    "chatgpt missing OPENAI_API_KEY.",
+    "claude missing ANTHROPIC_API_KEY.",
+    "grok missing XAI_API_KEY.",
+    "gemini missing GEMINI_API_KEY or GENIMI_API_KEY."
+  ],
+  "feed_validation_command": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-keys-redacted --output docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-keys-redacted-feed-validation.jsonl",
+  "record_readiness_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-keys-redacted-feed-validation.jsonl --allow-local-validation --apply",
+  "manual_probe_template_command": "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-keys-redacted --platforms chatgpt,claude,grok,gemini --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-keys-redacted-external-probes.jsonl",
+  "api_readiness_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-keys-redacted --platforms chatgpt,claude,grok,gemini",
+  "api_execute_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-keys-redacted --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-keys-redacted-external-probes.jsonl --execute",
+  "partial_api_readiness_command": "",
+  "partial_api_execute_command": "",
+  "record_probe_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-keys-redacted-external-probes.jsonl --apply",
+  "compare_command": "curl -fsS 'http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-09-after-provider-keys-redacted' | python -m json.tool"
+}

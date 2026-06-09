@@ -169,6 +169,11 @@ export interface GrowthAIVisibilitySourceHostFeedPackage {
   blockers: string[]
   commands: Record<string, string>
 }
+export interface GrowthAIVisibilitySourceHostSubmissionField {
+  label: string
+  value: string
+  notes: string
+}
 export interface GrowthAIVisibilitySourceHostExecutionItem {
   key: string
   host: string
@@ -178,6 +183,11 @@ export interface GrowthAIVisibilitySourceHostExecutionItem {
   target_url: string
   design_handoff_frame: string
   action_required: string
+  submission_fields: GrowthAIVisibilitySourceHostSubmissionField[]
+  submission_steps: string[]
+  evidence_recording_steps: string[]
+  live_listing_search_urls?: string[]
+  live_listing_validation_steps?: string[]
   required_evidence: string[]
   submission_confirmation_command: string
   validation_command: string

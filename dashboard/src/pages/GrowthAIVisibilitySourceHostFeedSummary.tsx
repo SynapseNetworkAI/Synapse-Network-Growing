@@ -106,6 +106,38 @@ export function SourceHostExecutionChecklistSummary({ checklist }: Readonly<{ ch
             {item.design_handoff_frame ? (
               <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Design frame: {item.design_handoff_frame}</div>
             ) : null}
+            {(item.submission_fields ?? []).length > 0 ? (
+              <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-3">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-[color:var(--ops-text-caption)]">Fields</div>
+                <div className="mt-2 space-y-2">
+                  {(item.submission_fields ?? []).slice(0, 4).map((field) => (
+                    <div key={`${item.key}-${field.label}`} className="text-xs leading-5">
+                      <div className="font-semibold text-[color:var(--ops-text-title)]">{field.label}</div>
+                      <div className="break-words text-[color:var(--ops-text-caption)]">{field.value || '-'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {(item.submission_steps ?? [])[0] ? (
+              <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Step: {(item.submission_steps ?? [])[0]}</div>
+            ) : null}
+            {(item.evidence_recording_steps ?? [])[0] ? (
+              <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-caption)]">Record: {(item.evidence_recording_steps ?? [])[0]}</div>
+            ) : null}
+            {(item.live_listing_search_urls ?? [])[0] ? (
+              <a
+                className="mt-2 block break-words text-xs font-semibold leading-5 text-[color:var(--ops-accent)]"
+                href={(item.live_listing_search_urls ?? [])[0]}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Live search: {(item.live_listing_search_urls ?? [])[0]}
+              </a>
+            ) : null}
+            {(item.live_listing_validation_steps ?? [])[0] ? (
+              <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-caption)]">Live gate: {(item.live_listing_validation_steps ?? [])[0]}</div>
+            ) : null}
             <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Evidence: {item.required_evidence.slice(0, 3).join(', ')}</div>
             {item.submission_confirmation_command ? (
               <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Record: {item.submission_confirmation_command.slice(0, 160)}...</div>
