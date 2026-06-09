@@ -638,6 +638,9 @@ def test_ai_visibility_source_host_live_spot_check_reports_no_candidate(
 
     assert result.status == "no_candidate_found"
     assert result.items[0].status == "not_found"
+    assert result.items[0].next_action == (
+        "Submit or wait for the directory listing, then rerun this spot check."
+    )
 
 
 def test_ai_visibility_source_host_live_spot_check_fetch_url_handles_http(

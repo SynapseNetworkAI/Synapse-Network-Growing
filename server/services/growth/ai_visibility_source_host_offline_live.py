@@ -166,7 +166,7 @@ def _check_search_url(
         evidence_excerpt=_excerpt(body),
         next_action=(
             "Record live-listing evidence."
-            if matched
+            if candidate_found
             else "Submit or wait for the directory listing, then rerun this spot check."
         ),
     )
