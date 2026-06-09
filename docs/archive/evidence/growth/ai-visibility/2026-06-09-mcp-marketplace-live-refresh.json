@@ -1,0 +1,39 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-mcp-marketplace-live-refresh",
+  "surface": "mcp_marketplace",
+  "source_url": "https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server",
+  "checked_at": "2026-06-09T14:56:14.057281+00:00",
+  "required_terms": [
+    "Synapse Network",
+    "https://mcp.synapse-network.ai/mcp",
+    "@synapse-network-ai/mcp-server",
+    "io-github-synapsenetworkai-synapse-network-mcp-server"
+  ],
+  "matched_terms": [
+    "Synapse Network",
+    "https://mcp.synapse-network.ai/mcp",
+    "@synapse-network-ai/mcp-server",
+    "io-github-synapsenetworkai-synapse-network-mcp-server"
+  ],
+  "missing_terms": [],
+  "content_sha256": "6657ca90d98b44bab06e4ce3b07f4d105ff02c73ff29b257f3e650f051a9549e",
+  "content_bytes": 111564,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcp_marketplace source host is live and matched 4 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-mcp-marketplace-live-refresh-after-source-host --platforms chatgpt,claude --execute"
+}

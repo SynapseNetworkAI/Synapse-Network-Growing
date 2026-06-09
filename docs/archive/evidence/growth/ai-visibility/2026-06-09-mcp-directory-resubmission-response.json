@@ -1,0 +1,64 @@
+{
+  "submitted_at": "2026-06-09T14:55:30.095Z",
+  "page_url": "https://mcp.directory/submit",
+  "public_payload": {
+    "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "npm_package": "@synapse-network-ai/mcp-server",
+    "short_description": "Remote MCP for paid API discovery, invocation, USDC agent payments, and receipts.",
+    "email_domain": "synapse-network.ai"
+  },
+  "visible_text_excerpt": "MCP.directory\nServers\nSkills\nClients\nTools\nBlog\nSubmit Server\nSign In\nSubmit a Server\n\nGet your MCP server listed on the directory. We'll auto-pull metadata from GitHub and publish within 24 hours.\n\nGitHub Repository URL *\n\nWe'll auto-detect: name, description, language, license, tools, and README\n\nnpm Package (optional)\nPyPI Package (optional)\nShort Description (optional)\n\nIf left empty, we'll generate one from the README\n\nYour Email (optional)\n\nWe'll notify you when your server is published\n\nThis repository has already been submitted. We'll review it soon!\nSubmit for Review\nWhat happens next?\n\nWe pull metadata from GitHub (name, description, stars, language, license, README)\n\nAuto-detect tools by analyzing the server's MCP implementation\n\nGenerate install configurations for all major clients\n\nReview for quality and accuracy (within 24 hours)\n\nPublish to the directory — live and searchable\n\nAlready listed?\n\nIf your server is already in the directory (added via auto-discovery from the official MCP Registry), you can claim it to get a verified badge and edit access. Email us at hello@mcp.directory.\n\nDirectory\nBrowse Servers\nBrowse Skills\nMCP Clients\nCategories\nCollections\nPublishers\nCompare Servers\nTop Lists\nServer Leaderboard\nBest MCP Servers\nAwesome MCP Servers\nFree MCP Servers\nRemote MCP Servers\nSkills Leaderboard\nSkill Categories\nResources\nSubmit Server\nSubmit Skill\nBlog\nAbout\nOfficial Registry\nMCP Spec\nNewsletter\n\nGet weekly MCP server updates and new tools delivered to your inbox.\n\nSubscribe\nAbout MCP.Directory\n\nMCP.Directory is the largest curated directory of MCP (Model Context Protocol) servers and agent skills. Discover, compare, and one-click install servers for Cursor IDE, VS Code, Claude Desktop, Claude Code, Codex, Gemini CLI, ChatGPT, and other AI development tools. Browse 1653+ publishers and thousands of servers across categories like developer tools, databases, AI/ML, productivity, and more.\n\nTop MCP Servers by Category\nBest Official MCP\nBest Remote MCP\nBest MCP for AI and Machine Learning\nBest MCP for Analytics and Data\nBest MCP for Browser Automation\nBest MCP for Cloud Platforms\nBest MCP for Communication\nBest MCP for Databases\nBest MCP for Developer Tools\nBest MCP for Finance\nBest MCP for Productivity\nBest MCP for Security\nBest MCP for Web Search\nTop MCP Publishers\ncyanheads (14)\ndocs (14)\nspences10 (11)\ngongrzhe (9)\ncloudflare (9)\naliyun (9)\nkazuph (8)\nmicrosoft (7)\npinkpixel-dev (7)\nwaystation (7)\nsecretiveshell (6)\ngoogle (6)\nmcp (6)\nanthropic (5)\nkevinwatt (5)\negoist (5)\nkunihiros (5)\nunknown (5)\nisakskogstad (5)\nCDataSoftware (5)\natlassian (4)\nsammcj (4)\nvercel (4)\nquantgeekdev (4)\nqpd-v (4)\ngeli2001 (4)\nburtthecoder (4)\nz_ai (4)\ndmontgomery40 (4)\ncognitive-stack (4)\nMCP.Directory\n© 2026 MCP.Directory. All rights reserved.\nFeedback",
+  "requests": [
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-QMJ7PSXKZ1&gtm=45je6640h2v9247707573za200zd9247707573&_p=1781016919140&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=1717067279.1781016919&frm=0&pscdl=noapi&rcb=7&sr=1440x1200&uaa=arm&uab=64&uafvl=Chromium%3B148.0.7778.96%7CHeadlessChrome%3B148.0.7778.96%7CNot%252FA)Brand%3B99.0.0.0&uam=&uamb=0&uap=macOS&uapv=26.4.1&uaw=0&ul=en-us&_s=1&tag_exp=0~115616986~115938465~115938469~117776794&sid=1781016919&sct=1&seg=0&dl=https%3A%2F%2Fmcp.directory%2Fsubmit&dt=Submit%20a%20Server%20%E2%80%94%20MCP.Directory&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=452",
+      "postData": null
+    },
+    {
+      "method": "POST",
+      "url": "https://mcp.directory/cdn-cgi/rum?",
+      "postData": "{\"memory\":{\"totalJSHeapSize\":12700000,\"usedJSHeapSize\":10000000,\"jsHeapSizeLimit\":3760000000},\"resources\":[],\"referrer\":\"\",\"eventType\":1,\"firstPaint\":372,\"firstContentfulPaint\":372,\"startTime\":1781016918850.1,\"versions\":{\"fl\":\"2024.11.0\",\"js\":\"2026.5.0\",\"timings\":2},\"pageloadId\":\"f07bd187-2b74-475d-bdc6-6bfeccf14cd0\",\"location\":\"https://mcp.directory/submit\",\"nt\":\"navigate\",\"timingsV2\":{\"nextHopProtocol\":\"h2\",\"domainLookupStart\":0.5,\"domainLookupEnd\":2,\"connectStart\":2,\"connectEnd\":130.89999997615814,\"requestStart\":131.10000002384186,\"responseStart\":205.69999992847443,\"responseEnd\":206.29999995231628,\"domInteractive\":293.10000002384186,\"domComplete\":600.1000000238419,\"loadEventStart\":600.1000000238419,\"loadEventEnd\":600.1000000238419,\"finalResponseHeadersStart\":205.69999992847443,\"firstInterimResponseStart\":0,\"transferSize\":10995,\"decodedBodySize\":63899},\"dt\":\"\",\"siteToken\":\"fdd18fe83782498b870a466169a4aef0\",\"st\":2}"
+    },
+    {
+      "method": "POST",
+      "url": "https://mcp.directory/api/submit-server",
+      "postData": "{\"githubUrl\":\"https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\",\"npmPackage\":\"@synapse-network-ai/mcp-server\",\"description\":\"Remote MCP for paid API discovery, invocation, USDC agent payments, and receipts.\",\"email\":\"support@synapse-network.ai\"}"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-QMJ7PSXKZ1&gtm=45je6640h2v9247707573za200zd9247707573&_p=1781016919140&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEEAAAQ&ae=a&are=1&cid=1717067279.1781016919&frm=0&pscdl=noapi&rcb=7&sr=1440x1200&uaa=arm&uab=64&uafvl=Chromium%3B148.0.7778.96%7CHeadlessChrome%3B148.0.7778.96%7CNot%252FA)Brand%3B99.0.0.0&uam=&uamb=0&uap=macOS&uapv=26.4.1&uaw=0&ul=en-us&tag_exp=0~115616986~115938465~115938469~117776794&sid=1781016919&sct=1&seg=0&dl=https%3A%2F%2Fmcp.directory%2Fsubmit&dt=Submit%20a%20Server%20%E2%80%94%20MCP.Directory&_s=2&tfd=11104",
+      "postData": "en=form_start&ep.form_id=&ep.form_destination=https%3A%2F%2Fmcp.directory%2Fsubmit&epn.form_length=6&ep.first_field_id=&ep.first_field_type=url&epn.first_field_position=1&_et=5647\r\nen=form_submit&ep.form_id=&ep.form_destination=https%3A%2F%2Fmcp.directory%2Fsubmit&_et=38"
+    }
+  ],
+  "responses": [
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-QMJ7PSXKZ1&gtm=45je6640h2v9247707573za200zd9247707573&_p=1781016919140&gcd=13l3l3l3l1l1&npa=0&dma=0&are=1&cid=1717067279.1781016919&frm=0&pscdl=noapi&rcb=7&sr=1440x1200&uaa=arm&uab=64&uafvl=Chromium%3B148.0.7778.96%7CHeadlessChrome%3B148.0.7778.96%7CNot%252FA)Brand%3B99.0.0.0&uam=&uamb=0&uap=macOS&uapv=26.4.1&uaw=0&ul=en-us&_s=1&tag_exp=0~115616986~115938465~115938469~117776794&sid=1781016919&sct=1&seg=0&dl=https%3A%2F%2Fmcp.directory%2Fsubmit&dt=Submit%20a%20Server%20%E2%80%94%20MCP.Directory&en=page_view&_fv=1&_nsi=1&_ss=1&_ee=1&tfd=452",
+      "status": 204,
+      "ok": true,
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://mcp.directory/cdn-cgi/rum?",
+      "status": 204,
+      "ok": true,
+      "body": ""
+    },
+    {
+      "method": "POST",
+      "url": "https://mcp.directory/api/submit-server",
+      "status": 409,
+      "ok": false,
+      "body": "{\"error\":\"This repository has already been submitted. We'll review it soon!\"}"
+    },
+    {
+      "method": "POST",
+      "url": "https://www.google-analytics.com/g/collect?v=2&tid=G-QMJ7PSXKZ1&gtm=45je6640h2v9247707573za200zd9247707573&_p=1781016919140&gcd=13l3l3l3l1l1&npa=0&dma=0&_eu=AEEAAAQ&ae=a&are=1&cid=1717067279.1781016919&frm=0&pscdl=noapi&rcb=7&sr=1440x1200&uaa=arm&uab=64&uafvl=Chromium%3B148.0.7778.96%7CHeadlessChrome%3B148.0.7778.96%7CNot%252FA)Brand%3B99.0.0.0&uam=&uamb=0&uap=macOS&uapv=26.4.1&uaw=0&ul=en-us&tag_exp=0~115616986~115938465~115938469~117776794&sid=1781016919&sct=1&seg=0&dl=https%3A%2F%2Fmcp.directory%2Fsubmit&dt=Submit%20a%20Server%20%E2%80%94%20MCP.Directory&_s=2&tfd=11104",
+      "status": 204,
+      "ok": true,
+      "body": ""
+    }
+  ],
+  "screenshot": "/private/tmp/growing-ai-visibility-clean/docs/archive/evidence/growth/ai-visibility/2026-06-09-mcp-directory-resubmission.png"
+}
