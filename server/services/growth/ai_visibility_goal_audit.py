@@ -295,10 +295,11 @@ def _source_host_live_requirement(
 ) -> GrowthAIVisibilityGoalAuditRequirementOut:
     required_hosts = _required_directory_hosts(facts)
     missing = missing_hosts(facts.live_surfaces, required_hosts)
+    review_pending = getattr(facts, "review_pending_surfaces", [])
     passed = not missing
     blocker = _live_listing_blocker(
         missing=missing,
-        review_pending=getattr(facts, "review_pending_surfaces", []),
+        review_pending=review_pending,
     )
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="source_host_live_evidence",
@@ -312,7 +313,7 @@ def _source_host_live_requirement(
         blocker="" if passed else blocker,
         next_action=""
         if passed
-        else "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
+        else _live_listing_next_action(review_pending=review_pending),
     )
 
 
@@ -330,6 +331,17 @@ def _live_listing_blocker(*, missing: list[str], review_pending: list[str]) -> s
     if pending:
         blocker += " Review pending after submission: " + ", ".join(pending) + "."
     return blocker
+
+
+def _live_listing_next_action(*, review_pending: list[str]) -> str:
+    if review_pending:
+        return (
+            "Recheck review-pending directory listings on a fixed cadence; only rerun "
+            "unchanged GPT/Claude/Grok/Gemini probes after public listing evidence is live."
+        )
+    return (
+        "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes."
+    )
 
 
 def _required_directory_hosts(facts) -> list[str]:

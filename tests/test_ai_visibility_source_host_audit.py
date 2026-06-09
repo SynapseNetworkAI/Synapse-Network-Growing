@@ -188,6 +188,8 @@ def test_source_host_audit_tracks_review_pending_without_counting_live(
     assert submission.status == "completed"
     assert live.status == "blocked"
     assert "Review pending after submission: mcp_directory" in live.blocker
+    assert "Recheck review-pending directory listings" in live.next_action
+    assert "after public listing evidence is live" in live.next_action
 
 
 def test_source_host_audit_prefers_generated_at_over_filename_order(tmp_path: Path):
