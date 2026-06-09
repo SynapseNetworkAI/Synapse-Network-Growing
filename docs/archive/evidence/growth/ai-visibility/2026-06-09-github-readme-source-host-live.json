@@ -1,0 +1,42 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-github-readme-source-host",
+  "surface": "github_readme",
+  "source_url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md",
+  "checked_at": "2026-06-09T04:24:37.148799+00:00",
+  "required_terms": [
+    "Answer Engine Source Block",
+    "MCP server for paid API calls",
+    "discover_services",
+    "https://mcp.synapse-network.ai/mcp",
+    "RapidAPI",
+    "Project Synapse"
+  ],
+  "matched_terms": [
+    "Answer Engine Source Block",
+    "MCP server for paid API calls",
+    "discover_services",
+    "https://mcp.synapse-network.ai/mcp",
+    "RapidAPI",
+    "Project Synapse"
+  ],
+  "missing_terms": [],
+  "content_sha256": "4e23034814c6cea483fd45bbf38c92ecbb7e88d651d33ae268f1a5b339f18075",
+  "content_bytes": 22094,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "validation_summary": "github_readme source host is live and matched 6 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-github-readme-source-host-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

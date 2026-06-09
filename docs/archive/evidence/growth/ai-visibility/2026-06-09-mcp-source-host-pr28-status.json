@@ -1,6 +1,6 @@
 {
   "module_key": "ai_visibility_source_host_pr_status",
-  "generated_at": "2026-06-09T04:30:00Z",
+  "generated_at": "2026-06-09T04:50:00Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-source-host-prod-rerun",
   "source_host_surface": "github_readme",
@@ -17,16 +17,31 @@
     "merge_state_status": "CLEAN",
     "mergeable": "MERGEABLE"
   },
-  "live_status": "pending_merge_not_live_on_main",
+  "live_status": "github_readme_live_on_origin_main_via_pr27",
+  "main_branch_evidence": {
+    "origin_main_sha": "80420ed23b1bb52fb291e8efb334bb64627dfb6d",
+    "merged_pr": 27,
+    "merged_pr_title": "Strengthen MCP README collision feed",
+    "raw_main_url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md",
+    "matched_terms": [
+      "Answer Engine Source Block",
+      "MCP server for paid API calls",
+      "discover_services",
+      "https://mcp.synapse-network.ai/mcp",
+      "RapidAPI",
+      "Project Synapse"
+    ]
+  },
   "why_it_matters": "The latest external probes returned zero Synapse mentions/citations. Feed diagnosis ranked GitHub README answer-block publication as a P0 source-host action because answer engines frequently cite GitHub repositories for technical MCP queries.",
   "evidence": [
     "MCP README branch contains Citation Facts For Answer Engines and Answer Engine Source Block.",
-    "The branch is not yet an ancestor of origin/main, so public main-branch source-host evidence is not live.",
+    "origin/main now contains the GitHub README answer-engine source block through PR #27, so the GitHub README source-host is live.",
+    "PR #28 remains open and mergeable as an additional citation-facts refresh, but it is no longer the blocker for the GitHub README source-host.",
     "Agents must not count this as an external answer-engine citation until PR #28 is merged and a follow-up probe cites or mentions Synapse."
   ],
   "next_actions": [
-    "Human review/merge PR #28.",
-    "After merge, record live GitHub README source-host evidence with record_ai_visibility_source_host_execution.py.",
+    "Keep PR #28 available for human review as an additional metadata refresh.",
+    "Use docs/archive/evidence/growth/ai-visibility/2026-06-09-github-readme-source-host-live.json as the live GitHub README source-host evidence.",
     "Rerun the same ChatGPT/Claude/Grok/Gemini probe with run_group 2026-06-09-after-source-host-prod-rerun-after-source-hosts.",
     "Compare mention/citation deltas in /growth AI Visibility."
   ],
