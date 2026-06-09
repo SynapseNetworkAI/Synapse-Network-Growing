@@ -55,6 +55,18 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         draft_by_host["aitoolnet.com"]["submission_payload"]["stitch_figma_frame"]
         == "Directory Source-Host Submission Pack"
     )
+    assert (
+        "operator-owned contact email"
+        in " ".join(draft_by_host["aitoolnet.com"]["operator_notes"])
+    )
+    assert (
+        "Free review queue"
+        in draft_by_host["aitoolnet.com"]["submission_payload"]["pricing_or_plan"]
+    )
+    assert (
+        "browser/operator session"
+        in draft_by_host["aitoolnet.com"]["submission_payload"]["submission_blocker"]
+    )
     assert "browser/form confirmation" in " ".join(
         draft_by_host["alternativeto.net"]["operator_notes"]
     )
@@ -122,6 +134,26 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     )
     assert item_by_host["aitoolnet.com"]["design_handoff_frame"] == (
         "Directory Source-Host Submission Pack"
+    )
+    aitoolnet_fields = item_by_host["aitoolnet.com"]["submission_fields"]
+    aitoolnet_labels = {field["label"] for field in aitoolnet_fields}
+    assert {
+        "Category",
+        "Pricing or plan",
+        "Listing content",
+        "Contact email",
+    }.issubset(aitoolnet_labels)
+    assert any(
+        field["label"] == "Contact email"
+        and "Operator-owned email only" in field["notes"]
+        and "required" in field["notes"]
+        for field in aitoolnet_fields
+    )
+    assert any(
+        field["label"] == "Listing content"
+        and "https://mcp.synapse-network.ai/mcp" in field["value"]
+        and "@synapse-network-ai/mcp-server" in field["value"]
+        for field in aitoolnet_fields
     )
     assert (
         "--evidence-mode submission-confirmation"

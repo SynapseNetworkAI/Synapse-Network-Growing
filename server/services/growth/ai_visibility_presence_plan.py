@@ -142,6 +142,16 @@ def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceAction
                 "CLI probes can receive site-level 403; verify through browser/form confirmation or a public listing URL.",
             ]
         )
+    if host == "aitoolnet.com":
+        operator_notes.extend(
+            [
+                "AIToolNet requires an operator-owned contact email and review/plan "
+                "choice; use the free review queue unless paid fast-track is "
+                "explicitly approved.",
+                "Do not mark AIToolNet submitted from CLI reachability alone; "
+                "require a browser form receipt, confirmation screen, or screenshot.",
+            ]
+        )
     return _action(
         host=host,
         priority=index,
@@ -290,6 +300,27 @@ def _directory_payload(host: str) -> dict[str, object]:
             "tool_name": "SynapseNetwork MCP Server",
             "website_url": "https://www.synapse-network.ai/",
             "category": "AI agents / Developer tools / Payments",
+            "pricing_or_plan": (
+                "Free review queue; paid fast-track requires explicit operator approval."
+            ),
+            "listing_content": (
+                "Synapse Network MCP Server is a Remote MCP endpoint for AI agents to "
+                "discover callable APIs, invoke paid services with spend controls, and "
+                "retrieve receipts. Remote endpoint: https://mcp.synapse-network.ai/mcp. "
+                "GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server. "
+                "npm: @synapse-network-ai/mcp-server. Tools: discover_services, "
+                "invoke_and_pay, get_receipt. Docs: https://docs.synapse-network.ai/mcp."
+            ),
+            "contact_email_notes": (
+                "Operator-owned email only; required by the AIToolNet form. Use a "
+                "Synapse contact email; do not use API keys, bearer tokens, or "
+                "personal secret values."
+            ),
+            "submission_blocker": (
+                "AIToolNet submit pages may require a browser/operator session, "
+                "contact email, and plan/review-queue choice. Do not mark submitted "
+                "until a form receipt, confirmation screen, or screenshot exists."
+            ),
             "acceptance_terms": [
                 "Remote MCP",
                 "MCP server for paid API calls",

@@ -29,6 +29,47 @@ from server.services.growth.ai_visibility_source_host_surfaces import (
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
 OFFICIAL_DOCS = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 COMPARISON_DOCS = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+CONTACT_EMAIL_NOTES = (
+    "Operator-owned email only; required when the directory form asks for contact or "
+    "account email; do not enter API keys or bearer tokens."
+)
+DEFAULT_SUBMISSION_FIELD_KEYS = (
+    "server_name",
+    "website_url",
+    "short_description",
+    "github_repository_url",
+    "npm_package",
+    "remote_mcp_endpoint",
+    "tools",
+    "docs",
+    "contact_email",
+)
+SUBMISSION_FIELD_KEYS_BY_HOST = {
+    "mcp.directory": (
+        "github_repository_url",
+        "npm_package",
+        "pypi_package",
+        "short_description",
+        "contact_email",
+        "remote_mcp_endpoint",
+        "tools",
+    ),
+    "alternativeto.net": DEFAULT_SUBMISSION_FIELD_KEYS[:-1],
+    "aitoolnet.com": (
+        "server_name",
+        "website_url",
+        "short_description",
+        "category",
+        "pricing_or_plan",
+        "listing_content",
+        "github_repository_url",
+        "npm_package",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+        "contact_email",
+    ),
+}
 
 
 def ai_visibility_source_host_feed_package(
@@ -199,7 +240,27 @@ def _submission_fields(
         "contact_email": _field(
             "Contact email",
             str(payload.get("contact_email") or "<operator email>"),
-            "Operator-owned email only; do not enter API keys or bearer tokens.",
+            str(payload.get("contact_email_notes") or CONTACT_EMAIL_NOTES),
+        ),
+        "category": _field(
+            "Category",
+            str(payload.get("category") or "AI agents / Developer tools / Payments"),
+            "Use the closest directory taxonomy if the exact category is unavailable.",
+        ),
+        "pricing_or_plan": _field(
+            "Pricing or plan",
+            str(payload.get("pricing_or_plan") or "Free review queue"),
+            "Choose the free/manual review queue unless the operator explicitly approves a paid listing or fast-track.",
+        ),
+        "listing_content": _field(
+            "Listing content",
+            str(
+                payload.get("listing_content")
+                or payload.get("short_description")
+                or draft.summary
+            ),
+            "Paste only public product facts. Include Remote MCP endpoint, GitHub, "
+            "npm, docs, and tool names; never include raw credentials.",
         ),
         "website_url": _field(
             "Website URL",
@@ -239,38 +300,7 @@ def _field(
 
 
 def _submission_field_keys(host: str) -> list[str]:
-    if host == "mcp.directory":
-        return [
-            "github_repository_url",
-            "npm_package",
-            "pypi_package",
-            "short_description",
-            "contact_email",
-            "remote_mcp_endpoint",
-            "tools",
-        ]
-    if host == "alternativeto.net":
-        return [
-            "server_name",
-            "website_url",
-            "short_description",
-            "github_repository_url",
-            "npm_package",
-            "remote_mcp_endpoint",
-            "tools",
-            "docs",
-        ]
-    return [
-        "server_name",
-        "website_url",
-        "short_description",
-        "github_repository_url",
-        "npm_package",
-        "remote_mcp_endpoint",
-        "tools",
-        "docs",
-        "contact_email",
-    ]
+    return list(SUBMISSION_FIELD_KEYS_BY_HOST.get(host, DEFAULT_SUBMISSION_FIELD_KEYS))
 
 
 def _submission_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:

@@ -1,0 +1,136 @@
+{
+  "module_key": "ai_visibility",
+  "check_type": "source_host_live_spot_check",
+  "generated_at": "2026-06-09T08:41:43.353100Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-zshrc-provider-keys-refresh3",
+  "execute": true,
+  "status": "no_candidate_found",
+  "items": [
+    {
+      "host": "mcp.directory",
+      "search_url": "https://mcp.directory/?q=Synapse%20Network",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/5c285b27cdda1fe8-s.p.a62025f2.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" typ",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "mcp.directory",
+      "search_url": "https://mcp.directory/?q=SynapseNetwork%20MCP%20Server",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/5c285b27cdda1fe8-s.p.a62025f2.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" typ",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "aitoolnet.com",
+      "search_url": "https://www.aitoolnet.com/search?q=SynapseNetwork%20MCP%20Server",
+      "status": "not_found",
+      "http_status": 404,
+      "matched_terms": [
+        "synapsenetwork"
+      ],
+      "missing_terms": [
+        "synapse network",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "aspopup=\"true\" aria-expanded=\"false\">English<i class=\"caret\"></i></a> <ul class=\"dropdown-menu\"> <li><a href=\"/search?q=SynapseNetwork%20MCP%20Server\" data-lang=\"\">English</a></li> <li><a href=\"/zh/search?q=SynapseNetwork%20MCP%20Server\" data-lang=\"zh\">简体中文</a></li> <li><a href=\"/zhtw/search?q=SynapseNetwork%20MCP%20Server\" data-lang=\"zhtw\">繁體中文</a></li> <li><a href=\"/ko/search?q=SynapseNetwork%20MCP%20Server\" data-lang=\"ko\">한국어</a></li> <li><a href=\"/ja/search?q=SynapseNetwork%20MCP%20Server\" d",
+      "next_action": "Open the candidate result, capture the public listing URL, and record live-listing evidence."
+    },
+    {
+      "host": "aitoolnet.com",
+      "search_url": "https://www.aitoolnet.com/search?q=Synapse%20Network%20Remote%20MCP",
+      "status": "not_found",
+      "http_status": 404,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "<!DOCTYPE html> <html lang='en'> <head> <title>404 - Aitoolnet</title> <meta content=\"\" name=\"keywords\" /> <meta charset='utf-8'> <meta content='width=device-width, initial-scale=1' name='viewport'> <link href='/favicon.ico' rel='shortcut icon' type='image/png'> <link rel=\"preload\" href=\"/static/assets/icon/css/icon.css\" as=\"style\" onload=\"this.onload=null;this.rel='stylesheet'",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "alternativeto.net",
+      "search_url": "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapsenetwork"
+      ],
+      "missing_terms": [
+        "synapse network",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "\"/static/error/A2_Error_Gray.png\" as=\"image\"/><meta name=\"next-size-adjust\" content=\"\"/><title>Search results for &quot;SynapseNetwork MCP Server&quot;</title><meta name=\"description\" content=\"Search results for SynapseNetwork MCP Server\"/><meta name=\"robots\" content=\"noindex\"/><link rel=\"preconnect\" href=\"https://www.googletagmanager.com\"/><link rel=\"dns-prefetch\" href=\"https://www.googletagmanager.com\"/><link rel=\"dns-prefetch\" href=\"https://d4.alternativeto.net\"/><link rel=\"dns-prefetch\" href",
+      "next_action": "Open the candidate result, capture the public listing URL, and record live-listing evidence."
+    },
+    {
+      "host": "alternativeto.net",
+      "search_url": "https://alternativeto.net/browse/search/?q=Synapse%20Network%20MCP",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapse network"
+      ],
+      "missing_terms": [
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "\"/static/error/A2_Error_Gray.png\" as=\"image\"/><meta name=\"next-size-adjust\" content=\"\"/><title>Search results for &quot;Synapse Network MCP&quot;</title><meta name=\"description\" content=\"Search results for Synapse Network MCP\"/><meta name=\"robots\" content=\"noindex\"/><link rel=\"preconnect\" href=\"https://www.googletagmanager.com\"/><link rel=\"dns-prefetch\" href=\"https://www.googletagmanager.com\"/><link rel=\"dns-prefetch\" href=\"https://d4.alternativeto.net\"/><link rel=\"dns-prefetch\" href=\"https://cd",
+      "next_action": "Open the candidate result, capture the public listing URL, and record live-listing evidence."
+    }
+  ],
+  "blockers": [
+    "No Synapse source-host listing candidate was found in search URLs."
+  ],
+  "commands": {
+    "export_dry_run": "python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --feed-key mcp_paid_api_discovery --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-live-spot-check.json",
+    "execute": "python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --feed-key mcp_paid_api_discovery --execute --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-live-spot-check.json",
+    "record_live_listing": "python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live-listing --surface <surface> --source-url <public-listing-url>"
+  }
+}

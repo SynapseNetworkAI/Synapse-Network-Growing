@@ -1,25 +1,21 @@
 {
   "blockers": [
-    "Missing source-host submission confirmation evidence for mcp.directory, alternativeto.net.",
-    "Directory submission is not enough; live listing evidence is missing for mcp.directory, alternativeto.net.",
-    "Run and pass live feed readiness before external GPT/Claude/Grok/Gemini probes.",
-    "Missing real external GPT/Claude/Grok/Gemini evidence: official citations are still insufficient.",
+    "Missing source-host submission confirmation evidence for aitoolnet.com.",
+    "Directory submission is not enough; live listing evidence is missing for mcp.directory, aitoolnet.com.",
     "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
-    "Fewer than three stable positive external runs have been recorded.",
-    "No answer-engine citation to Synapse has been recorded."
+    "Fewer than three stable positive external runs have been recorded."
   ],
-  "completed_count": 6,
+  "completed_count": 8,
   "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/goal-audit.json",
-  "generated_at": "2026-06-09T05:57:06.904868Z",
+  "generated_at": "2026-06-09T08:37:40.969883Z",
   "goal_achieved": false,
   "module_key": "ai_visibility",
   "next_actions": [
     "Submit current P0 directory forms and record confirmation evidence.",
     "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
-    "Run live readiness and fix feed blockers.",
-    "Run full external probes and record evidence.",
     "Repeat feed, probe, compare, and weekly report cycles.",
-    "Schedule the next weekly GPT/Claude/Grok/Gemini stability probe."
+    "Fix provider/API probe failure and rerun the same query.",
+    "Deploy/refresh feed assets and rerun the same API probe."
   ],
   "official_homepage": "https://www.synapse-network.ai/",
   "requirements": [
@@ -70,7 +66,7 @@
     },
     {
       "blocker": "",
-      "evidence": "Directory Source-Host Submission Pack covers mcp.directory, alternativeto.net.",
+      "evidence": "Directory Source-Host Submission Pack covers mcp.directory, aitoolnet.com.",
       "key": "source_host_handoff",
       "next_action": "",
       "required": true,
@@ -78,7 +74,7 @@
       "title": "Directory source-host handoff"
     },
     {
-      "blocker": "Missing source-host submission confirmation evidence for mcp.directory, alternativeto.net.",
+      "blocker": "Missing source-host submission confirmation evidence for aitoolnet.com.",
       "evidence": "",
       "key": "source_host_submission_evidence",
       "next_action": "Submit current P0 directory forms and record confirmation evidence.",
@@ -87,7 +83,7 @@
       "title": "Directory submission evidence"
     },
     {
-      "blocker": "Directory submission is not enough; live listing evidence is missing for mcp.directory, alternativeto.net.",
+      "blocker": "Directory submission is not enough; live listing evidence is missing for mcp.directory, aitoolnet.com.",
       "evidence": "",
       "key": "source_host_live_evidence",
       "next_action": "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
@@ -96,21 +92,21 @@
       "title": "Directory live listing evidence"
     },
     {
-      "blocker": "Run and pass live feed readiness before external GPT/Claude/Grok/Gemini probes.",
-      "evidence": "",
+      "blocker": "",
+      "evidence": "Ready feeds: mcp_paid_api_discovery",
       "key": "feed_readiness",
-      "next_action": "Run live readiness and fix feed blockers.",
+      "next_action": "",
       "required": true,
-      "status": "blocked",
+      "status": "completed",
       "title": "Live feed readiness"
     },
     {
-      "blocker": "Missing real external GPT/Claude/Grok/Gemini evidence: official citations are still insufficient.",
-      "evidence": "",
+      "blocker": "",
+      "evidence": "Covered chatgpt, claude, gemini, grok with 15 official citation(s).",
       "key": "external_search_evidence",
-      "next_action": "Run full external probes and record evidence.",
+      "next_action": "",
       "required": true,
-      "status": "blocked",
+      "status": "completed",
       "title": "GPT/Claude/Grok/Gemini search evidence"
     },
     {

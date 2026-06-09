@@ -1,0 +1,32 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-mcp-directory-submission-check",
+  "surface": "mcp_directory",
+  "source_url": "https://mcp.directory/submit",
+  "checked_at": "2026-06-09T08:31:21.936636+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "0a4b334cbd7aabb54a289d74eec5161024c064f8a7307cc6ef15e9c73d0cef8c",
+  "content_bytes": 195,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "MCP.Directory API returned 409 with message: This repository has already been submitted. Review is pending for SynapseNetworkAI/Synapse-Network-MCP-Server with npm @synapse-network-ai/mcp-server.",
+  "screenshot_url": "docs/archive/evidence/growth/ai-visibility/submission-http/2026-06-09-mcp-directory-submit-response.json",
+  "validation_summary": "mcp_directory browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-mcp-directory-submission-check-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}
