@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility_feed_diagnosis",
   "status": "source_host_actions_required",
-  "generated_at": "2026-06-09T04:46:35.306789+00:00",
+  "generated_at": "2026-06-09T04:50:40.873060+00:00",
   "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-09-after-provider-key-refresh-external-probes.jsonl",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-provider-key-refresh",
@@ -47,6 +47,42 @@
     }
   ],
   "recommended_source_host_executions": [
+    {
+      "surface": "aitoolnet",
+      "draft_type": "ai_tool_directory_listing",
+      "priority": "p0",
+      "target_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini"
+      ],
+      "target_queries": [
+        "Synapse vs paid MCP alternatives"
+      ],
+      "rationale": "AIToolNet appeared in answer-engine source hosts for paid-MCP alternative queries, so Synapse needs a matching AI tool directory listing.",
+      "content_brief": "Submit SynapseNetwork MCP Server to AIToolNet with website, GitHub, Remote MCP endpoint, npm package, and the discover_services / invoke_and_pay / get_receipt tool loop. Mark the action complete only after browser/form confirmation or a public listing exists.",
+      "validation_command": "Record AIToolNet browser/form confirmation or public listing URL; CLI probes may receive site-level 403.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-key-refresh-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "alternativeto",
+      "draft_type": "software_alternative_listing",
+      "priority": "p0",
+      "target_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini"
+      ],
+      "target_queries": [
+        "Synapse vs paid MCP alternatives"
+      ],
+      "rationale": "AlternativeTo appeared in answer-engine source hosts for paid-MCP alternative queries, so Synapse needs a software-alternative listing.",
+      "content_brief": "Submit SynapseNetwork MCP Server to AlternativeTo as a developer/API/payment alternative for agent-paid API calls. Include GitHub, docs, Remote MCP endpoint, npm package, and the three-tool payment loop.",
+      "validation_command": "Record AlternativeTo browser/form confirmation or public listing URL; CLI probes may receive site-level 403.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-provider-key-refresh-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
     {
       "surface": "official_mcp_registry",
       "draft_type": "mcp_directory_listing",

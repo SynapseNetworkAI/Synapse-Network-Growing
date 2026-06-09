@@ -79,6 +79,39 @@ def test_diagnosis_marks_validation_only_rows_as_no_external_evidence(tmp_path: 
     )
 
 
+def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="Synapse vs paid MCP alternatives",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": [
+                            "aitoolnet.com",
+                            "alternativeto.net",
+                            "mcp-marketplace.io",
+                        ],
+                    },
+                )
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    surfaces = [item["surface"] for item in recommendations]
+    assert surfaces[:2] == ["aitoolnet", "alternativeto"]
+    assert recommendations[0]["draft_type"] == "ai_tool_directory_listing"
+    assert recommendations[1]["draft_type"] == "software_alternative_listing"
+    assert recommendations[0]["target_queries"] == ["Synapse vs paid MCP alternatives"]
+    assert "browser/form confirmation" in recommendations[0]["validation_command"]
+    assert "after-source-hosts" in recommendations[1]["next_probe_command"]
+
+
 def test_diagnosis_cli_writes_json_and_recommendations_jsonl(tmp_path: Path):
     probe_path = write_probe_jsonl(
         tmp_path,
@@ -132,6 +165,7 @@ def probe_row(
     platform: str,
     query: str = "MCP server for paid API calls",
     competitors: list[str] | None = None,
+    metadata: dict | None = None,
 ) -> dict:
     return {
         "query": query,
@@ -145,6 +179,7 @@ def probe_row(
         "competitor_mentions": competitors or [],
         "missing_facts": ["Synapse Network was not cited."],
         "next_action": "Add independent source-host citation evidence.",
+        "metadata": metadata or {},
     }
 
 
