@@ -52,6 +52,7 @@ OFFICIAL_GITHUB_REPOSITORY = (
 )
 OFFICIAL_NPM_PACKAGE = "@synapse-network-ai/mcp-server"
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
+OFFICIAL_CONTACT_EMAIL = "support@synapse-network.ai"
 LISTING_DESCRIPTION = (
     "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke "
     "approved paid tools with bounded USDC spend, and retrieve settlement receipts."
@@ -145,11 +146,12 @@ def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceAction
     if host == "aitoolnet.com":
         operator_notes.extend(
             [
-                "AIToolNet requires an operator-owned contact email and review/plan "
-                "choice; use the free review queue unless paid fast-track is "
-                "explicitly approved.",
+                "AIToolNet finish page asks listings to email support@aitoolnet.com; "
+                "send from support@synapse-network.ai or another operator-owned "
+                "Synapse mailbox.",
                 "Do not mark AIToolNet submitted from CLI reachability alone; "
-                "require a browser form receipt, confirmation screen, or screenshot.",
+                "require an email draft/send receipt, browser confirmation screen, "
+                "or screenshot.",
             ]
         )
     return _action(
@@ -290,48 +292,12 @@ def _directory_payload(host: str) -> dict[str, object]:
         "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
         "website": "https://www.synapse-network.ai/",
         "docs": OFFICIAL_DOCS_URL,
-        "contact_email": "<operator email>",
+        "contact_email": OFFICIAL_CONTACT_EMAIL,
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
     }
     if host == "aitoolnet.com":
-        return {
-            **base_payload,
-            "tool_name": "SynapseNetwork MCP Server",
-            "website_url": "https://www.synapse-network.ai/",
-            "category": "AI agents / Developer tools / Payments",
-            "pricing_or_plan": (
-                "Free review queue; paid fast-track requires explicit operator approval."
-            ),
-            "listing_content": (
-                "Synapse Network MCP Server is a Remote MCP endpoint for AI agents to "
-                "discover callable APIs, invoke paid services with spend controls, and "
-                "retrieve receipts. Remote endpoint: https://mcp.synapse-network.ai/mcp. "
-                "GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server. "
-                "npm: @synapse-network-ai/mcp-server. Tools: discover_services, "
-                "invoke_and_pay, get_receipt. Docs: https://docs.synapse-network.ai/mcp."
-            ),
-            "contact_email_notes": (
-                "Operator-owned email only; required by the AIToolNet form. Use a "
-                "Synapse contact email; do not use API keys, bearer tokens, or "
-                "personal secret values."
-            ),
-            "submission_blocker": (
-                "AIToolNet submit pages may require a browser/operator session, "
-                "contact email, and plan/review-queue choice. Do not mark submitted "
-                "until a form receipt, confirmation screen, or screenshot exists."
-            ),
-            "acceptance_terms": [
-                "Remote MCP",
-                "MCP server for paid API calls",
-                "ChatGPT MCP app for API payments",
-                "AI agent API monetization",
-                "discover_services",
-                "invoke_and_pay",
-                "get_receipt",
-            ],
-            "browser_submission_required": True,
-        }
+        return _aitoolnet_payload(base_payload)
     if host == "alternativeto.net":
         return {
             **base_payload,
@@ -398,6 +364,48 @@ def _directory_payload(host: str) -> dict[str, object]:
     return {
         **base_payload,
         "login_required": host == "mcp-marketplace.io",
+    }
+
+
+def _aitoolnet_payload(base_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **base_payload,
+        "tool_name": "SynapseNetwork MCP Server",
+        "website_url": "https://www.synapse-network.ai/",
+        "category": "AI agents / Developer tools / Payments",
+        "submission_method": (
+            "Email support@aitoolnet.com from the Synapse support mailbox."
+        ),
+        "email_subject": "Friend link - Synapse Network Listing",
+        "pricing_or_plan": (
+            "Free review queue; paid fast-track requires explicit operator approval."
+        ),
+        "listing_content": (
+            "Synapse Network MCP Server is a Remote MCP endpoint for AI agents to "
+            "discover callable APIs, invoke paid services with spend controls, and "
+            "retrieve receipts. Remote endpoint: https://mcp.synapse-network.ai/mcp. "
+            "GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server. "
+            "npm: @synapse-network-ai/mcp-server. Tools: discover_services, "
+            "invoke_and_pay, get_receipt. Docs: https://docs.synapse-network.ai/mcp."
+        ),
+        "contact_email_notes": (
+            "Operator-owned email only; required by the AIToolNet form. Use a Synapse "
+            "contact email; do not use API keys, bearer tokens, or personal secret values."
+        ),
+        "submission_blocker": (
+            "AIToolNet submission requires an operator email send/draft receipt or "
+            "browser confirmation. Do not mark submitted until that evidence exists."
+        ),
+        "acceptance_terms": [
+            "Remote MCP",
+            "MCP server for paid API calls",
+            "ChatGPT MCP app for API payments",
+            "AI agent API monetization",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "browser_submission_required": True,
     }
 
 

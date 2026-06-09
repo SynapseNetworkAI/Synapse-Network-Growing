@@ -56,15 +56,23 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         == "Directory Source-Host Submission Pack"
     )
     assert (
-        "operator-owned contact email"
+        "support@aitoolnet.com"
         in " ".join(draft_by_host["aitoolnet.com"]["operator_notes"])
+    )
+    assert (
+        "support@aitoolnet.com"
+        in draft_by_host["aitoolnet.com"]["submission_payload"]["submission_method"]
+    )
+    assert (
+        draft_by_host["aitoolnet.com"]["submission_payload"]["contact_email"]
+        == "support@synapse-network.ai"
     )
     assert (
         "Free review queue"
         in draft_by_host["aitoolnet.com"]["submission_payload"]["pricing_or_plan"]
     )
     assert (
-        "browser/operator session"
+        "operator email send/draft receipt"
         in draft_by_host["aitoolnet.com"]["submission_payload"]["submission_blocker"]
     )
     assert "browser/form confirmation" in " ".join(
@@ -145,6 +153,7 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     }.issubset(aitoolnet_labels)
     assert any(
         field["label"] == "Contact email"
+        and field["value"] == "support@synapse-network.ai"
         and "Operator-owned email only" in field["notes"]
         and "required" in field["notes"]
         for field in aitoolnet_fields

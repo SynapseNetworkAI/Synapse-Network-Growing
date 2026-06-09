@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "package_type": "source_host_feed",
-  "generated_at": "2026-06-09T08:41:21.270414Z",
+  "generated_at": "2026-06-09T09:09:29.296678Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-zshrc-provider-keys-refresh3",
   "status": "ready_for_operator_feed",
@@ -40,7 +40,7 @@
         ],
         "website": "https://www.synapse-network.ai/",
         "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
-        "contact_email": "<operator email>",
+        "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
         "pypi_package": "",
@@ -105,16 +105,18 @@
         ],
         "website": "https://www.synapse-network.ai/",
         "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
-        "contact_email": "<operator email>",
+        "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
         "tool_name": "SynapseNetwork MCP Server",
         "website_url": "https://www.synapse-network.ai/",
         "category": "AI agents / Developer tools / Payments",
+        "submission_method": "Email support@aitoolnet.com from the Synapse support mailbox.",
+        "email_subject": "Friend link - Synapse Network Listing",
         "pricing_or_plan": "Free review queue; paid fast-track requires explicit operator approval.",
         "listing_content": "Synapse Network MCP Server is a Remote MCP endpoint for AI agents to discover callable APIs, invoke paid services with spend controls, and retrieve receipts. Remote endpoint: https://mcp.synapse-network.ai/mcp. GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server. npm: @synapse-network-ai/mcp-server. Tools: discover_services, invoke_and_pay, get_receipt. Docs: https://docs.synapse-network.ai/mcp.",
         "contact_email_notes": "Operator-owned email only; required by the AIToolNet form. Use a Synapse contact email; do not use API keys, bearer tokens, or personal secret values.",
-        "submission_blocker": "AIToolNet submit pages may require a browser/operator session, contact email, and plan/review-queue choice. Do not mark submitted until a form receipt, confirmation screen, or screenshot exists.",
+        "submission_blocker": "AIToolNet submission requires an operator email send/draft receipt or browser confirmation. Do not mark submitted until that evidence exists.",
         "acceptance_terms": [
           "Remote MCP",
           "MCP server for paid API calls",
@@ -131,8 +133,8 @@
       "operator_notes": [
         "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the browser form.",
         "CLI probes can receive site-level 403; verify through browser/form confirmation or a public listing URL.",
-        "AIToolNet requires an operator-owned contact email and review/plan choice; use the free review queue unless paid fast-track is explicitly approved.",
-        "Do not mark AIToolNet submitted from CLI reachability alone; require a browser form receipt, confirmation screen, or screenshot."
+        "AIToolNet finish page asks listings to email support@aitoolnet.com; send from support@synapse-network.ai or another operator-owned Synapse mailbox.",
+        "Do not mark AIToolNet submitted from CLI reachability alone; require an email draft/send receipt, browser confirmation screen, or screenshot."
       ]
     },
     {
@@ -159,7 +161,7 @@
         ],
         "website": "https://www.synapse-network.ai/",
         "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
-        "contact_email": "<operator email>",
+        "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
         "software_name": "SynapseNetwork MCP Server",
