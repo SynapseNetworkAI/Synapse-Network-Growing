@@ -10,6 +10,7 @@ SOURCE_HOST_ACTION_RESERVE = {
     "glama.ai",
     "mcpservers.org",
     "protodex.io",
+    "pulsemcp.com",
     "smithery.ai",
 }
 

@@ -116,6 +116,26 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "count source-host intent as external citation evidence."
         ),
     },
+    "pulsemcp.com": {
+        "surface": "pulsemcp",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p1",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "PulseMCP is a live MCP directory surface that exposes official "
+            "server.json and Remote MCP metadata, so Synapse should keep its "
+            "listing fresh for MCP client and answer-engine discovery."
+        ),
+        "brief": (
+            "Verify the PulseMCP SynapseNetwork listing and refresh upstream "
+            "server.json or MCP Registry metadata if the Remote MCP endpoint, "
+            "npm package, tools, or auth boundary drift."
+        ),
+        "validation": (
+            "Record the PulseMCP public listing URL and matched canonical terms; "
+            "do not count source-host intent as external citation evidence."
+        ),
+    },
     "python-docs.synapse.org": {
         "surface": "docs_disambiguation_links",
         "draft_type": "brand_disambiguation_answer_block",

@@ -1,0 +1,37 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-remote-mcp-servers-live",
+  "surface": "remote_mcp_servers",
+  "source_url": "https://remote-mcp-servers.com/servers",
+  "checked_at": "2026-06-09T17:13:42.061757+00:00",
+  "required_terms": [
+    "SynapseNetworkAI/synapse-network-mcp-server",
+    "Official SynapseNetwork MCP server"
+  ],
+  "matched_terms": [],
+  "missing_terms": [
+    "SynapseNetworkAI/synapse-network-mcp-server",
+    "Official SynapseNetwork MCP server"
+  ],
+  "content_sha256": "47603b789235492d06f98c7498dc3c4c3333ca9a8b2cf37d2cc8cc9d08b28181",
+  "content_bytes": 35801,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "remote MCP servers for paid API calls",
+    "Synapse Network MCP server"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "remote_mcp_servers source host is missing required terms: SynapseNetworkAI/synapse-network-mcp-server, Official SynapseNetwork MCP server.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-remote-mcp-servers-live-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

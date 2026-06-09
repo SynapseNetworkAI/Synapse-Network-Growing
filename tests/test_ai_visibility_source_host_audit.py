@@ -194,6 +194,10 @@ def test_source_host_surface_uses_precise_directory_keys():
     assert source_host_surface("mcp-marketplace.io") == "mcp_marketplace"
     assert source_host_surface("protodex.io") == "protodex"
     assert source_host_surface("https://protodex.io/submit.html") == "protodex"
+    assert source_host_surface("pulsemcp.com") == "pulsemcp"
+    assert source_host_surface("https://www.pulsemcp.com/servers/synapse-network") == (
+        "pulsemcp"
+    )
     assert source_host_surface("alternativeto.net") == "alternativeto"
 
 

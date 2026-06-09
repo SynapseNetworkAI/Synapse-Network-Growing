@@ -12,6 +12,7 @@ SOURCE_HOST_SURFACES = {
     "mcp-marketplace.io": "mcp_marketplace",
     "mcpservers.org": "mcpservers",
     "protodex.io": "protodex",
+    "pulsemcp.com": "pulsemcp",
 }
 
 

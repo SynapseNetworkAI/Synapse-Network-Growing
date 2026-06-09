@@ -1,0 +1,77 @@
+{
+  "snapshot_type": "public_web_search",
+  "observed_at": "2026-06-09T17:15:00Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-live-source-host-public-search",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "queries": [
+    {
+      "query": "SynapseNetwork MCP Server",
+      "synapse_found_in_returned_results": true,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "SynapseNetwork MCP Server",
+          "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+          "note": "Live MCPServers listing with answer-engine source block, Remote MCP endpoint, npm package, and disambiguation copy."
+        },
+        {
+          "name": "Official SynapseNetwork MCP Server - PulseMCP",
+          "url": "https://www.pulsemcp.com/servers/synapse-network",
+          "note": "Live PulseMCP listing sourced from official server.json metadata."
+        },
+        {
+          "name": "Synapse-Network-MCP-Server - Protodex",
+          "url": "https://protodex.io/servers/synapsenetworkai-synapse-network-mcp-server.html",
+          "note": "Live Protodex listing exists, but metadata refresh is still pending because the current page uses a generic description."
+        }
+      ]
+    },
+    {
+      "query": "@synapse-network-ai/mcp-server",
+      "synapse_found_in_returned_results": true,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "SynapseNetwork MCP Server",
+          "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+          "note": "Public result contains the npm package and hosted Remote MCP endpoint."
+        },
+        {
+          "name": "Official SynapseNetwork MCP Server - PulseMCP",
+          "url": "https://www.pulsemcp.com/servers/synapse-network",
+          "note": "Public result exposes the official MCP Registry name and Remote endpoint."
+        },
+        {
+          "name": "LobeHub MCP listing",
+          "url": "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server?activeTab=deployment",
+          "note": "Search result observed a LobeHub listing, but direct validation is pending because rendered metadata did not pass recorder terms in this run."
+        }
+      ]
+    },
+    {
+      "query": "remote MCP server paid API calls Synapse",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPay docs",
+          "url": "https://docs.mcpay.tech/",
+          "note": "Competitor/adjacent paid MCP result still appears in broad paid API queries."
+        },
+        {
+          "name": "x402",
+          "url": "https://www.x402.org/",
+          "note": "Payment protocol competitor still appears in answer-engine source sets."
+        },
+        {
+          "name": "MCPServers Synapse listing",
+          "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+          "note": "Synapse appears on exact and adjacent searches, but broad query still needs stronger ranking and answer-engine adoption."
+        }
+      ]
+    }
+  ],
+  "next_actions": [
+    "Keep feeding live third-party source-hosts into Growing and rerun GPT/Claude/Grok/Gemini probes.",
+    "Request metadata refreshes for weak listings such as Protodex and validate rendered pages after refresh.",
+    "Prioritize mcp.directory, docs.mcpay.tech, AlternativeTo, and PulseMCP because they appear in current answer-engine or public-search source sets."
+  ]
+}

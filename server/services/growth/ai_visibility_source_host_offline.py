@@ -41,6 +41,7 @@ SURFACE_HOSTS = {
     "mcpservers": "mcpservers.org",
     "mcp_marketplace": "mcp-marketplace.io",
     "protodex": "protodex.io",
+    "pulsemcp": "pulsemcp.com",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }

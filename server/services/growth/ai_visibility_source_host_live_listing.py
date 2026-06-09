@@ -39,6 +39,10 @@ DIRECTORY_LIVE_SEARCH_URLS = {
         "https://protodex.io/?q=Synapse%20Network",
         "https://protodex.io/?q=SynapseNetwork%20MCP%20Server",
     ],
+    "pulsemcp.com": [
+        "https://www.pulsemcp.com/servers/synapse-network",
+        "https://www.pulsemcp.com/search?q=SynapseNetwork%20MCP%20Server",
+    ],
 }
 
 

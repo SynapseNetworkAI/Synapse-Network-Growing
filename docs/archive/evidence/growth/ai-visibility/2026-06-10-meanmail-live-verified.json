@@ -1,0 +1,37 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-meanmail-live",
+  "surface": "meanmail",
+  "source_url": "https://meanmail.dev/mcp/io.github.SynapseNetworkAI%2Fsynapse-network-mcp-server",
+  "checked_at": "2026-06-09T17:13:41.748974+00:00",
+  "required_terms": [
+    "Official SynapseNetwork MCP server",
+    "@synapse-network-ai/mcp-server"
+  ],
+  "matched_terms": [],
+  "missing_terms": [
+    "Official SynapseNetwork MCP server",
+    "@synapse-network-ai/mcp-server"
+  ],
+  "content_sha256": "08f5aec19948df9e43576d727d1d08170d8dbe9f6875212bd6bc7b4ee851b378",
+  "content_bytes": 42882,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "Synapse Network MCP server"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "meanmail source host is missing required terms: Official SynapseNetwork MCP server, @synapse-network-ai/mcp-server.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-meanmail-live-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}
