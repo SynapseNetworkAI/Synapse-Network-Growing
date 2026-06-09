@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,7 @@ class SourceHostAuditFacts:
     submitted_surfaces: list[str] = field(default_factory=list)
     live_surfaces: list[str] = field(default_factory=list)
     evidence_files: list[str] = field(default_factory=list)
+    checklist_generated_at: datetime | None = None
 
     @property
     def submitted_or_live_surfaces(self) -> list[str]:
@@ -83,6 +85,7 @@ def source_host_audit_facts(
         submitted_surfaces=unique_strings(submitted),
         live_surfaces=unique_strings(live),
         evidence_files=unique_strings(evidence_files),
+        checklist_generated_at=_generated_at(payload) if latest_checklist else None,
     )
 
 
@@ -90,11 +93,8 @@ def merge_source_host_audit_facts(
     first: SourceHostAuditFacts,
     second: SourceHostAuditFacts,
 ) -> SourceHostAuditFacts:
-    required = (
-        first.required_directory_hosts
-        if first.required_directory_hosts
-        else second.required_directory_hosts
-    )
+    newest = _newest_checklist_facts(first, second)
+    required = newest.required_directory_hosts
     return SourceHostAuditFacts(
         required_directory_hosts=unique_strings(required),
         checklist_hosts=unique_strings(first.checklist_hosts + second.checklist_hosts),
@@ -109,6 +109,7 @@ def merge_source_host_audit_facts(
         ),
         live_surfaces=unique_strings(first.live_surfaces + second.live_surfaces),
         evidence_files=unique_strings(first.evidence_files + second.evidence_files),
+        checklist_generated_at=newest.checklist_generated_at,
     )
 
 
@@ -174,12 +175,16 @@ def _collect_checklist_hosts(
 
 
 def _latest_checklist_payload(root: Path) -> tuple[dict[str, Any], Path] | None:
-    latest: tuple[dict[str, Any], Path] | None = None
+    latest: tuple[datetime, str, dict[str, Any], Path] | None = None
     for path in sorted(root.glob("*.json")):
         payload = _read_json(path)
         if payload.get("checklist_type") == "source_host_feed_execution":
-            latest = (payload, path)
-    return latest
+            candidate = (_generated_at(payload), path.name, payload, path)
+            if latest is None or candidate[:2] > latest[:2]:
+                latest = candidate
+    if latest is None:
+        return None
+    return latest[2], latest[3]
 
 
 def _item_host(item: dict[str, Any]) -> str:
@@ -240,3 +245,39 @@ def _read_json(path: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def _generated_at(payload: dict[str, Any]) -> datetime:
+    value = str(payload.get("generated_at") or "").strip()
+    if not value:
+        return datetime.min.replace(tzinfo=UTC)
+    try:
+        return _normalized_datetime(
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        )
+    except ValueError:
+        return datetime.min.replace(tzinfo=UTC)
+
+
+def _newest_checklist_facts(
+    first: SourceHostAuditFacts, second: SourceHostAuditFacts
+) -> SourceHostAuditFacts:
+    if not first.required_directory_hosts:
+        return second
+    if not second.required_directory_hosts:
+        return first
+    first_generated_at = first.checklist_generated_at or datetime.min.replace(
+        tzinfo=UTC
+    )
+    second_generated_at = second.checklist_generated_at or datetime.min.replace(
+        tzinfo=UTC
+    )
+    return first if first_generated_at >= second_generated_at else second
+
+
+def _normalized_datetime(value: Any) -> datetime:
+    if not isinstance(value, datetime):
+        return datetime.min.replace(tzinfo=UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
