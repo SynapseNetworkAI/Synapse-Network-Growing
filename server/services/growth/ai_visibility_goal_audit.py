@@ -35,6 +35,9 @@ from server.services.growth.ai_visibility_source_host_audit import (
 from server.services.growth.ai_visibility_source_host_feed import (
     ai_visibility_source_host_execution_checklist,
 )
+from server.services.growth.ai_visibility_source_host_surfaces import (
+    source_host_surface,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 OFFICIAL_HOMEPAGE = "https://www.synapse-network.ai/"
@@ -293,9 +296,9 @@ def _source_host_live_requirement(
     required_hosts = _required_directory_hosts(facts)
     missing = missing_hosts(facts.live_surfaces, required_hosts)
     passed = not missing
-    blocker = (
-        "Directory submission is not enough; live listing evidence is missing for "
-        f"{', '.join(missing)}."
+    blocker = _live_listing_blocker(
+        missing=missing,
+        review_pending=getattr(facts, "review_pending_surfaces", []),
     )
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="source_host_live_evidence",
@@ -311,6 +314,22 @@ def _source_host_live_requirement(
         if passed
         else "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
     )
+
+
+def _live_listing_blocker(*, missing: list[str], review_pending: list[str]) -> str:
+    blocker = (
+        "Directory submission is not enough; live listing evidence is missing for "
+        f"{', '.join(missing)}."
+    )
+    pending = [
+        surface
+        for surface in review_pending
+        if source_host_surface(surface)
+        in {source_host_surface(host) for host in missing}
+    ]
+    if pending:
+        blocker += " Review pending after submission: " + ", ".join(pending) + "."
+    return blocker
 
 
 def _required_directory_hosts(facts) -> list[str]:

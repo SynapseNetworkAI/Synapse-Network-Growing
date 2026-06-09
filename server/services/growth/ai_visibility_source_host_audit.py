@@ -27,6 +27,7 @@ class SourceHostAuditFacts:
     submission_command_hosts: list[str] = field(default_factory=list)
     submitted_surfaces: list[str] = field(default_factory=list)
     submission_blockers: list[str] = field(default_factory=list)
+    review_pending_surfaces: list[str] = field(default_factory=list)
     live_surfaces: list[str] = field(default_factory=list)
     evidence_files: list[str] = field(default_factory=list)
     checklist_generated_at: datetime | None = None
@@ -50,6 +51,7 @@ def source_host_audit_facts(
     required_hosts: list[str] = []
     submitted: list[str] = []
     blockers: list[str] = []
+    review_pending: list[str] = []
     live: list[str] = []
     evidence_files: list[str] = []
     latest_checklist = _latest_checklist_payload(root)
@@ -75,6 +77,7 @@ def source_host_audit_facts(
                 payload,
                 submitted=submitted,
                 blockers=blockers,
+                review_pending=review_pending,
                 live=live,
                 evidence_files=evidence_files,
                 path=path,
@@ -87,6 +90,7 @@ def source_host_audit_facts(
         submission_command_hosts=unique_strings(command_hosts),
         submitted_surfaces=unique_strings(submitted),
         submission_blockers=unique_strings(blockers),
+        review_pending_surfaces=unique_strings(review_pending),
         live_surfaces=unique_strings(live),
         evidence_files=unique_strings(evidence_files),
         checklist_generated_at=_generated_at(payload) if latest_checklist else None,
@@ -113,6 +117,9 @@ def merge_source_host_audit_facts(
         ),
         submission_blockers=unique_strings(
             first.submission_blockers + second.submission_blockers
+        ),
+        review_pending_surfaces=unique_strings(
+            first.review_pending_surfaces + second.review_pending_surfaces
         ),
         live_surfaces=unique_strings(first.live_surfaces + second.live_surfaces),
         evidence_files=unique_strings(first.evidence_files + second.evidence_files),
@@ -213,6 +220,7 @@ def _collect_execution_evidence(
     *,
     submitted: list[str],
     blockers: list[str],
+    review_pending: list[str],
     live: list[str],
     evidence_files: list[str],
     path: Path,
@@ -222,6 +230,8 @@ def _collect_execution_evidence(
         return
     if payload.get("status") == "submission_recorded":
         submitted.append(surface)
+        if _submission_is_review_pending(payload):
+            review_pending.append(surface)
         evidence_files.append(_relative_evidence_path(path))
     if payload.get("status") == "submission_blocked":
         blockers.append(_submission_blocker_text(payload, surface))
@@ -239,6 +249,23 @@ def _submission_blocker_text(payload: dict[str, Any], surface: str) -> str:
     if blocker:
         return f"{surface}: {blocker}"
     return f"{surface}: submission was blocked; operator follow-up is required."
+
+
+def _submission_is_review_pending(payload: dict[str, Any]) -> bool:
+    evidence_text = " ".join(
+        [
+            str(payload.get("submitted_payload_summary") or ""),
+            str(payload.get("validation_summary") or ""),
+        ]
+    ).casefold()
+    review_markers = (
+        "review it soon",
+        "review your server",
+        "submitted for review",
+        "already been submitted",
+        "publish it within",
+    )
+    return any(marker in evidence_text for marker in review_markers)
 
 
 def _host_surface(value: str) -> str:

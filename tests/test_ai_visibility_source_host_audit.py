@@ -152,6 +152,44 @@ def test_source_host_audit_surfaces_submission_blocker_without_counting_submitte
     assert "operator-owned browser/account" in submission.next_action
 
 
+def test_source_host_audit_tracks_review_pending_without_counting_live(
+    tmp_path: Path,
+):
+    _write_json(
+        tmp_path / "source-host-checklist.json",
+        {
+            "module_key": "ai_visibility",
+            "checklist_type": "source_host_feed_execution",
+            "items": [
+                _checklist_item("mcp.directory", priority=1),
+            ],
+        },
+    )
+    _write_json(
+        tmp_path / "mcp-directory-submission.json",
+        {
+            "module_key": "ai_visibility_source_host_execution",
+            "evidence_type": "submission_confirmation",
+            "status": "submission_recorded",
+            "surface": "mcp_directory",
+            "submitted_payload_summary": (
+                "The API returned 409: This repository has already been "
+                "submitted. We'll review it soon."
+            ),
+        },
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+    submission = _source_host_submission_requirement(facts)
+    live = _source_host_live_requirement(facts)
+
+    assert facts.submitted_or_live_surfaces == ["mcp_directory"]
+    assert facts.review_pending_surfaces == ["mcp_directory"]
+    assert submission.status == "completed"
+    assert live.status == "blocked"
+    assert "Review pending after submission: mcp_directory" in live.blocker
+
+
 def test_source_host_audit_prefers_generated_at_over_filename_order(tmp_path: Path):
     _write_json(
         tmp_path
