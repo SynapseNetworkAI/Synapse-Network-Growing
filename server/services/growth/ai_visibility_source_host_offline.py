@@ -35,12 +35,15 @@ DIRECTORY_SUBMIT_URLS = {
     "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
 }
 SURFACE_HOSTS = {
+    "aitoolnet": "aitoolnet.com",
     "alternativeto": "alternativeto.net",
+    "mcp_directory": "mcp.directory",
     "official_mcp_registry": "registry.modelcontextprotocol.io",
     "github_readme": "github.com",
     "smithery": "smithery.ai",
     "glama": "glama.ai",
     "mcpservers": "mcpservers.org",
+    "mcp_marketplace": "mcp-marketplace.io",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }

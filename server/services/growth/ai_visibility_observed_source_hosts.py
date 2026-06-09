@@ -47,6 +47,22 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "CLI probes may receive site-level 403."
         ),
     },
+    "mcp.directory": {
+        "surface": "mcp_directory",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": "MCP Directory appeared repeatedly in answer-engine source hosts for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing.",
+        "brief": (
+            "Submit SynapseNetwork MCP Server to MCP Directory with the hosted "
+            "Remote MCP endpoint, GitHub repository, npm package, docs URL, "
+            "and discover_services / invoke_and_pay / get_receipt tool loop."
+        ),
+        "validation": (
+            "Record MCP Directory browser/form confirmation or public listing URL; "
+            "do not count source-host intent as external citation evidence."
+        ),
+    },
     "mcpservers.org": {
         "surface": "mcpservers",
         "draft_type": "mcp_directory_listing",

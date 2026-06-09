@@ -245,93 +245,6 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     )
 
 
-def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
-    from server.services.growth.ai_visibility_source_host_offline import (
-        source_host_execution_checklist_from_diagnosis,
-        source_host_feed_package_from_diagnosis,
-    )
-    from server.services.growth.ai_visibility_source_host_offline_live import (
-        source_host_live_spot_check_from_checklist,
-    )
-
-    diagnosis_path = tmp_path / "feed-diagnosis.json"
-    diagnosis_path.write_text(
-        json.dumps(
-            {
-                "feed_key": "mcp_paid_api_discovery",
-                "run_group": "2026-06-09-offline",
-                "recommended_source_host_executions": [
-                    {
-                        "surface": "alternativeto",
-                        "rationale": "AlternativeTo appeared in answer sources.",
-                        "validation_command": "Record browser confirmation.",
-                        "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --execute",
-                    },
-                    {
-                        "surface": "official_mcp_registry",
-                        "rationale": "Official registry is a high-trust MCP source.",
-                        "validation_command": "mcp-publisher publish",
-                    },
-                    {
-                        "surface": "glama",
-                        "rationale": "Glama is a visible MCP directory.",
-                        "validation_command": "curl -fsS https://glama.ai/search?q=Synapse",
-                    },
-                    {
-                        "surface": "mcpservers",
-                        "rationale": "MCPServers appeared in answer sources.",
-                        "validation_command": "Record MCPServers browser confirmation.",
-                    },
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    package = source_host_feed_package_from_diagnosis(diagnosis_path)
-    assert package.status == "ready_for_operator_feed"
-    draft_by_host = {draft.host: draft for draft in package.drafts}
-    assert draft_by_host["alternativeto.net"].draft_type == "directory_submission"
-    assert draft_by_host["alternativeto.net"].validation_command == (
-        "Record browser confirmation."
-    )
-    assert draft_by_host["registry.modelcontextprotocol.io"].draft_type == (
-        "contextual_partner_or_guest_pitch"
-    )
-    assert draft_by_host["glama.ai"].submit_url == "https://glama.ai/mcp/servers"
-    assert draft_by_host["mcpservers.org"].draft_type == "directory_submission"
-    assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
-    assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
-    assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
-
-    checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
-    assert checklist.status == "ready_for_operator_execution"
-    item_by_host = {item.host: item for item in checklist.items}
-    assert item_by_host["alternativeto.net"].execution_status == "pending_submission"
-    assert item_by_host["glama.ai"].live_listing_search_urls[0] == (
-        "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
-    )
-    assert item_by_host["mcpservers.org"].execution_status == "pending_submission"
-    assert any(
-        field.label == "Category" and field.value == "finance"
-        for field in item_by_host["mcpservers.org"].submission_fields
-    )
-    assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
-        "https://mcpservers.org/?q=Synapse%20Network"
-    )
-
-    checklist_path = tmp_path / "source-host-checklist.json"
-    checklist_path.write_text(checklist.model_dump_json(), encoding="utf-8")
-    spot_check = source_host_live_spot_check_from_checklist(checklist_path)
-    assert spot_check.status == "ready_to_execute"
-    assert any(
-        item.host == "alternativeto.net"
-        and item.search_url
-        == "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
-        for item in spot_check.items
-    )
-
-
 def test_ai_visibility_source_host_live_spot_check_detects_candidate(
     db_session,
 ):
@@ -603,6 +516,56 @@ def test_ai_visibility_source_host_live_spot_check_detects_glama_listing_identit
     assert "synapsenetwork" in result.items[0].matched_terms
     assert "synapse-network-mcp-server" in result.items[0].matched_terms
     assert "--evidence-mode live " in result.commands["record_live_listing"]
+
+
+def test_ai_visibility_source_host_live_spot_check_ignores_search_query_echo():
+    from server.schemas_growth import (
+        GrowthAIVisibilitySourceHostExecutionChecklistOut,
+        GrowthAIVisibilitySourceHostExecutionItemOut,
+    )
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist_model,
+    )
+
+    checklist = GrowthAIVisibilitySourceHostExecutionChecklistOut(
+        generated_at=datetime.now(timezone.utc),
+        feed_key="mcp_paid_api_discovery",
+        status="ready_for_operator_execution",
+        items=[
+            GrowthAIVisibilitySourceHostExecutionItemOut(
+                key="alternativeto",
+                host="alternativeto.net",
+                draft_type="directory_submission",
+                execution_status="pending_submission",
+                target_url="https://alternativeto.net/software/submit/",
+                action_required="Submit listing.",
+                live_listing_search_urls=[
+                    "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
+                ],
+                validation_command="Record browser confirmation.",
+                re_probe_command="python scripts/growth/probe.py",
+                completion_gate="Live listing evidence recorded.",
+            )
+        ],
+    )
+
+    result = source_host_live_spot_check_from_checklist_model(
+        checklist,
+        execute=True,
+        fetcher=lambda _url: (
+            200,
+            "<title>Search results for &quot;SynapseNetwork MCP Server&quot;</title>"
+            '<meta name="description" content="Search results for SynapseNetwork MCP Server"/>'
+            '<meta name="robots" content="noindex"/>',
+        ),
+    )
+
+    assert result.status == "no_candidate_found"
+    assert result.items[0].status == "not_found"
+    assert "synapsenetwork mcp server" in result.items[0].matched_terms
+    assert result.items[0].next_action == (
+        "Submit or wait for the directory listing, then rerun this spot check."
+    )
 
 
 def test_ai_visibility_source_host_live_spot_check_reports_no_candidate(

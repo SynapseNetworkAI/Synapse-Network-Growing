@@ -9,6 +9,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from urllib.parse import parse_qs, urlparse
 
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostExecutionChecklistOut,
@@ -155,7 +156,11 @@ def _check_search_url(
             ),
         )
     matched, missing = _term_matches(body)
-    candidate_found = _has_candidate_match(matched)
+    candidate_found = _has_candidate_match(matched) and not _is_query_echo_only(
+        search_url=search_url,
+        body=body,
+        matched=matched,
+    )
     return GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(
         host=host,
         search_url=search_url,
@@ -200,6 +205,34 @@ def _has_candidate_match(matched: list[str]) -> bool:
     has_payload = bool(matched_set.intersection(PAYLOAD_TERMS))
     has_listing_identity = bool(matched_set.intersection(LISTING_IDENTITY_TERMS))
     return has_brand and (has_payload or has_listing_identity)
+
+
+def _is_query_echo_only(*, search_url: str, body: str, matched: list[str]) -> bool:
+    if set(matched).intersection(PAYLOAD_TERMS):
+        return False
+    query_text = _search_query_text(search_url)
+    if not query_text:
+        return False
+    normalized_query = _normalized_term_text(query_text)
+    if not all(_normalized_term_text(term) in normalized_query for term in matched):
+        return False
+    lowered = body.lower()
+    return (
+        "search results for" in lowered
+        or 'name="robots" content="noindex' in lowered
+        or 'content="noindex' in lowered
+    )
+
+
+def _search_query_text(search_url: str) -> str:
+    parsed = urlparse(search_url)
+    params = parse_qs(parsed.query)
+    values = params.get("q") or params.get("query") or params.get("search") or []
+    return " ".join(values)
+
+
+def _normalized_term_text(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
 
 
 def _is_fetch_blocked(http_status: int, body: str) -> bool:
