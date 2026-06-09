@@ -56,6 +56,17 @@ SUBMISSION_FIELD_KEYS_BY_HOST = {
         "remote_mcp_endpoint",
         "tools",
     ),
+    "mcpfind.org": (
+        "server_name",
+        "short_description",
+        "github_repository_url",
+        "npm_package",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+        "contact_email",
+        "category",
+    ),
     "alternativeto.net": DEFAULT_SUBMISSION_FIELD_KEYS[:-1],
     "aitoolnet.com": (
         "server_name",
@@ -147,6 +158,12 @@ def _execution_status(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
 
 
 def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
+    if draft.status == "operator_login_required":
+        return (
+            "Use an operator-owned account or contact path to complete the "
+            "directory submission; record a browser receipt, email/community "
+            "confirmation, or public listing URL."
+        )
     actions = {
         "directory_submission": "Submit the directory form using the non-secret payload.",
         "owned_comparison_refresh": "Publish the comparison draft on owned docs or GitHub surfaces.",

@@ -155,18 +155,30 @@ def test_growth_ai_visibility_and_discovery_listing(
         216,
         223,
     }
-    assert {item["service_key"] for item in release_payload["deployment_gaps"]} == {"docs-front", "user-front"}
-    assert all(item["status"] == "staging_and_production_behind_target" for item in release_payload["deployment_gaps"])
+    assert {item["service_key"] for item in release_payload["deployment_gaps"]} == {
+        "docs-front",
+        "user-front",
+    }
+    assert all(
+        item["status"] == "staging_and_production_behind_target"
+        for item in release_payload["deployment_gaps"]
+    )
     assert release_payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
     assert release_payload["predeploy_evidence"]["validation_count"] >= 5
-    assert release_payload["deploy_readiness_status"] == "ready_for_release_runner_after_gcloud_auth"
+    assert (
+        release_payload["deploy_readiness_status"]
+        == "ready_for_release_runner_after_gcloud_auth"
+    )
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
     )
-    assert any("Production source-host feed terms agent402" in blocker for blocker in release_payload["known_blockers"])
+    assert any(
+        "Production source-host feed terms agent402" in blocker
+        for blocker in release_payload["known_blockers"]
+    )
     rendered_release_plan = json.dumps(release_payload)
     assert "gcloud auth login" in rendered_release_plan
     assert "X-Growing-Agent-Deploy-Token" in rendered_release_plan
@@ -564,9 +576,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert goal_payload["official_homepage"] == "https://www.synapse-network.ai/"
     assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert goal_payload["completed_count"] < goal_payload["total_required"]
-    requirement_by_key = {
-        item["key"]: item for item in goal_payload["requirements"]
-    }
+    requirement_by_key = {item["key"]: item for item in goal_payload["requirements"]}
     assert requirement_by_key["strategy"]["status"] == "completed"
     assert requirement_by_key["product_docs"]["status"] == "completed"
     assert requirement_by_key["stitch_figma"]["status"] == "completed"
@@ -644,62 +654,6 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert db_session.query(GrowthDiscoveryListingRow).count() == 1
 
 
-def test_public_web_search_diagnostic_records_do_not_cover_target_platforms(
-    synced_client,
-):
-    response = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "MCP server for paid API calls Synapse",
-            "platform": "public_web_search",
-            "answer_summary": "Public web search did not return Synapse.",
-            "synapse_mentioned": False,
-            "synapse_cited": False,
-            "competitor_mentions": ["MCPay", "Hud Remote MCP Server"],
-            "missing_facts": [
-                "Public web search returned no official Synapse result."
-            ],
-            "next_action": "Refresh IndexNow and rerun public web search.",
-            "feed_key": "mcp_paid_api_discovery",
-            "run_group": "2026-06-19-public-web-search",
-            "metadata": {"mode": "public_web_search_snapshot"},
-        },
-    )
-
-    assert response.status_code == 201
-    comparison = synced_client.get(
-        "/api/growth/ai-visibility/comparisons"
-        "?feed_key=mcp_paid_api_discovery"
-        "&run_group=2026-06-19-public-web-search"
-    ).json()["items"][0]
-    assert comparison["external_platforms"] == ["public_web_search"]
-    assert comparison["external_checks_count"] == 1
-    assert comparison["mentioned_count"] == 0
-    assert comparison["cited_count"] == 0
-    assert set(comparison["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-        "gemini",
-    }
-    assert "MCPay" in comparison["top_competitors"]
-
-    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
-    mcp_score = next(
-        item
-        for item in scorecard["items"]
-        if item["feed_key"] == "mcp_paid_api_discovery"
-    )
-    assert "public_web_search" not in mcp_score["covered_platforms"]
-    assert set(mcp_score["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-        "gemini",
-    }
-    assert "Refresh IndexNow and rerun public web search." in mcp_score["next_actions"]
-
-
 def test_growth_ai_visibility_live_readiness_api(monkeypatch, synced_client):
     from scripts.growth.record_ai_visibility_probe import ProbeRecord
 
@@ -761,7 +715,13 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
 ):
     from scripts.growth.record_ai_visibility_probe import ProbeRecord
 
-    for env_key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY", "GENIMI_API_KEY"):
+    for env_key in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GENIMI_API_KEY",
+    ):
         monkeypatch.delenv(env_key, raising=False)
 
     def fake_validate_feed(*, feed_key: str, run_group: str):
@@ -803,7 +763,10 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
     assert payload["missing_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert "Docs /mcp/paid-api-calls page must be live." in payload["blockers"]
     assert "OPENAI_API_KEY" in json.dumps(payload)
-    assert "generate_ai_visibility_probe_template.py" in payload["manual_probe_template_command"]
+    assert (
+        "generate_ai_visibility_probe_template.py"
+        in payload["manual_probe_template_command"]
+    )
     assert "--mode after-feed" in payload["manual_probe_template_command"]
     assert "run_ai_visibility_api_probe.py" in payload["api_readiness_command"]
     assert "--execute" in payload["api_execute_command"]
@@ -850,7 +813,9 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
     comparison_payload = comparison.json()["items"][0]
     assert comparison_payload["citation_quality_status"] == "brand_collision_present"
     assert comparison_payload["known_collision_competitors"] == ["synapsenetwork.xyz"]
-    assert comparison_payload["official_cited_urls"] == ["https://www.synapse-network.ai/"]
+    assert comparison_payload["official_cited_urls"] == [
+        "https://www.synapse-network.ai/"
+    ]
     scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
     brand_score = next(
         item

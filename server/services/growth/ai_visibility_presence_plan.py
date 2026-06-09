@@ -14,6 +14,9 @@ from server.services.growth import ai_visibility_discovery
 from server.services.growth.ai_visibility_directory_submission_payloads import (
     directory_submission_payload,
 )
+from server.services.growth.ai_visibility_source_host_directory_config import (
+    DIRECTORY_SUBMIT_URLS,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
@@ -25,6 +28,7 @@ DIRECTORY_HOSTS = {
     "glama.ai",
     "mcpservers.org",
     "mcp.directory",
+    "mcpfind.org",
     "mcp-marketplace.io",
     "lobehub.com",
 }
@@ -45,14 +49,6 @@ COMPETITOR_HOSTS = {
 BRAND_COLLISION_HOSTS = {
     "python-docs.synapse.org",
     "synapse.org",
-}
-DIRECTORY_SUBMIT_URLS = {
-    "aitoolnet.com": "https://www.aitoolnet.com/finish",
-    "alternativeto.net": "https://alternativeto.net/software/submit/",
-    "glama.ai": "https://glama.ai/mcp/servers",
-    "mcp.directory": "https://mcp.directory/submit",
-    "mcpservers.org": "https://mcpservers.org/submit",
-    "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
 }
 OFFICIAL_GITHUB_REPOSITORY = (
     "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"

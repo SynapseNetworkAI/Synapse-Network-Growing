@@ -9,27 +9,7 @@ def directory_submission_payload(
     if host == "aitoolnet.com":
         return _aitoolnet_payload(base_payload)
     if host == "alternativeto.net":
-        return {
-            **base_payload,
-            "software_name": "SynapseNetwork MCP Server",
-            "website_url": "https://www.synapse-network.ai/",
-            "categories": [
-                "Developer Tools",
-                "API",
-                "Payment Processing",
-                "AI Tools",
-            ],
-            "acceptance_terms": [
-                "Remote MCP",
-                "paid API discovery",
-                "AI agent payments",
-                "API monetization",
-                "discover_services",
-                "invoke_and_pay",
-                "get_receipt",
-            ],
-            "browser_submission_required": True,
-        }
+        return _alternativeto_payload(base_payload)
     if host == "glama.ai":
         return {
             **base_payload,
@@ -85,6 +65,36 @@ def directory_submission_payload(
                 "names in the description when the form has no dedicated fields."
             ),
             "premium_listing": False,
+        }
+    if host == "mcpfind.org":
+        return {
+            **base_payload,
+            "submission_method": (
+                "Submit the open-source MCPFind server form at "
+                "https://mcpfind.org/submit; include the GitHub repository, npm "
+                "package, hosted Remote MCP endpoint, and tool names."
+            ),
+            "listing_type": "Remote MCP server directory listing",
+            "category": "payments",
+            "tags": [
+                "Remote MCP",
+                "AI agent payments",
+                "paid API discovery",
+                "USDC settlement",
+                "discover_services",
+                "invoke_and_pay",
+                "get_receipt",
+            ],
+            "form_fields": [
+                "Server name",
+                "Description",
+                "GitHub repository URL",
+                "npm package",
+                "Remote MCP endpoint",
+                "Docs URL",
+                "Contact email",
+            ],
+            "browser_submission_required": True,
         }
     return {
         **base_payload,
@@ -149,3 +159,42 @@ def _aitoolnet_email_body() -> str:
         "USDC agent payments, and receipts.\n\n"
         "Thanks,\nSynapse Network"
     )
+
+
+def _alternativeto_payload(base_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **base_payload,
+        "software_name": "SynapseNetwork MCP Server",
+        "website_url": "https://www.synapse-network.ai/",
+        "login_required": True,
+        "browser_submission_required": True,
+        "manual_submission_required": True,
+        "submission_method": (
+            "Sign in to AlternativeTo and use the community add/suggest app "
+            "flow from the live site. The previously generated direct submit "
+            "URL returned HTTP 404 on 2026-06-10; if the UI does not expose "
+            "an add-app path, contact hello@alternativeto.net or the public "
+            "community channels from the AlternativeTo site and record that "
+            "operator-owned confirmation."
+        ),
+        "submission_blocker": (
+            "AlternativeTo requires an authenticated/manual community "
+            "submission path; do not mark submitted until a browser receipt, "
+            "email/community confirmation, or public listing URL exists."
+        ),
+        "categories": [
+            "Developer Tools",
+            "API",
+            "Payment Processing",
+            "AI Tools",
+        ],
+        "acceptance_terms": [
+            "Remote MCP",
+            "paid API discovery",
+            "AI agent payments",
+            "API monetization",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+    }

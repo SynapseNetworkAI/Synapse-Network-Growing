@@ -27,6 +27,10 @@ DIRECTORY_LIVE_SEARCH_URLS = {
         "https://mcpservers.org/?q=Synapse%20Network",
         "https://mcpservers.org/?q=SynapseNetwork%20MCP%20Server",
     ],
+    "mcpfind.org": [
+        "https://mcpfind.org/?q=Synapse%20Network",
+        "https://mcpfind.org/?q=SynapseNetwork%20MCP%20Server",
+    ],
     "mcp-marketplace.io": [
         "https://mcp-marketplace.io/?q=Synapse%20Network",
         "https://mcp-marketplace.io/?q=SynapseNetwork%20MCP%20Server",

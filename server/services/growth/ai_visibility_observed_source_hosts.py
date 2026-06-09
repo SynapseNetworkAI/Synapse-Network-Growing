@@ -79,6 +79,22 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "do not count source-host intent as external citation evidence."
         ),
     },
+    "mcpfind.org": {
+        "surface": "mcpfind",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": "MCPFind appeared in public search results for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing.",
+        "brief": (
+            "Submit SynapseNetwork MCP Server to MCPFind with the hosted Remote "
+            "MCP endpoint, GitHub repository, npm package, docs URL, and "
+            "discover_services / invoke_and_pay / get_receipt tool loop."
+        ),
+        "validation": (
+            "Record MCPFind browser/form confirmation or public listing URL; "
+            "do not count source-host intent as external citation evidence."
+        ),
+    },
     "python-docs.synapse.org": {
         "surface": "docs_disambiguation_links",
         "draft_type": "brand_disambiguation_answer_block",

@@ -376,13 +376,15 @@ def _external_probe_requirement(weekly) -> GrowthAIVisibilityGoalAuditRequiremen
 
 
 def _latest_feed_missing_platforms(weekly) -> list[str]:
-    latest_feed_key = getattr(weekly, "latest_feed_key", "")
-    latest_run_group = getattr(weekly, "latest_run_group", "")
     for report in weekly.feed_reports:
-        if (
-            report.feed_key == latest_feed_key
-            and report.latest_run_group == latest_run_group
-        ):
+        if report.feed_key == MCP_DISCOVERY_FEED_KEY:
+            covered_target_platforms = [
+                platform
+                for platform in getattr(report, "external_platforms", [])
+                if platform in AI_VISIBILITY_TARGET_PLATFORMS
+            ]
+            if not covered_target_platforms:
+                return []
             return list(report.missing_platforms)
     return []
 

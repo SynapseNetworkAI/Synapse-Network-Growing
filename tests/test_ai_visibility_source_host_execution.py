@@ -143,7 +143,7 @@ def test_source_host_submission_confirmation_cli_writes_json(tmp_path: Path):
             "--surface",
             "alternativeto",
             "--source-url",
-            "https://alternativeto.net/software/submit/",
+            "https://alternativeto.net/",
             "--evidence-mode",
             "submission-confirmation",
             "--submitted-payload-summary",

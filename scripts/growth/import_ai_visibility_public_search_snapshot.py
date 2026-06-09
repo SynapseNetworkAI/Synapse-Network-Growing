@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -157,9 +158,27 @@ def _metadata(
         "official_homepage": str(snapshot.get("official_homepage") or ""),
         "source_path": source_path,
         "result_urls": _result_urls(result_items)[:10],
+        "source_hosts": _result_hosts(result_items)[:12],
         "result_count": len(result_items),
         "diagnostic_only": True,
     }
+
+
+def _result_hosts(results: list[dict[str, Any]]) -> list[str]:
+    hosts = []
+    for url in _result_urls(results):
+        host = _host_from_url(url)
+        if host:
+            hosts.append(host)
+    return unique_strings(hosts)
+
+
+def _host_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
 
 
 def _answer_summary(query: str, *, synapse_found: bool) -> str:

@@ -1,0 +1,126 @@
+{
+  "module_key": "ai_visibility",
+  "status": "partial_external_probe",
+  "generated_at": "2026-06-09T15:21:05.418792+00:00",
+  "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search.jsonl",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-mcpfind-public-search",
+  "feed_keys": [
+    "mcp_paid_api_discovery"
+  ],
+  "run_groups": [
+    "2026-06-09-mcpfind-public-search"
+  ],
+  "record_count": 2,
+  "local_validation_count": 0,
+  "external_probe_count": 2,
+  "api_probe_blocker_count": 0,
+  "external_mentioned_count": 0,
+  "external_cited_count": 0,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "covered_platforms": [],
+  "missing_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "blockers": [
+    "Missing external platform probes: chatgpt, claude, grok, gemini."
+  ],
+  "feed_improvements": [],
+  "next_actions": [
+    "Submit SynapseNetwork MCP Server to MCPFind with Remote MCP endpoint, GitHub, npm package, docs URL, and tool names.",
+    "Complete missing external probes for chatgpt, claude, grok, gemini."
+  ],
+  "platform_strategies": [
+    {
+      "platform": "chatgpt",
+      "feed_focus": "Remote MCP custom app discovery and web citations.",
+      "preferred_surfaces": [
+        "docs",
+        "mcp_registry",
+        "www_llms",
+        "github"
+      ],
+      "probe_queries": [
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments",
+        "Synapse vs paid MCP alternatives"
+      ],
+      "success_signal": "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs or MCP registry.",
+      "fallback_action": "Ship OAuth/custom app docs, refresh MCP Registry metadata, then rerun ChatGPT scan."
+    },
+    {
+      "platform": "claude",
+      "feed_focus": "Remote connector compatibility and docs citation.",
+      "preferred_surfaces": [
+        "docs",
+        "github",
+        "glama",
+        "www_llms"
+      ],
+      "probe_queries": [
+        "Claude MCP connector for paid API calls",
+        "MCP server that lets agents pay for APIs"
+      ],
+      "success_signal": "Claude web search mentions Synapse and cites docs, GitHub, or a directory listing.",
+      "fallback_action": "Add Claude connector setup block and directory evidence, then rerun Claude web search."
+    },
+    {
+      "platform": "grok",
+      "feed_focus": "Public web plus X-facing MCP discovery language.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "x_profile",
+        "smithery",
+        "glama"
+      ],
+      "probe_queries": [
+        "MCP server for paid API calls",
+        "AI agents paying for APIs with MCP"
+      ],
+      "success_signal": "Grok search returns Synapse or the Remote MCP endpoint among cited/source results.",
+      "fallback_action": "Publish social/distribution copy linking the docs page, then rerun Grok web/X search."
+    },
+    {
+      "platform": "gemini",
+      "feed_focus": "Google-grounded MCP and agent-payment discovery.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "github",
+        "mcp_registry"
+      ],
+      "probe_queries": [
+        "Gemini MCP server for paid API calls",
+        "AI agents pay for API calls with MCP"
+      ],
+      "success_signal": "Gemini mentions Synapse and cites www, docs, GitHub, or MCP Registry.",
+      "fallback_action": "Refresh Google-indexable docs, sitemap, and llms.txt terms, then rerun Gemini search."
+    }
+  ],
+  "comparison": {
+    "previous_source_path": "",
+    "previous_external_probe_count": 0,
+    "previous_mentioned_count": 0,
+    "previous_cited_count": 0,
+    "mentioned_delta": 0,
+    "cited_delta": 0,
+    "comparison_status": "baseline"
+  },
+  "commands": {
+    "feed_validation": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-mcpfind-public-search --output docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search-feed-validation.jsonl",
+    "manual_probe_template": "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-mcpfind-public-search --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search.jsonl",
+    "api_readiness": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-mcpfind-public-search --platforms chatgpt,claude,grok,gemini",
+    "public_web_search_import": "python scripts/growth/import_ai_visibility_public_search_snapshot.py docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search-public-web-search-snapshot.json --output docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search-public-web-search.jsonl",
+    "record_evidence": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpfind-public-search.jsonl --apply",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-09-mcpfind-public-search\" | python -m json.tool"
+  }
+}

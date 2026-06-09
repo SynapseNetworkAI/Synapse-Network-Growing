@@ -94,8 +94,11 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert "browser/form confirmation" in " ".join(
         draft_by_host["alternativeto.net"]["operator_notes"]
     )
-    assert draft_by_host["alternativeto.net"]["submit_url"] == (
-        "https://alternativeto.net/software/submit/"
+    assert draft_by_host["alternativeto.net"]["status"] == "operator_login_required"
+    assert draft_by_host["alternativeto.net"]["submit_url"] == "https://alternativeto.net/"
+    assert (
+        "authenticated/manual community submission path"
+        in draft_by_host["alternativeto.net"]["submission_payload"]["submission_blocker"]
     )
     assert "Synapse Network MCP Server" in draft_by_host["mcpservers.org"]["title"]
     assert draft_by_host["aws.amazon.com"]["draft_type"] == (
@@ -225,7 +228,14 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert item_by_host["glama.ai"]["live_listing_search_urls"][0] == (
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
     )
-    assert item_by_host["alternativeto.net"]["execution_status"] == "pending_submission"
+    assert (
+        item_by_host["alternativeto.net"]["execution_status"]
+        == "pending_operator_login"
+    )
+    assert item_by_host["alternativeto.net"]["target_url"] == "https://alternativeto.net/"
+    assert "operator-owned account" in item_by_host["alternativeto.net"][
+        "action_required"
+    ]
     assert any(
         field["label"] == "Website URL"
         and field["value"] == "https://www.synapse-network.ai/"
@@ -455,9 +465,9 @@ def test_ai_visibility_source_host_live_spot_check_marks_challenge_fetch_blocked
                 key="alternativeto",
                 host="alternativeto.net",
                 draft_type="directory_submission",
-                execution_status="pending_submission",
-                target_url="https://alternativeto.net/software/submit/",
-                action_required="Submit listing.",
+                execution_status="pending_operator_login",
+                target_url="https://alternativeto.net/",
+                action_required="Use operator login or contact path.",
                 live_listing_search_urls=[
                     "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
                 ],
@@ -555,9 +565,9 @@ def test_ai_visibility_source_host_live_spot_check_ignores_search_query_echo():
                 key="alternativeto",
                 host="alternativeto.net",
                 draft_type="directory_submission",
-                execution_status="pending_submission",
-                target_url="https://alternativeto.net/software/submit/",
-                action_required="Submit listing.",
+                execution_status="pending_operator_login",
+                target_url="https://alternativeto.net/",
+                action_required="Use operator login or contact path.",
                 live_listing_search_urls=[
                     "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
                 ],

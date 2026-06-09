@@ -1,0 +1,45 @@
+{
+  "module_key": "ai_visibility",
+  "evidence_type": "source_host_submission_pr_status",
+  "surface": "mcpfind",
+  "host": "mcpfind.org",
+  "observed_at": "2026-06-09T15:29:00Z",
+  "status": "submitted_waiting_for_maintainer_action",
+  "pull_request": {
+    "url": "https://github.com/MCPFind/mcp-find/pull/68",
+    "state": "OPEN",
+    "head_ref": "haochencheng:add-synapse-network-mcp-server",
+    "head_sha": "8583916a84944786aaa366cba3e8028f8bfb484c",
+    "mergeable": "MERGEABLE",
+    "merge_state_status": "UNSTABLE"
+  },
+  "checks": [
+    {
+      "name": "Validate Community Submission",
+      "status": "completed",
+      "conclusion": "action_required",
+      "url": "https://github.com/MCPFind/mcp-find/actions/runs/27216889400"
+    },
+    {
+      "name": "Verify Submission Liveness",
+      "status": "completed",
+      "conclusion": "action_required",
+      "url": "https://github.com/MCPFind/mcp-find/actions/runs/27216889899"
+    },
+    {
+      "name": "CI",
+      "status": "completed",
+      "conclusion": "action_required",
+      "url": "https://github.com/MCPFind/mcp-find/actions/runs/27216889988"
+    },
+    {
+      "name": "Vercel",
+      "status": "completed",
+      "conclusion": "failure",
+      "reason": "Vercel deployment requires authorization from the upstream MCPFind team."
+    }
+  ],
+  "submission_payload_summary": "MCPFind PR #68 adds Synapse Network MCP Server with public GitHub repository, npm package @synapse-network-ai/mcp-server, npm package type, finance category, and Remote MCP paid API description.",
+  "validation_summary": "Local pre-submission validation confirmed YAML structure, public GitHub repository, MIT license, and npm latest 0.1.5. Upstream workflow execution is blocked on maintainer authorization for fork PR checks.",
+  "next_action": "Wait for MCPFind maintainer workflow/Vercel authorization and review; record live-listing evidence only after the PR is merged and the listing URL is public."
+}

@@ -17,6 +17,9 @@ from server.services.growth.ai_visibility_directory_submission_payloads import (
 from server.services.growth.ai_visibility_source_host_checklist_helpers import (
     source_host_execution_checklist_from_package,
 )
+from server.services.growth.ai_visibility_source_host_directory_config import (
+    DIRECTORY_SUBMIT_URLS,
+)
 
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
@@ -26,18 +29,11 @@ OFFICIAL_GITHUB_REPOSITORY = (
     "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"
 )
 OFFICIAL_NPM_PACKAGE = "@synapse-network-ai/mcp-server"
-DIRECTORY_SUBMIT_URLS = {
-    "aitoolnet.com": "https://www.aitoolnet.com/finish",
-    "alternativeto.net": "https://alternativeto.net/software/submit/",
-    "glama.ai": "https://glama.ai/mcp/servers",
-    "mcp.directory": "https://mcp.directory/submit",
-    "mcpservers.org": "https://mcpservers.org/submit",
-    "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
-}
 SURFACE_HOSTS = {
     "aitoolnet": "aitoolnet.com",
     "alternativeto": "alternativeto.net",
     "mcp_directory": "mcp.directory",
+    "mcpfind": "mcpfind.org",
     "official_mcp_registry": "registry.modelcontextprotocol.io",
     "github_readme": "github.com",
     "smithery": "smithery.ai",
@@ -115,7 +111,7 @@ def _draft_from_recommendation(
         host=host,
         priority=index,
         draft_type=draft_type,
-        status=_status_for_draft(draft_type, submit_url),
+        status=_status_for_draft(draft_type, submit_url, payload),
         target_url=submit_url or f"https://{host}/",
         submit_url=submit_url,
         title=_title_for_draft(host, draft_type),
@@ -148,9 +144,13 @@ def _draft_type_for_recommendation(recommendation: dict[str, object], host: str)
     return "contextual_partner_or_guest_pitch"
 
 
-def _status_for_draft(draft_type: str, submit_url: str) -> str:
+def _status_for_draft(
+    draft_type: str, submit_url: str, payload: dict[str, object]
+) -> str:
     if draft_type == "owned_brand_disambiguation_refresh":
         return "ready_to_publish_on_owned_channels"
+    if payload.get("login_required"):
+        return "operator_login_required"
     if submit_url:
         return "ready_to_submit"
     return "needs_operator_review"
@@ -252,6 +252,10 @@ def _operator_notes(host: str, draft_type: str) -> list[str]:
     if host == "aitoolnet.com":
         notes.append(
             "AIToolNet uses email submission to support@aitoolnet.com; record a send/draft receipt or screenshot."
+        )
+    if host == "alternativeto.net":
+        notes.append(
+            "AlternativeTo uses an authenticated community submission path; record browser, email, or community confirmation before marking submitted."
         )
     return notes
 

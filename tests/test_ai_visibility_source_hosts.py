@@ -49,7 +49,7 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
 
 
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
-    for host in ("mcpservers.org", "docs.mcpay.tech", "github.com"):
+    for host in ("mcpservers.org", "mcpfind.org", "docs.mcpay.tech", "github.com"):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
@@ -76,6 +76,7 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     assert payload["status"] == "ready_for_presence_work"
     assert set(payload["source_hosts"]) == {
         "mcpservers.org",
+        "mcpfind.org",
         "docs.mcpay.tech",
         "github.com",
     }
@@ -93,13 +94,16 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         == "support@synapse-network.ai"
     )
     assert (
-        action_by_host["mcpservers.org"]["submission_payload"]["category"]
-        == "finance"
+        action_by_host["mcpservers.org"]["submission_payload"]["category"] == "finance"
     )
+    assert action_by_host["mcpservers.org"]["submission_payload"]["plan"] == "free"
+    assert action_by_host["mcpfind.org"]["action_type"] == "directory_listing"
+    assert action_by_host["mcpfind.org"]["submit_url"] == ("https://mcpfind.org/submit")
     assert (
-        action_by_host["mcpservers.org"]["submission_payload"]["plan"]
-        == "free"
+        action_by_host["mcpfind.org"]["submission_payload"]["remote_mcp_endpoint"]
+        == "https://mcp.synapse-network.ai/mcp"
     )
+    assert action_by_host["mcpfind.org"]["submission_payload"]["category"] == "payments"
     assert action_by_host["docs.mcpay.tech"]["ownership"] == "not_directly_editable"
     assert action_by_host["github.com"]["action_type"] == "owned_or_partner_listing"
     assert "https://mcp.synapse-network.ai/mcp" in "\n".join(

@@ -40,6 +40,11 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "validation_command": "Record MCPServers browser confirmation.",
                     },
                     {
+                        "surface": "mcpfind",
+                        "rationale": "MCPFind appeared in public search results.",
+                        "validation_command": "Record MCPFind browser confirmation.",
+                    },
+                    {
                         "surface": "docs_disambiguation_links",
                         "draft_type": "brand_disambiguation_answer_block",
                         "rationale": "Synapse.org appeared in exact identity answers.",
@@ -55,6 +60,12 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert package.status == "ready_for_operator_feed"
     draft_by_host = {draft.host: draft for draft in package.drafts}
     assert draft_by_host["alternativeto.net"].draft_type == "directory_submission"
+    assert draft_by_host["alternativeto.net"].status == "operator_login_required"
+    assert draft_by_host["alternativeto.net"].submit_url == "https://alternativeto.net/"
+    assert (
+        "authenticated/manual community submission path"
+        in draft_by_host["alternativeto.net"].submission_payload["submission_blocker"]
+    )
     assert draft_by_host["alternativeto.net"].validation_command == (
         "Record browser confirmation."
     )
@@ -66,6 +77,9 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
     assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
     assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
+    assert draft_by_host["mcpfind.org"].draft_type == "directory_submission"
+    assert draft_by_host["mcpfind.org"].submit_url == "https://mcpfind.org/submit"
+    assert draft_by_host["mcpfind.org"].submission_payload["category"] == "payments"
     assert draft_by_host["docs.synapse-network.ai"].draft_type == (
         "owned_brand_disambiguation_refresh"
     )
@@ -80,7 +94,9 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
     assert checklist.status == "ready_for_operator_execution"
     item_by_host = {item.host: item for item in checklist.items}
-    assert item_by_host["alternativeto.net"].execution_status == "pending_submission"
+    assert (
+        item_by_host["alternativeto.net"].execution_status == "pending_operator_login"
+    )
     assert item_by_host["glama.ai"].live_listing_search_urls[0] == (
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
     )
@@ -94,6 +110,14 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     )
     assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
         "https://mcpservers.org/?q=Synapse%20Network"
+    )
+    assert item_by_host["mcpfind.org"].execution_status == "pending_submission"
+    assert item_by_host["mcpfind.org"].live_listing_search_urls[0] == (
+        "https://mcpfind.org/?q=Synapse%20Network"
+    )
+    assert any(
+        field.label == "Category" and field.value == "payments"
+        for field in item_by_host["mcpfind.org"].submission_fields
     )
 
     checklist_path = tmp_path / "source-host-checklist.json"
@@ -159,4 +183,50 @@ def test_offline_source_host_package_normalizes_observed_surface_keys(tmp_path: 
     assert item_by_host["aitoolnet.com"].execution_status == "pending_submission"
     assert "YYYY-MM-DD-aitoolnet-submission-confirmation.json" in (
         item_by_host["aitoolnet.com"].submission_confirmation_command
+    )
+
+
+def test_offline_source_host_package_supports_mcpfind_surface(tmp_path: Path):
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+        source_host_feed_package_from_diagnosis,
+    )
+
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-09-mcpfind",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "mcpfind",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "MCPFind appeared in public search results.",
+                        "validation_command": "Record MCPFind browser confirmation.",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    package = source_host_feed_package_from_diagnosis(diagnosis_path)
+    draft = package.drafts[0]
+
+    assert draft.host == "mcpfind.org"
+    assert draft.submit_url == "https://mcpfind.org/submit"
+    assert draft.submission_payload["listing_type"] == (
+        "Remote MCP server directory listing"
+    )
+    assert "Remote MCP" in draft.submission_payload["tags"]
+
+    checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
+    item = checklist.items[0]
+
+    assert item.host == "mcpfind.org"
+    assert item.execution_status == "pending_submission"
+    assert "--surface mcpfind" in item.submission_confirmation_command
+    assert item.live_listing_search_urls[0] == (
+        "https://mcpfind.org/?q=Synapse%20Network"
     )

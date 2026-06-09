@@ -94,6 +94,7 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
                             "alternativeto.net",
                             "mcp.directory",
                             "mcpservers.org",
+                            "mcpfind.org",
                             "mcp-marketplace.io",
                         ],
                     },
@@ -106,21 +107,24 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
 
     recommendations = diagnosis["recommended_source_host_executions"]
     surfaces = [item["surface"] for item in recommendations]
-    assert surfaces[:4] == [
+    assert surfaces[:5] == [
         "aitoolnet",
         "alternativeto",
         "mcp_directory",
         "mcpservers",
+        "mcpfind",
     ]
     assert recommendations[0]["draft_type"] == "ai_tool_directory_listing"
     assert recommendations[1]["draft_type"] == "software_alternative_listing"
     assert recommendations[2]["draft_type"] == "mcp_directory_listing"
     assert recommendations[3]["draft_type"] == "mcp_directory_listing"
+    assert recommendations[4]["draft_type"] == "mcp_directory_listing"
     assert recommendations[0]["target_queries"] == ["Synapse vs paid MCP alternatives"]
     assert "browser/form confirmation" in recommendations[0]["validation_command"]
     assert "MCP Directory" in recommendations[2]["rationale"]
     assert "MCPServers" in recommendations[3]["rationale"]
-    assert "after-source-hosts" in recommendations[3]["next_probe_command"]
+    assert "MCPFind" in recommendations[4]["rationale"]
+    assert "after-source-hosts" in recommendations[4]["next_probe_command"]
 
 
 def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Path):

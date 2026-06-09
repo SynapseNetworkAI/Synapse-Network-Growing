@@ -189,6 +189,8 @@ def test_source_host_audit_merge_prefers_archived_checklist_over_generated_db_fa
 def test_source_host_surface_uses_precise_directory_keys():
     assert source_host_surface("mcp.directory") == "mcp_directory"
     assert source_host_surface("https://mcp.directory/submit") == "mcp_directory"
+    assert source_host_surface("mcpfind.org") == "mcpfind"
+    assert source_host_surface("https://mcpfind.org/submit") == "mcpfind"
     assert source_host_surface("mcp-marketplace.io") == "mcp_marketplace"
     assert source_host_surface("alternativeto.net") == "alternativeto"
 

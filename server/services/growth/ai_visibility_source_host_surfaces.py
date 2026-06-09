@@ -8,6 +8,7 @@ SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
     "mcp.directory": "mcp_directory",
+    "mcpfind.org": "mcpfind",
     "mcp-marketplace.io": "mcp_marketplace",
     "mcpservers.org": "mcpservers",
 }
