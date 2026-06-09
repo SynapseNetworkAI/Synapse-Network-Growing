@@ -1,0 +1,21 @@
+{
+  "module_key": "ai_visibility",
+  "check_type": "source_host_live_spot_check",
+  "generated_at": "2026-06-09T18:58:38.191241Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-docs-merge-gcloud-blocker",
+  "execute": true,
+  "status": "blocked_until_search_urls",
+  "items": [],
+  "blockers": [
+    "No source_hosts metadata has been recorded; rerun API probes before planning third-party presence.",
+    "No actionable source-host presence targets were generated.",
+    "No source-host drafts were generated from the presence plan.",
+    "No source-host execution items are available.",
+    "No source-host live listing search URLs are available."
+  ],
+  "commands": {
+    "execute": "python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --feed-key mcp_paid_api_discovery --execute --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-live-spot-check.json",
+    "record_live_listing": "python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live --surface <surface> --source-url <public-listing-url>"
+  }
+}
