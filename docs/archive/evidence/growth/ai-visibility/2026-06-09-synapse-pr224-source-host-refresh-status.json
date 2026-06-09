@@ -1,0 +1,45 @@
+{
+  "module_key": "ai_visibility_source_host_pr_status",
+  "generated_at": "2026-06-09T05:05:00Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-github-readme-source-host",
+  "source_host_surface": "owned_comparison_refresh",
+  "target_repo": "SynapseNetworkAI/Synapse-Network",
+  "pull_request": {
+    "number": 224,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/224",
+    "title": "Refresh AI visibility source-host comparison feed",
+    "head_ref": "codex/ai-visibility-source-host-refresh-2",
+    "head_sha": "2cb4c8387b383b1b18478ea64f291e6e0252a32a",
+    "base_ref": "main",
+    "state": "OPEN",
+    "is_draft": false,
+    "merge_state_status": "CLEAN",
+    "mergeable": "MERGEABLE"
+  },
+  "live_status": "pending_merge_not_live_on_docs_or_www",
+  "why_it_matters": "The after-GitHub-README probe stayed flat: ChatGPT still did not mention Synapse, and comparison metadata prioritized third-party source hosts including docs.mcpay.tech, aitoolnet.com, alternativeto.net, anythingmcp.com, arxiv.org, chatforest.com, coincodecap.com, and digi.com. PR #224 refreshes the owned comparison page and machine-readable llms assets with AIToolNet and AlternativeTo source-host context.",
+  "validation": [
+    "npm run ci:ai-visibility-assets",
+    "npm run ci:docs",
+    "npm run ci:seo-public-assets",
+    "pre-push fast PR gate passed selected quality gates, including user-front production build"
+  ],
+  "evidence": [
+    "The PR updates docs-front Synapse vs paid MCP alternatives page.",
+    "The PR updates docs-front /llms.txt route.",
+    "The PR updates user-front public llms.txt and llms-full.txt.",
+    "The PR updates AI visibility feed asset assertions for AIToolNet and AlternativeTo."
+  ],
+  "next_actions": [
+    "Human review/merge PR #224.",
+    "After merge, deploy docs-front and user-front through Growing release tasks.",
+    "Record live source-host evidence for https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp and https://www.synapse-network.ai/llms.txt containing aitoolnet.com and alternativeto.net.",
+    "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes with run_group 2026-06-09-after-owned-source-host-refresh-prod."
+  ],
+  "non_goals": [
+    "This file does not mark GPT, Claude, Grok, or Gemini visibility achieved.",
+    "This file does not mark AIToolNet or AlternativeTo third-party listings submitted.",
+    "This file does not deploy production."
+  ]
+}
