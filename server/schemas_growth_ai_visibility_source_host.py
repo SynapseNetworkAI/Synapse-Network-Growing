@@ -46,6 +46,7 @@ class GrowthAIVisibilitySourceHostExecutionItemOut(BaseModel):
     design_handoff_frame: str = ""
     action_required: str
     required_evidence: list[str] = Field(default_factory=list)
+    submission_confirmation_command: str = ""
     validation_command: str
     re_probe_command: str
     completion_gate: str

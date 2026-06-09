@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "package_type": "source_host_feed",
-  "generated_at": "2026-06-09T04:59:22.512976Z",
+  "generated_at": "2026-06-09T05:05:30.796179Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-provider-key-refresh",
   "status": "ready_for_operator_feed",

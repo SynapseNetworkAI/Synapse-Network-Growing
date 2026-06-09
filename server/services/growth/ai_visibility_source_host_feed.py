@@ -113,6 +113,7 @@ def _execution_item(
         ),
         action_required=_action_required(draft),
         required_evidence=_required_evidence(draft),
+        submission_confirmation_command=_submission_confirmation_command(draft),
         validation_command=draft.validation_command,
         re_probe_command=commands.get("after_feed_probe", ""),
         completion_gate=(
@@ -149,6 +150,33 @@ def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]
     if draft.draft_type == "owned_comparison_refresh":
         return ["published_url", "git_commit_or_pr", "live_curl_validation"]
     return ["review_notes", "target_contact_or_surface", "decision_or_published_url"]
+
+
+def _submission_confirmation_command(
+    draft: GrowthAIVisibilitySourceHostDraftOut,
+) -> str:
+    if draft.draft_type != "directory_submission":
+        return ""
+    surface = draft.host.split(".")[0].replace("-", "_")
+    return (
+        "python scripts/growth/record_ai_visibility_source_host_execution.py "
+        "--feed-key mcp_paid_api_discovery "
+        "--run-group YYYY-MM-DD-after-directory-submission "
+        f"--surface {surface} "
+        f"--source-url {draft.submit_url or draft.target_url} "
+        "--evidence-mode submission-confirmation "
+        "--submitted-payload-summary \"Submitted SynapseNetwork MCP Server with "
+        "Remote MCP endpoint, GitHub, npm package, discover_services, "
+        "invoke_and_pay, and get_receipt.\" "
+        "--screenshot-url docs/archive/evidence/growth/ai-visibility/"
+        f"YYYY-MM-DD-{surface}-submission.png "
+        f"--design-handoff-frame \"{draft.submission_payload.get('stitch_figma_frame', '')}\" "
+        "--target-platform chatgpt "
+        "--target-platform claude "
+        "--target-query \"Synapse vs paid MCP alternatives\" "
+        "--output docs/archive/evidence/growth/ai-visibility/"
+        f"YYYY-MM-DD-{surface}-submission-confirmation.json"
+    )
 
 
 def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:

@@ -72,6 +72,12 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert item_by_host["aitoolnet.com"]["design_handoff_frame"] == (
         "Directory Source-Host Submission Pack"
     )
+    assert "--evidence-mode submission-confirmation" in item_by_host[
+        "aitoolnet.com"
+    ]["submission_confirmation_command"]
+    assert "YYYY-MM-DD-aitoolnet-submission-confirmation.json" in item_by_host[
+        "aitoolnet.com"
+    ]["submission_confirmation_command"]
     assert item_by_host["alternativeto.net"]["execution_status"] == "pending_submission"
     assert (
         "submission_url_or_receipt"

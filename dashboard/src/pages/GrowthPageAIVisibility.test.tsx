@@ -284,6 +284,7 @@ function sourceHostExecutionChecklist() {
       design_handoff_frame: 'Directory Source-Host Submission Pack',
       action_required: 'Submit the directory form using the non-secret payload.',
       required_evidence: ['submission_url_or_receipt', 'submitted_payload_summary', 'screenshot'],
+      submission_confirmation_command: 'python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode submission-confirmation',
       validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',
       re_probe_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
       completion_gate: 'Do not mark complete until operator evidence proves the listing is live.',

@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "checklist_type": "source_host_feed_execution",
-  "generated_at": "2026-06-09T04:59:22.549924Z",
+  "generated_at": "2026-06-09T05:05:30.937713Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-provider-key-refresh",
   "status": "ready_for_operator_execution",
@@ -20,6 +20,7 @@
         "submitted_payload_summary",
         "screenshot"
       ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface aitoolnet --source-url https://www.aitoolnet.com/finish --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission-confirmation.json",
       "validation_command": "curl -fsS \"https://aitoolnet.com/\" | grep -i \"synapse\"",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -38,6 +39,7 @@
         "submitted_payload_summary",
         "screenshot"
       ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface alternativeto --source-url https://alternativeto.net/software/submit/ --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-alternativeto-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-alternativeto-submission-confirmation.json",
       "validation_command": "curl -fsS \"https://alternativeto.net/\" | grep -i \"synapse\"",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -56,6 +58,7 @@
         "git_commit_or_pr",
         "live_curl_validation"
       ],
+      "submission_confirmation_command": "",
       "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -i \"anythingmcp\"",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -74,6 +77,7 @@
         "target_contact_or_surface",
         "decision_or_published_url"
       ],
+      "submission_confirmation_command": "",
       "validation_command": "curl -I -sS \"https://arxiv.org/\" | head -5",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -92,6 +96,7 @@
         "target_contact_or_surface",
         "decision_or_published_url"
       ],
+      "submission_confirmation_command": "",
       "validation_command": "curl -I -sS \"https://chatforest.com/\" | head -5",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -110,6 +115,7 @@
         "target_contact_or_surface",
         "decision_or_published_url"
       ],
+      "submission_confirmation_command": "",
       "validation_command": "curl -I -sS \"https://coincodecap.com/\" | head -5",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -128,6 +134,7 @@
         "submitted_payload_summary",
         "screenshot"
       ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcp_marketplace --source-url https://mcp-marketplace.io/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_marketplace-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_marketplace-submission-confirmation.json",
       "validation_command": "curl -fsS \"https://mcp-marketplace.io/\" | grep -i \"synapse\"",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -146,6 +153,7 @@
         "target_contact_or_surface",
         "decision_or_published_url"
       ],
+      "submission_confirmation_command": "",
       "validation_command": "curl -I -sS \"https://mcpanalytics.ai/\" | head -5",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."

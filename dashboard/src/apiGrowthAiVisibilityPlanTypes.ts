@@ -179,6 +179,7 @@ export interface GrowthAIVisibilitySourceHostExecutionItem {
   design_handoff_frame: string
   action_required: string
   required_evidence: string[]
+  submission_confirmation_command: string
   validation_command: string
   re_probe_command: string
   completion_gate: string
