@@ -55,9 +55,8 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         draft_by_host["aitoolnet.com"]["submission_payload"]["stitch_figma_frame"]
         == "Directory Source-Host Submission Pack"
     )
-    assert (
-        "support@aitoolnet.com"
-        in " ".join(draft_by_host["aitoolnet.com"]["operator_notes"])
+    assert "support@aitoolnet.com" in " ".join(
+        draft_by_host["aitoolnet.com"]["operator_notes"]
     )
     assert (
         "support@aitoolnet.com"
@@ -218,6 +217,76 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         and item["search_url"] == "https://mcp.directory/?q=Synapse%20Network"
         and item["status"] == "pending_execute"
         for item in spot_payload["items"]
+    )
+
+
+def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+        source_host_feed_package_from_diagnosis,
+    )
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist,
+    )
+
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-09-offline",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "alternativeto",
+                        "rationale": "AlternativeTo appeared in answer sources.",
+                        "validation_command": "Record browser confirmation.",
+                        "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --execute",
+                    },
+                    {
+                        "surface": "official_mcp_registry",
+                        "rationale": "Official registry is a high-trust MCP source.",
+                        "validation_command": "mcp-publisher publish",
+                    },
+                    {
+                        "surface": "glama",
+                        "rationale": "Glama is a visible MCP directory.",
+                        "validation_command": "curl -fsS https://glama.ai/search?q=Synapse",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    package = source_host_feed_package_from_diagnosis(diagnosis_path)
+    assert package.status == "ready_for_operator_feed"
+    draft_by_host = {draft.host: draft for draft in package.drafts}
+    assert draft_by_host["alternativeto.net"].draft_type == "directory_submission"
+    assert draft_by_host["alternativeto.net"].validation_command == (
+        "Record browser confirmation."
+    )
+    assert draft_by_host["registry.modelcontextprotocol.io"].draft_type == (
+        "contextual_partner_or_guest_pitch"
+    )
+    assert draft_by_host["glama.ai"].submit_url == "https://glama.ai/mcp/servers"
+
+    checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
+    assert checklist.status == "ready_for_operator_execution"
+    item_by_host = {item.host: item for item in checklist.items}
+    assert item_by_host["alternativeto.net"].execution_status == "pending_submission"
+    assert item_by_host["glama.ai"].live_listing_search_urls[0] == (
+        "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
+    )
+
+    checklist_path = tmp_path / "source-host-checklist.json"
+    checklist_path.write_text(checklist.model_dump_json(), encoding="utf-8")
+    spot_check = source_host_live_spot_check_from_checklist(checklist_path)
+    assert spot_check.status == "ready_to_execute"
+    assert any(
+        item.host == "alternativeto.net"
+        and item.search_url
+        == "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
+        for item in spot_check.items
     )
 
 
@@ -431,7 +500,7 @@ def test_ai_visibility_source_host_live_spot_check_fetch_url_handles_http(
     import io
     import urllib.error
 
-    from server.services.growth import ai_visibility_source_host_live_spot_check as svc
+    from server.services.growth import ai_visibility_source_host_offline_live as svc
 
     class FakeResponse:
         status = 200

@@ -590,6 +590,34 @@ python scripts/growth/record_ai_visibility_probe.py probe.jsonl \
   --apply
 ```
 
+If the local Ops API ledger is unavailable, keep the optimization loop moving by
+generating the source-host handoff from the feed diagnosis JSON. This is an
+offline operator checklist only; it does not mark any listing submitted or live:
+
+```bash
+python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
+  docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-external-probes.jsonl \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --recommendations-output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-recommendations.jsonl
+
+python scripts/growth/generate_ai_visibility_source_host_feed_package.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group YYYY-MM-DD-after-probe \
+  --diagnosis-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-feed-package.json
+
+python scripts/growth/generate_ai_visibility_source_host_execution_checklist.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group YYYY-MM-DD-after-probe \
+  --diagnosis-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-execution-checklist.json
+
+python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py \
+  --checklist-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-execution-checklist.json \
+  --execute \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-live-spot-check.json
+```
+
 ## Compare Results
 
 Open `/growth?tab=ai-visibility` or use the API:

@@ -28,6 +28,10 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument("--feed-key", default=DEFAULT_FEED_KEY)
     parser.add_argument("--run-group", default="")
     parser.add_argument(
+        "--checklist-file",
+        help="Optional source-host checklist JSON to run an offline spot check without the Ops API ledger.",
+    )
+    parser.add_argument(
         "--execute",
         action="store_true",
         help="Fetch public search URLs and check for Synapse listing candidates.",
@@ -35,14 +39,20 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
     args = parser.parse_args()
 
-    spot_check = run_with_db(
-        lambda db: _build_spot_check(
-            db,
-            feed_key=args.feed_key,
-            run_group=args.run_group or None,
+    if args.checklist_file:
+        spot_check = _build_spot_check_from_checklist(
+            args.checklist_file,
             execute=args.execute,
         )
-    )
+    else:
+        spot_check = run_with_db(
+            lambda db: _build_spot_check(
+                db,
+                feed_key=args.feed_key,
+                run_group=args.run_group or None,
+                execute=args.execute,
+            )
+        )
     write_json_payload(pydantic_payload(spot_check), args.output)
     return 0
 
@@ -62,6 +72,17 @@ def _build_spot_check(
         db,
         feed_key=feed_key,
         run_group=run_group,
+        execute=execute,
+    )
+
+
+def _build_spot_check_from_checklist(checklist_file: str, *, execute: bool):
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist,
+    )
+
+    return source_host_live_spot_check_from_checklist(
+        checklist_file,
         execute=execute,
     )
 
