@@ -55,6 +55,9 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         "protodex.io",
         "pulsemcp.com",
         "docs.mcpay.tech",
+        "cashfree.com",
+        "rapid-mcp.com",
+        "docs-dev.seamless.ai",
         "github.com",
     ):
         response = synced_client.post(
@@ -87,6 +90,9 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         "protodex.io",
         "pulsemcp.com",
         "docs.mcpay.tech",
+        "cashfree.com",
+        "rapid-mcp.com",
+        "docs-dev.seamless.ai",
         "github.com",
     }
     action_by_host = {item["host"]: item for item in payload["actions"]}
@@ -132,6 +138,15 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     )
     assert "pulsemcp.com" in action_by_host["pulsemcp.com"]["validation_command"]
     assert action_by_host["docs.mcpay.tech"]["ownership"] == "not_directly_editable"
+    assert action_by_host["cashfree.com"]["action_type"] == "comparison_presence"
+    assert action_by_host["rapid-mcp.com"]["action_type"] == "comparison_presence"
+    assert action_by_host["docs-dev.seamless.ai"]["action_type"] == (
+        "comparison_presence"
+    )
+    assert (
+        action_by_host["rapid-mcp.com"]["submission_payload"]["owned_comparison_url"]
+        == "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+    )
     assert action_by_host["github.com"]["action_type"] == "owned_or_partner_listing"
     assert "https://mcp.synapse-network.ai/mcp" in "\n".join(
         action_by_host["mcpservers.org"]["copy_points"]

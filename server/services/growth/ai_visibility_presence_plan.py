@@ -40,13 +40,21 @@ CONTROLLED_HOSTS = {
     "smithery.ai",
 }
 COMPETITOR_HOSTS = {
+    "agent402.dev",
+    "autobase.biz",
+    "cashfree.com",
+    "developer.paddle.com",
+    "docs-dev.seamless.ai",
     "docs.mcpay.tech",
+    "docs.mcp.run",
     "docs.latchmcp.app",
     "mcp.magpie.im",
+    "mcp.paddle.com",
     "teleport.ltd",
     "docs.stripe.com",
     "anythingmcp.com",
     "mcpsynapse.dev",
+    "rapid-mcp.com",
 }
 BRAND_COLLISION_HOSTS = {
     "python-docs.synapse.org",
