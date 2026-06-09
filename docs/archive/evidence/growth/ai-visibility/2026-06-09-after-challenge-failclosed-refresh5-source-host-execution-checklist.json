@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "checklist_type": "source_host_feed_execution",
-  "generated_at": "2026-06-09T11:15:26.586430Z",
+  "generated_at": "2026-06-09T11:45:47.309958Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-challenge-failclosed-refresh5",
   "status": "ready_for_operator_execution",
@@ -106,24 +106,29 @@
           "notes": "Use this for name/title fields."
         },
         {
-          "label": "Website URL",
-          "value": "https://www.synapse-network.ai/",
-          "notes": "Prefer the canonical www homepage."
-        },
-        {
           "label": "Short description",
           "value": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
           "notes": "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts."
         },
         {
-          "label": "GitHub repository URL",
+          "label": "Link",
           "value": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
-          "notes": "Use the public SynapseNetworkAI MCP repository."
+          "notes": "Use this for MCPServers' required GitHub or docs URL field."
         },
         {
-          "label": "NPM package",
-          "value": "@synapse-network-ai/mcp-server",
-          "notes": "Leave unchanged unless the published package name changes."
+          "label": "Category",
+          "value": "finance",
+          "notes": "Use the closest directory taxonomy if the exact category is unavailable."
+        },
+        {
+          "label": "Contact email",
+          "value": "support@synapse-network.ai",
+          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
+        },
+        {
+          "label": "Plan",
+          "value": "free",
+          "notes": "Use the free listing path unless the operator explicitly approves a paid listing."
         },
         {
           "label": "Remote MCP endpoint",
@@ -139,11 +144,6 @@
           "label": "Docs URL",
           "value": "https://docs.synapse-network.ai/mcp/paid-api-calls",
           "notes": "Use as the documentation/reference URL when available."
-        },
-        {
-          "label": "Contact email",
-          "value": "support@synapse-network.ai",
-          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
         }
       ],
       "submission_steps": [

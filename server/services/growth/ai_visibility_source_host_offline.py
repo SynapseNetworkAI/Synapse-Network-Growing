@@ -11,6 +11,9 @@ from server.schemas_growth import (
     GrowthAIVisibilitySourceHostExecutionChecklistOut,
     GrowthAIVisibilitySourceHostFeedPackageOut,
 )
+from server.services.growth.ai_visibility_directory_submission_payloads import (
+    directory_submission_payload,
+)
 from server.services.growth.ai_visibility_source_host_checklist_helpers import (
     source_host_execution_checklist_from_package,
 )
@@ -164,23 +167,7 @@ def _submission_payload(host: str) -> dict[str, object]:
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
     }
-    if host == "aitoolnet.com":
-        payload.update(
-            {
-                "category": "AI agents / Developer tools / Payments",
-                "submission_method": (
-                    "Email support@aitoolnet.com from the Synapse support mailbox."
-                ),
-                "email_subject": "Friend link - Synapse Network Listing",
-                "email_body": _aitoolnet_email_body(),
-                "listing_content": (
-                    "Synapse Network MCP Server is a Remote MCP endpoint for AI agents "
-                    "to discover callable APIs, invoke paid services with spend controls, "
-                    "and retrieve receipts."
-                ),
-            }
-        )
-    return payload
+    return directory_submission_payload(host, payload)
 
 
 def _body_markdown(
@@ -244,22 +231,6 @@ def _commands(feed_key: str, run_group: str) -> dict[str, str]:
             f'?feed_key={feed_key}&run_group={safe_run_group}"'
         ),
     }
-
-
-def _aitoolnet_email_body() -> str:
-    return (
-        "Hello AIToolNet team,\n\n"
-        "Please review SynapseNetwork MCP Server for an AIToolNet listing.\n\n"
-        f"Website: {OFFICIAL_HOME}\n"
-        f"GitHub: {OFFICIAL_GITHUB_REPOSITORY}\n"
-        f"npm: {OFFICIAL_NPM_PACKAGE}\n"
-        f"Remote MCP endpoint: {REMOTE_MCP_ENDPOINT}\n"
-        "Category: AI agents / Developer tools / Payments\n"
-        "Tools: discover_services, invoke_and_pay, get_receipt\n\n"
-        "Short description: Remote MCP for paid API discovery, API invocation, "
-        "USDC agent payments, and receipts.\n\n"
-        "Thanks,\nSynapse Network"
-    )
 
 
 def _read_json(path: str | Path) -> dict[str, object]:

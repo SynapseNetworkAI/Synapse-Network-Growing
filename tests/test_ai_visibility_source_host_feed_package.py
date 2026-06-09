@@ -46,6 +46,13 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert draft_by_host["mcpservers.org"]["submit_url"] == (
         "https://mcpservers.org/submit"
     )
+    assert (
+        draft_by_host["mcpservers.org"]["submission_payload"]["category"] == "finance"
+    )
+    assert draft_by_host["mcpservers.org"]["submission_payload"]["plan"] == "free"
+    assert "category" in draft_by_host["mcpservers.org"]["submission_payload"][
+        "form_fields"
+    ]
     assert draft_by_host["aitoolnet.com"]["draft_type"] == "directory_submission"
     assert draft_by_host["aitoolnet.com"]["status"] == "ready_to_submit"
     assert draft_by_host["aitoolnet.com"]["submit_url"] == (
@@ -104,6 +111,23 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     checklist_payload = checklist.json()
     item_by_host = {item["host"]: item for item in checklist_payload["items"]}
     assert item_by_host["mcpservers.org"]["execution_status"] == "pending_submission"
+    mcpservers_fields = item_by_host["mcpservers.org"]["submission_fields"]
+    assert {
+        "Server or product name",
+        "Short description",
+        "Link",
+        "Category",
+        "Contact email",
+        "Plan",
+    }.issubset({field["label"] for field in mcpservers_fields})
+    assert any(
+        field["label"] == "Category" and field["value"] == "finance"
+        for field in mcpservers_fields
+    )
+    assert any(
+        field["label"] == "Plan" and field["value"] == "free"
+        for field in mcpservers_fields
+    )
     assert item_by_host["aitoolnet.com"]["execution_status"] == "pending_submission"
     assert item_by_host["mcp.directory"]["execution_status"] == "pending_submission"
     assert (
@@ -276,6 +300,8 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["glama.ai"].submit_url == "https://glama.ai/mcp/servers"
     assert draft_by_host["mcpservers.org"].draft_type == "directory_submission"
     assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
+    assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
+    assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
 
     checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
     assert checklist.status == "ready_for_operator_execution"
@@ -285,6 +311,10 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
     )
     assert item_by_host["mcpservers.org"].execution_status == "pending_submission"
+    assert any(
+        field.label == "Category" and field.value == "finance"
+        for field in item_by_host["mcpservers.org"].submission_fields
+    )
     assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
         "https://mcpservers.org/?q=Synapse%20Network"
     )

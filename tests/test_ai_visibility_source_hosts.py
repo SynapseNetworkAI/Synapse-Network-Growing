@@ -92,6 +92,14 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         action_by_host["mcpservers.org"]["submission_payload"]["contact_email"]
         == "support@synapse-network.ai"
     )
+    assert (
+        action_by_host["mcpservers.org"]["submission_payload"]["category"]
+        == "finance"
+    )
+    assert (
+        action_by_host["mcpservers.org"]["submission_payload"]["plan"]
+        == "free"
+    )
     assert action_by_host["docs.mcpay.tech"]["ownership"] == "not_directly_editable"
     assert action_by_host["github.com"]["action_type"] == "owned_or_partner_listing"
     assert "https://mcp.synapse-network.ai/mcp" in "\n".join(

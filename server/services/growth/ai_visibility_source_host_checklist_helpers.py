@@ -36,6 +36,17 @@ DEFAULT_SUBMISSION_FIELD_KEYS = (
     "contact_email",
 )
 SUBMISSION_FIELD_KEYS_BY_HOST = {
+    "mcpservers.org": (
+        "server_name",
+        "short_description",
+        "link",
+        "category",
+        "contact_email",
+        "plan",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+    ),
     "mcp.directory": (
         "github_repository_url",
         "npm_package",
@@ -170,6 +181,11 @@ def _common_submission_fields(
             _payload_text(payload, "short_description", default=draft.summary),
             "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts.",
         ),
+        "link": _field(
+            "Link",
+            _payload_text(payload, "link", "github_repository_url"),
+            "Use this for MCPServers' required GitHub or docs URL field.",
+        ),
         "github_repository_url": _field(
             "GitHub repository URL",
             _payload_text(payload, "github_repository_url"),
@@ -203,6 +219,11 @@ def _common_submission_fields(
             "Pricing or plan",
             _payload_text(payload, "pricing_or_plan", default="Free review queue"),
             "Choose the free/manual review queue unless the operator explicitly approves a paid listing or fast-track.",
+        ),
+        "plan": _field(
+            "Plan",
+            _payload_text(payload, "plan", default="free"),
+            "Use the free listing path unless the operator explicitly approves a paid listing.",
         ),
         "listing_content": _field(
             "Listing content",
