@@ -79,6 +79,30 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "do not count source-host intent as external citation evidence."
         ),
     },
+    "python-docs.synapse.org": {
+        "surface": "docs_disambiguation_links",
+        "draft_type": "brand_disambiguation_answer_block",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "ChatGPT cited Synapse.org biomedical documentation for exact "
+            "SynapseNetwork MCP queries, so Synapse Network needs stronger "
+            "owned disambiguation language on docs, README, and registry surfaces."
+        ),
+        "brief": (
+            "Refresh official Synapse Network MCP source hosts with an explicit "
+            "disambiguation block: Synapse Network at synapse-network.ai is the "
+            "agent-payment and Remote MCP product, not Synapse.org/Sage "
+            "Bionetworks biomedical data infrastructure. Repeat the exact "
+            "identifiers SynapseNetworkAI/Synapse-Network-MCP-Server, "
+            "io.github.SynapseNetworkAI/synapse-network-mcp-server, and "
+            "https://mcp.synapse-network.ai/mcp."
+        ),
+        "validation": (
+            "Verify official docs, GitHub README, and MCP Registry metadata carry "
+            "the disambiguation block, then rerun exact identifier probes."
+        ),
+    },
 }
 
 

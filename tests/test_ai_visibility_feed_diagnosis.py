@@ -123,6 +123,35 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
     assert "after-source-hosts" in recommendations[3]["next_probe_command"]
 
 
+def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="SynapseNetwork MCP Server",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": ["python-docs.synapse.org"],
+                    },
+                )
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    first = recommendations[0]
+    assert first["surface"] == "docs_disambiguation_links"
+    assert first["draft_type"] == "brand_disambiguation_answer_block"
+    assert first["priority"] == "p0"
+    assert first["target_queries"] == ["SynapseNetwork MCP Server"]
+    assert "Synapse.org/Sage Bionetworks" in first["content_brief"]
+    assert "exact identifier probes" in first["validation_command"]
+
+
 def test_diagnosis_cli_writes_json_and_recommendations_jsonl(tmp_path: Path):
     probe_path = write_probe_jsonl(
         tmp_path,

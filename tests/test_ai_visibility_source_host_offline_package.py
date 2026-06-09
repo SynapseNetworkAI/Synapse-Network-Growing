@@ -39,6 +39,12 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "rationale": "MCPServers appeared in answer sources.",
                         "validation_command": "Record MCPServers browser confirmation.",
                     },
+                    {
+                        "surface": "docs_disambiguation_links",
+                        "draft_type": "brand_disambiguation_answer_block",
+                        "rationale": "Synapse.org appeared in exact identity answers.",
+                        "validation_command": "Verify official docs disambiguation.",
+                    },
                 ],
             }
         ),
@@ -60,6 +66,16 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
     assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
     assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
+    assert draft_by_host["docs.synapse-network.ai"].draft_type == (
+        "owned_brand_disambiguation_refresh"
+    )
+    assert draft_by_host["docs.synapse-network.ai"].status == (
+        "ready_to_publish_on_owned_channels"
+    )
+    assert (
+        "SynapseNetworkAI/Synapse-Network-MCP-Server"
+        in draft_by_host["docs.synapse-network.ai"].body_markdown
+    )
 
     checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
     assert checklist.status == "ready_for_operator_execution"
@@ -72,6 +88,9 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert any(
         field.label == "Category" and field.value == "finance"
         for field in item_by_host["mcpservers.org"].submission_fields
+    )
+    assert item_by_host["docs.synapse-network.ai"].execution_status == (
+        "pending_owned_publish"
     )
     assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
         "https://mcpservers.org/?q=Synapse%20Network"

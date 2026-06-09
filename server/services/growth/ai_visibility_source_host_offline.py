@@ -107,11 +107,7 @@ def _draft_from_recommendation(
     recommendation: dict[str, object], index: int
 ) -> GrowthAIVisibilitySourceHostDraftOut:
     host = _host_for_surface(recommendation)
-    draft_type = (
-        "directory_submission"
-        if host in DIRECTORY_SUBMIT_URLS
-        else "contextual_partner_or_guest_pitch"
-    )
+    draft_type = _draft_type_for_recommendation(recommendation, host)
     submit_url = DIRECTORY_SUBMIT_URLS.get(host, "")
     summary = _summary(recommendation)
     payload = _submission_payload(host)
@@ -119,12 +115,10 @@ def _draft_from_recommendation(
         host=host,
         priority=index,
         draft_type=draft_type,
-        status="ready_to_submit" if submit_url else "needs_operator_review",
+        status=_status_for_draft(draft_type, submit_url),
         target_url=submit_url or f"https://{host}/",
         submit_url=submit_url,
-        title="Synapse Network MCP Server"
-        if draft_type == "directory_submission"
-        else f"Synapse Network source-host opportunity for {host}",
+        title=_title_for_draft(host, draft_type),
         summary=summary,
         body_markdown=_body_markdown(host, draft_type, summary, payload),
         source_reference_url=submit_url or f"https://{host}/",
@@ -143,6 +137,31 @@ def _host_for_surface(recommendation: dict[str, object]) -> str:
     if "." in surface:
         return surface
     return SURFACE_HOSTS.get(surface, surface or "unknown-source-host")
+
+
+def _draft_type_for_recommendation(recommendation: dict[str, object], host: str) -> str:
+    source_draft_type = str(recommendation.get("draft_type") or "")
+    if source_draft_type == "brand_disambiguation_answer_block":
+        return "owned_brand_disambiguation_refresh"
+    if host in DIRECTORY_SUBMIT_URLS:
+        return "directory_submission"
+    return "contextual_partner_or_guest_pitch"
+
+
+def _status_for_draft(draft_type: str, submit_url: str) -> str:
+    if draft_type == "owned_brand_disambiguation_refresh":
+        return "ready_to_publish_on_owned_channels"
+    if submit_url:
+        return "ready_to_submit"
+    return "needs_operator_review"
+
+
+def _title_for_draft(host: str, draft_type: str) -> str:
+    if draft_type == "directory_submission":
+        return "Synapse Network MCP Server"
+    if draft_type == "owned_brand_disambiguation_refresh":
+        return "Synapse Network MCP brand disambiguation block"
+    return f"Synapse Network source-host opportunity for {host}"
 
 
 def _summary(recommendation: dict[str, object]) -> str:
@@ -188,6 +207,26 @@ def _body_markdown(
                 f"- GitHub: {payload.get('github_repository_url', '')}",
                 f"- npm: {payload.get('npm_package', '')}",
                 f"- Docs: {OFFICIAL_DOCS}",
+            ]
+        )
+    if draft_type == "owned_brand_disambiguation_refresh":
+        return "\n".join(
+            [
+                "# Synapse Network MCP brand disambiguation block",
+                "",
+                summary,
+                "",
+                "Use these exact identity strings in public source hosts:",
+                "",
+                "1. SynapseNetwork MCP Server",
+                "2. SynapseNetworkAI/Synapse-Network-MCP-Server",
+                "3. io.github.SynapseNetworkAI/synapse-network-mcp-server",
+                f"4. Hosted Remote MCP URL: {REMOTE_MCP_ENDPOINT}",
+                "",
+                "Owned publication targets:",
+                f"Official source: {OFFICIAL_HOME}",
+                f"MCP docs: {OFFICIAL_DOCS}",
+                f"GitHub: {OFFICIAL_GITHUB_REPOSITORY}",
             ]
         )
     return "\n".join(

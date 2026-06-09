@@ -42,6 +42,10 @@ COMPETITOR_HOSTS = {
     "anythingmcp.com",
     "mcpsynapse.dev",
 }
+BRAND_COLLISION_HOSTS = {
+    "python-docs.synapse.org",
+    "synapse.org",
+}
 DIRECTORY_SUBMIT_URLS = {
     "aitoolnet.com": "https://www.aitoolnet.com/finish",
     "alternativeto.net": "https://alternativeto.net/software/submit/",
@@ -129,6 +133,8 @@ def _action_for_host(
         return _controlled_action(normalized, index)
     if normalized in COMPETITOR_HOSTS:
         return _competitor_action(normalized, index)
+    if normalized in BRAND_COLLISION_HOSTS:
+        return _brand_collision_action(normalized, index)
     return _monitor_action(normalized, index)
 
 
@@ -214,6 +220,59 @@ def _competitor_action(host: str, index: int) -> GrowthAIVisibilityPresenceActio
         submission_payload=_comparison_payload(host),
         operator_notes=[
             "Do not submit to competitor-owned docs; publish equivalent comparison evidence on owned channels."
+        ],
+    )
+
+
+def _brand_collision_action(
+    host: str, index: int
+) -> GrowthAIVisibilityPresenceActionOut:
+    return _action(
+        host=host,
+        priority=index,
+        action_type="brand_disambiguation",
+        ownership="owned_content_required",
+        rationale=(
+            "Answer engines are using this non-Synapse-Network source for exact "
+            "SynapseNetwork MCP queries; official source hosts need stronger "
+            "identity and disambiguation language."
+        ),
+        target_surface=COMPARISON_DOCS_URL,
+        asset=(
+            "Owned docs/README/registry disambiguation block naming Synapse Network, "
+            "SynapseNetworkAI/Synapse-Network-MCP-Server, the hosted Remote MCP "
+            "endpoint, and the Synapse.org/Sage Bionetworks distinction."
+        ),
+        validation_command=(
+            "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls "
+            "| grep -i 'Sage Bionetworks'"
+        ),
+        source_reference_url=f"https://{host}/",
+        submission_payload={
+            "collision_host": host,
+            "owned_docs_url": OFFICIAL_DOCS_URL,
+            "owned_comparison_url": COMPARISON_DOCS_URL,
+            "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
+            "official_registry_query": (
+                "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+            ),
+            "exact_identifier_queries": [
+                "SynapseNetwork MCP Server",
+                "SynapseNetworkAI Synapse-Network-MCP-Server",
+                "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+                "https://mcp.synapse-network.ai/mcp discover_services",
+            ],
+            "recommended_copy": (
+                "Synapse Network MCP Server is the Remote MCP endpoint for AI "
+                "agents buying paid APIs through Synapse Network at "
+                "synapse-network.ai. It is separate from Synapse.org and Sage "
+                "Bionetworks biomedical data infrastructure."
+            ),
+            "evidence_status": "pending_owned_disambiguation_publication",
+        },
+        operator_notes=[
+            "Publish on owned docs and GitHub first; do not request edits to the unrelated Synapse.org site.",
+            "After publication, rerun exact identifier probes before changing directory priorities.",
         ],
     )
 

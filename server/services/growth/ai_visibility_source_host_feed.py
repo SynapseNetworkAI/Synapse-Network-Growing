@@ -80,6 +80,8 @@ def _draft_from_action(action) -> GrowthAIVisibilitySourceHostDraftOut:
         return _directory_draft(action)
     if action.action_type == "comparison_presence":
         return _comparison_draft(action)
+    if action.action_type == "brand_disambiguation":
+        return _brand_disambiguation_draft(action)
     return _contextual_draft(action)
 
 
@@ -152,6 +154,50 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
         ),
         source_reference_url=action.source_reference_url,
         submission_payload=action.submission_payload,
+        validation_command=action.validation_command,
+        probe_followup=action.probe_followup,
+        operator_notes=action.operator_notes,
+    )
+
+
+def _brand_disambiguation_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
+    title = "Synapse Network MCP brand disambiguation block"
+    payload = action.submission_payload
+    return GrowthAIVisibilitySourceHostDraftOut(
+        host=action.host,
+        priority=action.priority,
+        draft_type="owned_brand_disambiguation_refresh",
+        status="ready_to_publish_on_owned_channels",
+        target_url=COMPARISON_DOCS,
+        title=title,
+        summary=(
+            "Publish a concise disambiguation block on official Synapse Network "
+            "MCP source hosts so answer engines stop resolving exact MCP queries "
+            "to unrelated Synapse.org biomedical docs."
+        ),
+        body_markdown="\n".join(
+            [
+                f"# {title}",
+                "",
+                str(payload.get("recommended_copy", "")),
+                "",
+                "Exact identifiers to repeat:",
+                "",
+                "- SynapseNetwork MCP Server",
+                "- SynapseNetworkAI/Synapse-Network-MCP-Server",
+                "- io.github.SynapseNetworkAI/synapse-network-mcp-server",
+                f"- Remote MCP endpoint: {REMOTE_MCP_ENDPOINT}",
+                "",
+                "Publish or verify this block on:",
+                "",
+                f"- Docs: {OFFICIAL_DOCS}",
+                f"- Comparison: {COMPARISON_DOCS}",
+                f"- GitHub: {payload.get('github_repository_url', '')}",
+                "- Official MCP Registry metadata",
+            ]
+        ),
+        source_reference_url=action.source_reference_url,
+        submission_payload=payload,
         validation_command=action.validation_command,
         probe_followup=action.probe_followup,
         operator_notes=action.operator_notes,

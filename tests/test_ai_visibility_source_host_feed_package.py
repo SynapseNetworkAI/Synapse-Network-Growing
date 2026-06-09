@@ -16,6 +16,7 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         "mcp.directory",
         "glama.ai",
         "aws.amazon.com",
+        "python-docs.synapse.org",
     ):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
@@ -101,6 +102,18 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         "contextual_partner_or_guest_pitch"
     )
     assert draft_by_host["aws.amazon.com"]["status"] == "needs_operator_review"
+    assert draft_by_host["python-docs.synapse.org"]["draft_type"] == (
+        "owned_brand_disambiguation_refresh"
+    )
+    assert draft_by_host["python-docs.synapse.org"]["status"] == (
+        "ready_to_publish_on_owned_channels"
+    )
+    assert "Synapse.org and Sage Bionetworks" in draft_by_host[
+        "python-docs.synapse.org"
+    ]["submission_payload"]["recommended_copy"]
+    assert "SynapseNetworkAI/Synapse-Network-MCP-Server" in draft_by_host[
+        "python-docs.synapse.org"
+    ]["body_markdown"]
     assert "after_feed_probe" in payload["commands"]
 
     checklist = synced_client.get(
@@ -227,6 +240,12 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     )
     assert item_by_host["aws.amazon.com"]["execution_status"] == (
         "pending_operator_review"
+    )
+    assert item_by_host["python-docs.synapse.org"]["execution_status"] == (
+        "pending_owned_publish"
+    )
+    assert item_by_host["python-docs.synapse.org"]["draft_type"] == (
+        "owned_brand_disambiguation_refresh"
     )
     assert "after_feed_probe" in checklist_payload["commands"]
 
