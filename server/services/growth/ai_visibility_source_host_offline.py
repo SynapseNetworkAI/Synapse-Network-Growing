@@ -37,6 +37,7 @@ SURFACE_HOSTS = {
     "github_readme": "github.com",
     "smithery": "smithery.ai",
     "glama": "glama.ai",
+    "mcpservers": "mcpservers.org",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }

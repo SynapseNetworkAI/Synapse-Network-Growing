@@ -252,6 +252,11 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "rationale": "Glama is a visible MCP directory.",
                         "validation_command": "curl -fsS https://glama.ai/search?q=Synapse",
                     },
+                    {
+                        "surface": "mcpservers",
+                        "rationale": "MCPServers appeared in answer sources.",
+                        "validation_command": "Record MCPServers browser confirmation.",
+                    },
                 ],
             }
         ),
@@ -269,6 +274,8 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
         "contextual_partner_or_guest_pitch"
     )
     assert draft_by_host["glama.ai"].submit_url == "https://glama.ai/mcp/servers"
+    assert draft_by_host["mcpservers.org"].draft_type == "directory_submission"
+    assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
 
     checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
     assert checklist.status == "ready_for_operator_execution"
@@ -276,6 +283,10 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert item_by_host["alternativeto.net"].execution_status == "pending_submission"
     assert item_by_host["glama.ai"].live_listing_search_urls[0] == (
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
+    )
+    assert item_by_host["mcpservers.org"].execution_status == "pending_submission"
+    assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
+        "https://mcpservers.org/?q=Synapse%20Network"
     )
 
     checklist_path = tmp_path / "source-host-checklist.json"
@@ -365,6 +376,7 @@ def test_ai_visibility_source_host_checklist_keeps_reserved_mcp_directories(
                     "docs.opensearch.org",
                     "anythingmcp.com",
                     "glama.ai",
+                    "mcpservers.org",
                 ]
             },
             feed_key="mcp_paid_api_discovery",
@@ -382,6 +394,9 @@ def test_ai_visibility_source_host_checklist_keeps_reserved_mcp_directories(
     assert item_by_host["glama.ai"].draft_type == "directory_submission"
     assert item_by_host["glama.ai"].target_url == "https://glama.ai/mcp/servers"
     assert item_by_host["glama.ai"].priority == 9
+    assert item_by_host["mcpservers.org"].draft_type == "directory_submission"
+    assert item_by_host["mcpservers.org"].target_url == "https://mcpservers.org/submit"
+    assert item_by_host["mcpservers.org"].priority == 10
 
 
 def test_ai_visibility_source_host_live_spot_check_blocks_without_search_urls(
