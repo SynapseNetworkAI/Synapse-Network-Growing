@@ -108,6 +108,9 @@ def _execution_item(
         draft_type=draft.draft_type,
         execution_status=_execution_status(draft),
         target_url=draft.submit_url or draft.target_url,
+        design_handoff_frame=str(
+            draft.submission_payload.get("stitch_figma_frame") or ""
+        ),
         action_required=_action_required(draft),
         required_evidence=_required_evidence(draft),
         validation_command=draft.validation_command,
@@ -170,6 +173,8 @@ def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 f"- GitHub: {action.submission_payload.get('github_repository_url', '')}",
                 f"- npm: {action.submission_payload.get('npm_package', '')}",
                 f"- Docs: {OFFICIAL_DOCS}",
+                f"- Stitch/Figma frame: {action.submission_payload.get('stitch_figma_frame', 'Directory Source-Host Submission Pack')}",
+                f"- Evidence status: {action.submission_payload.get('evidence_status', 'pending_submission_not_external_citation')}",
                 "",
                 "Synapse does not expose raw customer agent credentials to public listings.",
             ]

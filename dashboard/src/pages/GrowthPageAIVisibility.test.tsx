@@ -281,6 +281,7 @@ function sourceHostExecutionChecklist() {
       draft_type: 'directory_submission',
       execution_status: 'pending_submission',
       target_url: 'https://mcpservers.org/submit',
+      design_handoff_frame: 'Directory Source-Host Submission Pack',
       action_required: 'Submit the directory form using the non-secret payload.',
       required_evidence: ['submission_url_or_receipt', 'submitted_payload_summary', 'screenshot'],
       validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',

@@ -103,6 +103,9 @@ export function SourceHostExecutionChecklistSummary({ checklist }: Readonly<{ ch
             </div>
             <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">{item.draft_type} · priority {item.priority}</div>
             <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.action_required}</div>
+            {item.design_handoff_frame ? (
+              <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Design frame: {item.design_handoff_frame}</div>
+            ) : null}
             <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Evidence: {item.required_evidence.slice(0, 3).join(', ')}</div>
           </div>
         ))}

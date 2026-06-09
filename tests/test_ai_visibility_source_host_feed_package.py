@@ -8,7 +8,7 @@ from scripts.growth import generate_ai_visibility_source_host_feed_package as fe
 def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     synced_client,
 ):
-    for host in ("mcpservers.org", "aws.amazon.com"):
+    for host in ("mcpservers.org", "aitoolnet.com", "alternativeto.net", "aws.amazon.com"):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
@@ -38,6 +38,20 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert draft_by_host["mcpservers.org"]["submit_url"] == (
         "https://mcpservers.org/submit"
     )
+    assert draft_by_host["aitoolnet.com"]["draft_type"] == "directory_submission"
+    assert draft_by_host["aitoolnet.com"]["status"] == "ready_to_submit"
+    assert draft_by_host["aitoolnet.com"]["submit_url"] == (
+        "https://www.aitoolnet.com/finish"
+    )
+    assert draft_by_host["aitoolnet.com"]["submission_payload"][
+        "stitch_figma_frame"
+    ] == "Directory Source-Host Submission Pack"
+    assert "browser/form confirmation" in " ".join(
+        draft_by_host["alternativeto.net"]["operator_notes"]
+    )
+    assert draft_by_host["alternativeto.net"]["submit_url"] == (
+        "https://alternativeto.net/software/submit/"
+    )
     assert "Synapse Network MCP Server" in draft_by_host["mcpservers.org"]["title"]
     assert draft_by_host["aws.amazon.com"]["draft_type"] == (
         "contextual_partner_or_guest_pitch"
@@ -54,6 +68,11 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     checklist_payload = checklist.json()
     item_by_host = {item["host"]: item for item in checklist_payload["items"]}
     assert item_by_host["mcpservers.org"]["execution_status"] == "pending_submission"
+    assert item_by_host["aitoolnet.com"]["execution_status"] == "pending_submission"
+    assert item_by_host["aitoolnet.com"]["design_handoff_frame"] == (
+        "Directory Source-Host Submission Pack"
+    )
+    assert item_by_host["alternativeto.net"]["execution_status"] == "pending_submission"
     assert (
         "submission_url_or_receipt"
         in item_by_host["mcpservers.org"]["required_evidence"]

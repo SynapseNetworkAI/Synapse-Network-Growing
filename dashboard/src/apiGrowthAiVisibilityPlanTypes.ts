@@ -176,6 +176,7 @@ export interface GrowthAIVisibilitySourceHostExecutionItem {
   draft_type: string
   execution_status: string
   target_url: string
+  design_handoff_frame: string
   action_required: string
   required_evidence: string[]
   validation_command: string

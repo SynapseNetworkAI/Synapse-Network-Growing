@@ -17,6 +17,8 @@ DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
 DEFAULT_RUN_GROUP = "latest"
 
 DIRECTORY_HOSTS = {
+    "aitoolnet.com",
+    "alternativeto.net",
     "mcpservers.org",
     "mcp.directory",
     "mcp-marketplace.io",
@@ -38,6 +40,8 @@ COMPETITOR_HOSTS = {
     "mcpsynapse.dev",
 }
 DIRECTORY_SUBMIT_URLS = {
+    "aitoolnet.com": "https://www.aitoolnet.com/finish",
+    "alternativeto.net": "https://alternativeto.net/software/submit/",
     "mcp.directory": "https://mcp.directory/submit",
     "mcpservers.org": "https://mcpservers.org/submit",
     "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
@@ -129,6 +133,13 @@ def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceAction
     if host == "mcp-marketplace.io":
         operator_notes.append(
             "Login appears required before submission; use the operator-owned directory account."
+        )
+    if host in {"aitoolnet.com", "alternativeto.net"}:
+        operator_notes.extend(
+            [
+                "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the browser form.",
+                "CLI probes can receive site-level 403; verify through browser/form confirmation or a public listing URL.",
+            ]
         )
     return _action(
         host=host,
@@ -269,7 +280,48 @@ def _directory_payload(host: str) -> dict[str, object]:
         "website": "https://www.synapse-network.ai/",
         "docs": OFFICIAL_DOCS_URL,
         "contact_email": "<operator email>",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
     }
+    if host == "aitoolnet.com":
+        return {
+            **base_payload,
+            "tool_name": "SynapseNetwork MCP Server",
+            "website_url": "https://www.synapse-network.ai/",
+            "category": "AI agents / Developer tools / Payments",
+            "acceptance_terms": [
+                "Remote MCP",
+                "MCP server for paid API calls",
+                "ChatGPT MCP app for API payments",
+                "AI agent API monetization",
+                "discover_services",
+                "invoke_and_pay",
+                "get_receipt",
+            ],
+            "browser_submission_required": True,
+        }
+    if host == "alternativeto.net":
+        return {
+            **base_payload,
+            "software_name": "SynapseNetwork MCP Server",
+            "website_url": "https://www.synapse-network.ai/",
+            "categories": [
+                "Developer Tools",
+                "API",
+                "Payment Processing",
+                "AI Tools",
+            ],
+            "acceptance_terms": [
+                "Remote MCP",
+                "paid API discovery",
+                "AI agent payments",
+                "API monetization",
+                "discover_services",
+                "invoke_and_pay",
+                "get_receipt",
+            ],
+            "browser_submission_required": True,
+        }
     if host == "mcp.directory":
         return {
             **base_payload,
