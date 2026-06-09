@@ -193,6 +193,12 @@ curl -fsS \
   | python -m json.tool
 ```
 
+For browser-assisted directory submissions such as AIToolNet or AlternativeTo,
+the checklist may include a `design_handoff_frame` such as `Directory Source-Host
+Submission Pack`. Use that Stitch/Figma frame to review the form payload before
+opening the external site. The operator performs the final submit; automation
+must not bypass login, CAPTCHA, or platform terms.
+
 Each feed package includes `platform_strategies` for ChatGPT, Claude, Grok, and Gemini.
 Use those entries to vary the feed surfaces without changing the measurement
 question: for example ChatGPT may prioritize Remote MCP custom-app metadata and
@@ -518,6 +524,32 @@ python scripts/growth/record_ai_visibility_source_host_execution.py \
 The source-host evidence proves that a public feed surface is live and contains
 the intended terms. It still does not prove ChatGPT, Claude, Grok, or Gemini
 used that surface; only the subsequent answer-engine probe can prove a mention
+or citation.
+
+For browser/form submissions where the directory has accepted a submission but
+no public listing is live yet, record a submission confirmation instead of a
+live source-host record:
+
+```bash
+python scripts/growth/record_ai_visibility_source_host_execution.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group 2026-06-18-after-directory-submission \
+  --surface aitoolnet \
+  --source-url https://www.aitoolnet.com/finish \
+  --evidence-mode submission-confirmation \
+  --submitted-payload-summary "Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt." \
+  --screenshot-url docs/archive/evidence/growth/ai-visibility/2026-06-18-aitoolnet-submission.png \
+  --design-handoff-frame "Directory Source-Host Submission Pack" \
+  --target-platform chatgpt \
+  --target-platform claude \
+  --target-query "Synapse vs paid MCP alternatives" \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-aitoolnet-submission-confirmation.json
+```
+
+Submission confirmation evidence is useful for operator continuity, but it is
+not a verified public listing and not an answer-engine citation. Once the
+listing URL is public, rerun the live source-host command above with required
+terms, then rerun the unchanged GPT/Claude/Grok/Gemini probe matrix.
 or citation.
 
 Example:
