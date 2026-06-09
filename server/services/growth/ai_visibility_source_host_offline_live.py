@@ -25,7 +25,12 @@ PAYLOAD_TERMS = [
     "invoke_and_pay",
     "get_receipt",
 ]
-MATCH_TERMS = [*BRAND_TERMS, *PAYLOAD_TERMS]
+LISTING_IDENTITY_TERMS = [
+    "synapsenetwork mcp server",
+    "synapse-network-mcp-server",
+    "io.github.synapsenetworkai/synapse-network-mcp-server",
+]
+MATCH_TERMS = [*BRAND_TERMS, *PAYLOAD_TERMS, *LISTING_IDENTITY_TERMS]
 FETCH_BLOCK_HTTP_STATUSES = {403, 429}
 FETCH_BLOCK_MARKERS = [
     "cf-mitigated",
@@ -103,7 +108,7 @@ def source_host_live_spot_check_from_checklist_model(
             ),
             "record_live_listing": (
                 "python scripts/growth/record_ai_visibility_source_host_execution.py "
-                "--evidence-mode live-listing --surface <surface> "
+                "--evidence-mode live --surface <surface> "
                 "--source-url <public-listing-url>"
             ),
         },
@@ -150,7 +155,7 @@ def _check_search_url(
             ),
         )
     matched, missing = _term_matches(body)
-    candidate_found = _has_brand_and_payload_match(matched)
+    candidate_found = _has_candidate_match(matched)
     return GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(
         host=host,
         search_url=search_url,
@@ -189,11 +194,12 @@ def _term_matches(body: str) -> tuple[list[str], list[str]]:
     )
 
 
-def _has_brand_and_payload_match(matched: list[str]) -> bool:
+def _has_candidate_match(matched: list[str]) -> bool:
     matched_set = set(matched)
-    return bool(matched_set.intersection(BRAND_TERMS)) and bool(
-        matched_set.intersection(PAYLOAD_TERMS)
-    )
+    has_brand = bool(matched_set.intersection(BRAND_TERMS))
+    has_payload = bool(matched_set.intersection(PAYLOAD_TERMS))
+    has_listing_identity = bool(matched_set.intersection(LISTING_IDENTITY_TERMS))
+    return has_brand and (has_payload or has_listing_identity)
 
 
 def _is_fetch_blocked(http_status: int, body: str) -> bool:

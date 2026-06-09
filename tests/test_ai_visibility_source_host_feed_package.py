@@ -50,9 +50,10 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         draft_by_host["mcpservers.org"]["submission_payload"]["category"] == "finance"
     )
     assert draft_by_host["mcpservers.org"]["submission_payload"]["plan"] == "free"
-    assert "category" in draft_by_host["mcpservers.org"]["submission_payload"][
-        "form_fields"
-    ]
+    assert (
+        "category"
+        in draft_by_host["mcpservers.org"]["submission_payload"]["form_fields"]
+    )
     assert draft_by_host["aitoolnet.com"]["draft_type"] == "directory_submission"
     assert draft_by_host["aitoolnet.com"]["status"] == "ready_to_submit"
     assert draft_by_host["aitoolnet.com"]["submit_url"] == (
@@ -541,7 +542,7 @@ def test_ai_visibility_source_host_live_spot_check_marks_challenge_fetch_blocked
         fetcher=lambda _url: (
             403,
             "<title>Just a moment...</title>"
-            "<meta name=\"robots\" content=\"noindex,nofollow\">"
+            '<meta name="robots" content="noindex,nofollow">'
             "Checking if the site connection is secure. "
             "https://challenges.cloudflare.com challenge-platform",
         ),
@@ -552,6 +553,56 @@ def test_ai_visibility_source_host_live_spot_check_marks_challenge_fetch_blocked
     assert result.items[0].http_status == 403
     assert result.items[0].matched_terms == []
     assert "operator-owned browser session" in result.items[0].next_action
+
+
+def test_ai_visibility_source_host_live_spot_check_detects_glama_listing_identity():
+    from server.schemas_growth import (
+        GrowthAIVisibilitySourceHostExecutionChecklistOut,
+        GrowthAIVisibilitySourceHostExecutionItemOut,
+    )
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist_model,
+    )
+
+    checklist = GrowthAIVisibilitySourceHostExecutionChecklistOut(
+        generated_at=datetime.now(timezone.utc),
+        feed_key="mcp_paid_api_discovery",
+        status="ready_for_operator_execution",
+        items=[
+            GrowthAIVisibilitySourceHostExecutionItemOut(
+                key="glama",
+                host="glama.ai",
+                draft_type="directory_submission",
+                execution_status="pending_submission",
+                target_url="https://glama.ai/mcp/servers",
+                action_required="Submit listing.",
+                live_listing_search_urls=[
+                    "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
+                ],
+                validation_command="curl -fsS https://glama.ai/mcp/servers",
+                re_probe_command="python scripts/growth/probe.py",
+                completion_gate="Live listing evidence recorded.",
+            )
+        ],
+    )
+
+    result = source_host_live_spot_check_from_checklist_model(
+        checklist,
+        execute=True,
+        fetcher=lambda _url: (
+            200,
+            "<title>Synapse Network MCP MCP Servers | Glama</title>"
+            '<a href="/mcp/connectors/io.github.SynapseNetworkAI/'
+            'synapse-network-mcp-server">'
+            "SynapseNetwork MCP Server for paid API calls</a>",
+        ),
+    )
+
+    assert result.status == "candidate_found_needs_live_listing_evidence"
+    assert result.items[0].status == "candidate_found"
+    assert "synapsenetwork" in result.items[0].matched_terms
+    assert "synapse-network-mcp-server" in result.items[0].matched_terms
+    assert "--evidence-mode live " in result.commands["record_live_listing"]
 
 
 def test_ai_visibility_source_host_live_spot_check_reports_no_candidate(
