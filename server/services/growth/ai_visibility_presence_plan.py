@@ -377,6 +377,7 @@ def _aitoolnet_payload(base_payload: dict[str, object]) -> dict[str, object]:
             "Email support@aitoolnet.com from the Synapse support mailbox."
         ),
         "email_subject": "Friend link - Synapse Network Listing",
+        "email_body": _aitoolnet_email_body(),
         "pricing_or_plan": (
             "Free review queue; paid fast-track requires explicit operator approval."
         ),
@@ -407,6 +408,22 @@ def _aitoolnet_payload(base_payload: dict[str, object]) -> dict[str, object]:
         ],
         "browser_submission_required": True,
     }
+
+
+def _aitoolnet_email_body() -> str:
+    return (
+        "Hello AIToolNet team,\n\n"
+        "Please review SynapseNetwork MCP Server for an AIToolNet listing.\n\n"
+        "Website: https://www.synapse-network.ai/\n"
+        "GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\n"
+        "npm: @synapse-network-ai/mcp-server\n"
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp\n"
+        "Category: AI agents / Developer tools / Payments\n"
+        "Tools: discover_services, invoke_and_pay, get_receipt\n\n"
+        "Short description: Remote MCP for paid API discovery, API invocation, "
+        "USDC agent payments, and receipts.\n\n"
+        "Thanks,\nSynapse Network"
+    )
 
 
 def _controlled_payload(host: str) -> dict[str, object]:

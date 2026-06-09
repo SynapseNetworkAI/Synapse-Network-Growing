@@ -64,6 +64,14 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         in draft_by_host["aitoolnet.com"]["submission_payload"]["submission_method"]
     )
     assert (
+        "Remote MCP endpoint: https://mcp.synapse-network.ai/mcp"
+        in draft_by_host["aitoolnet.com"]["submission_payload"]["email_body"]
+    )
+    assert (
+        "Tools: discover_services, invoke_and_pay, get_receipt"
+        in draft_by_host["aitoolnet.com"]["submission_payload"]["email_body"]
+    )
+    assert (
         draft_by_host["aitoolnet.com"]["submission_payload"]["contact_email"]
         == "support@synapse-network.ai"
     )

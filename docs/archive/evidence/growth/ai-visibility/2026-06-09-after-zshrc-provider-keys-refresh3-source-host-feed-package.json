@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "package_type": "source_host_feed",
-  "generated_at": "2026-06-09T09:09:29.296678Z",
+  "generated_at": "2026-06-09T09:43:45.545364Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-zshrc-provider-keys-refresh3",
   "status": "ready_for_operator_feed",
@@ -113,6 +113,7 @@
         "category": "AI agents / Developer tools / Payments",
         "submission_method": "Email support@aitoolnet.com from the Synapse support mailbox.",
         "email_subject": "Friend link - Synapse Network Listing",
+        "email_body": "Hello AIToolNet team,\n\nPlease review SynapseNetwork MCP Server for an AIToolNet listing.\n\nWebsite: https://www.synapse-network.ai/\nGitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\nnpm: @synapse-network-ai/mcp-server\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp\nCategory: AI agents / Developer tools / Payments\nTools: discover_services, invoke_and_pay, get_receipt\n\nShort description: Remote MCP for paid API discovery, API invocation, USDC agent payments, and receipts.\n\nThanks,\nSynapse Network",
         "pricing_or_plan": "Free review queue; paid fast-track requires explicit operator approval.",
         "listing_content": "Synapse Network MCP Server is a Remote MCP endpoint for AI agents to discover callable APIs, invoke paid services with spend controls, and retrieve receipts. Remote endpoint: https://mcp.synapse-network.ai/mcp. GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server. npm: @synapse-network-ai/mcp-server. Tools: discover_services, invoke_and_pay, get_receipt. Docs: https://docs.synapse-network.ai/mcp.",
         "contact_email_notes": "Operator-owned email only; required by the AIToolNet form. Use a Synapse contact email; do not use API keys, bearer tokens, or personal secret values.",
