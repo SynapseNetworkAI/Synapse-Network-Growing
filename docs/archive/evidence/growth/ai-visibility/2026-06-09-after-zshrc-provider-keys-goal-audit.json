@@ -10,7 +10,7 @@
   ],
   "completed_count": 6,
   "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/goal-audit.json",
-  "generated_at": "2026-06-09T05:35:59.432882Z",
+  "generated_at": "2026-06-09T05:57:06.904868Z",
   "goal_achieved": false,
   "module_key": "ai_visibility",
   "next_actions": [

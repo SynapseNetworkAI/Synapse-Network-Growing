@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from server.config import PROJECT_ROOT
+from server.services.growth.ai_visibility_source_host_surfaces import (
+    source_host_surface,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 EVIDENCE_DIR = Path(PROJECT_ROOT) / "docs/archive/evidence/growth/ai-visibility"
@@ -213,10 +216,7 @@ def _collect_execution_evidence(
 
 
 def _host_surface(value: str) -> str:
-    host = value.strip().lower()
-    if "." in host:
-        return host.split(".", 1)[0].replace("-", "_")
-    return host.replace("-", "_")
+    return source_host_surface(value)
 
 
 def _required_item_priority(value: object) -> bool:

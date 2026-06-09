@@ -9,6 +9,9 @@ from server.services.growth.ai_visibility_goal_audit import (
 from server.services.growth.ai_visibility_source_host_audit import (
     source_host_audit_facts,
 )
+from server.services.growth.ai_visibility_source_host_surfaces import (
+    source_host_surface,
+)
 
 
 def test_source_host_audit_distinguishes_submission_from_live(tmp_path: Path):
@@ -104,6 +107,13 @@ def test_source_host_audit_uses_latest_checklist_for_required_hosts(tmp_path: Pa
     assert "alternativeto.net" in submission.blocker
     assert "aitoolnet.com" not in submission.blocker
     assert "mcp-marketplace.io" not in submission.blocker
+
+
+def test_source_host_surface_uses_precise_directory_keys():
+    assert source_host_surface("mcp.directory") == "mcp_directory"
+    assert source_host_surface("https://mcp.directory/submit") == "mcp_directory"
+    assert source_host_surface("mcp-marketplace.io") == "mcp_marketplace"
+    assert source_host_surface("alternativeto.net") == "alternativeto"
 
 
 def _checklist_item(host: str, *, priority: int) -> dict:

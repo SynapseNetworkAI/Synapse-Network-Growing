@@ -8,7 +8,13 @@ from scripts.growth import generate_ai_visibility_source_host_feed_package as fe
 def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     synced_client,
 ):
-    for host in ("mcpservers.org", "aitoolnet.com", "alternativeto.net", "aws.amazon.com"):
+    for host in (
+        "mcpservers.org",
+        "aitoolnet.com",
+        "alternativeto.net",
+        "mcp.directory",
+        "aws.amazon.com",
+    ):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
@@ -43,9 +49,10 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert draft_by_host["aitoolnet.com"]["submit_url"] == (
         "https://www.aitoolnet.com/finish"
     )
-    assert draft_by_host["aitoolnet.com"]["submission_payload"][
-        "stitch_figma_frame"
-    ] == "Directory Source-Host Submission Pack"
+    assert (
+        draft_by_host["aitoolnet.com"]["submission_payload"]["stitch_figma_frame"]
+        == "Directory Source-Host Submission Pack"
+    )
     assert "browser/form confirmation" in " ".join(
         draft_by_host["alternativeto.net"]["operator_notes"]
     )
@@ -69,15 +76,26 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     item_by_host = {item["host"]: item for item in checklist_payload["items"]}
     assert item_by_host["mcpservers.org"]["execution_status"] == "pending_submission"
     assert item_by_host["aitoolnet.com"]["execution_status"] == "pending_submission"
+    assert item_by_host["mcp.directory"]["execution_status"] == "pending_submission"
+    assert (
+        "--surface mcp_directory"
+        in item_by_host["mcp.directory"]["submission_confirmation_command"]
+    )
+    assert (
+        "YYYY-MM-DD-mcp_directory-submission-confirmation.json"
+        in item_by_host["mcp.directory"]["submission_confirmation_command"]
+    )
     assert item_by_host["aitoolnet.com"]["design_handoff_frame"] == (
         "Directory Source-Host Submission Pack"
     )
-    assert "--evidence-mode submission-confirmation" in item_by_host[
-        "aitoolnet.com"
-    ]["submission_confirmation_command"]
-    assert "YYYY-MM-DD-aitoolnet-submission-confirmation.json" in item_by_host[
-        "aitoolnet.com"
-    ]["submission_confirmation_command"]
+    assert (
+        "--evidence-mode submission-confirmation"
+        in item_by_host["aitoolnet.com"]["submission_confirmation_command"]
+    )
+    assert (
+        "YYYY-MM-DD-aitoolnet-submission-confirmation.json"
+        in item_by_host["aitoolnet.com"]["submission_confirmation_command"]
+    )
     assert item_by_host["alternativeto.net"]["execution_status"] == "pending_submission"
     assert (
         "submission_url_or_receipt"

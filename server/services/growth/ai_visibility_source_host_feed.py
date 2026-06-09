@@ -17,6 +17,9 @@ from server.services.growth.ai_visibility_presence_plan import (
     REMOTE_MCP_ENDPOINT,
     ai_visibility_presence_plan,
 )
+from server.services.growth.ai_visibility_source_host_surfaces import (
+    source_host_surface,
+)
 
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
 OFFICIAL_DOCS = "https://docs.synapse-network.ai/mcp/paid-api-calls"
@@ -157,7 +160,7 @@ def _submission_confirmation_command(
 ) -> str:
     if draft.draft_type != "directory_submission":
         return ""
-    surface = draft.host.split(".")[0].replace("-", "_")
+    surface = source_host_surface(draft.host)
     return (
         "python scripts/growth/record_ai_visibility_source_host_execution.py "
         "--feed-key mcp_paid_api_discovery "
@@ -165,15 +168,15 @@ def _submission_confirmation_command(
         f"--surface {surface} "
         f"--source-url {draft.submit_url or draft.target_url} "
         "--evidence-mode submission-confirmation "
-        "--submitted-payload-summary \"Submitted SynapseNetwork MCP Server with "
+        '--submitted-payload-summary "Submitted SynapseNetwork MCP Server with '
         "Remote MCP endpoint, GitHub, npm package, discover_services, "
-        "invoke_and_pay, and get_receipt.\" "
+        'invoke_and_pay, and get_receipt." '
         "--screenshot-url docs/archive/evidence/growth/ai-visibility/"
         f"YYYY-MM-DD-{surface}-submission.png "
-        f"--design-handoff-frame \"{draft.submission_payload.get('stitch_figma_frame', '')}\" "
+        f'--design-handoff-frame "{draft.submission_payload.get("stitch_figma_frame", "")}" '
         "--target-platform chatgpt "
         "--target-platform claude "
-        "--target-query \"Synapse vs paid MCP alternatives\" "
+        '--target-query "Synapse vs paid MCP alternatives" '
         "--output docs/archive/evidence/growth/ai-visibility/"
         f"YYYY-MM-DD-{surface}-submission-confirmation.json"
     )

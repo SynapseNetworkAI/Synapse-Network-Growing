@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "checklist_type": "source_host_feed_execution",
-  "generated_at": "2026-06-09T05:15:46.951197Z",
+  "generated_at": "2026-06-09T05:57:06.274286Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-09-after-zshrc-provider-keys",
   "status": "ready_for_operator_execution",
@@ -20,7 +20,7 @@
         "submitted_payload_summary",
         "screenshot"
       ],
-      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcp --source-url https://mcp.directory/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp-submission-confirmation.json",
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcp_directory --source-url https://mcp.directory/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_directory-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_directory-submission-confirmation.json",
       "validation_command": "curl -fsS \"https://mcp.directory/\" | grep -i \"synapse\"",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
