@@ -95,6 +95,27 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "do not count source-host intent as external citation evidence."
         ),
     },
+    "protodex.io": {
+        "surface": "protodex",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "Protodex is a public MCP server index with GitHub issue submission, "
+            "so Synapse needs a matching MCP directory listing for AI and MCP "
+            "client discovery."
+        ),
+        "brief": (
+            "Submit SynapseNetwork MCP Server to Protodex with the public GitHub "
+            "repository, API Integration category, hosted Remote MCP endpoint, npm "
+            "package, docs URL, and discover_services / invoke_and_pay / "
+            "get_receipt tool loop."
+        ),
+        "validation": (
+            "Record the Protodex GitHub issue URL or public listing URL; do not "
+            "count source-host intent as external citation evidence."
+        ),
+    },
     "python-docs.synapse.org": {
         "surface": "docs_disambiguation_links",
         "draft_type": "brand_disambiguation_answer_block",

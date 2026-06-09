@@ -35,6 +35,10 @@ DIRECTORY_LIVE_SEARCH_URLS = {
         "https://mcp-marketplace.io/?q=Synapse%20Network",
         "https://mcp-marketplace.io/?q=SynapseNetwork%20MCP%20Server",
     ],
+    "protodex.io": [
+        "https://protodex.io/?q=Synapse%20Network",
+        "https://protodex.io/?q=SynapseNetwork%20MCP%20Server",
+    ],
 }
 
 

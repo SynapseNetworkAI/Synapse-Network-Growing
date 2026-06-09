@@ -67,6 +67,14 @@ SUBMISSION_FIELD_KEYS_BY_HOST = {
         "contact_email",
         "category",
     ),
+    "protodex.io": (
+        "github_repository_url",
+        "category",
+        "short_description",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+    ),
     "alternativeto.net": DEFAULT_SUBMISSION_FIELD_KEYS[:-1],
     "aitoolnet.com": (
         "server_name",

@@ -31,6 +31,7 @@ DIRECTORY_HOSTS = {
     "mcpfind.org",
     "mcp-marketplace.io",
     "lobehub.com",
+    "protodex.io",
 }
 CONTROLLED_HOSTS = {
     "github.com",

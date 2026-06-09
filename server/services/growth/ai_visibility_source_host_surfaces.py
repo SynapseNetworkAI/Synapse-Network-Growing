@@ -11,6 +11,7 @@ SOURCE_HOST_SURFACES = {
     "mcpfind.org": "mcpfind",
     "mcp-marketplace.io": "mcp_marketplace",
     "mcpservers.org": "mcpservers",
+    "protodex.io": "protodex",
 }
 
 

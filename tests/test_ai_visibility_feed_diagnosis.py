@@ -95,6 +95,7 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
                             "mcp.directory",
                             "mcpservers.org",
                             "mcpfind.org",
+                            "protodex.io",
                             "mcp-marketplace.io",
                         ],
                     },
@@ -107,12 +108,13 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
 
     recommendations = diagnosis["recommended_source_host_executions"]
     surfaces = [item["surface"] for item in recommendations]
-    assert surfaces[:5] == [
+    assert surfaces[:6] == [
         "aitoolnet",
         "alternativeto",
         "mcp_directory",
         "mcpservers",
         "mcpfind",
+        "protodex",
     ]
     assert recommendations[0]["draft_type"] == "ai_tool_directory_listing"
     assert recommendations[1]["draft_type"] == "software_alternative_listing"
@@ -124,7 +126,8 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
     assert "MCP Directory" in recommendations[2]["rationale"]
     assert "MCPServers" in recommendations[3]["rationale"]
     assert "MCPFind" in recommendations[4]["rationale"]
-    assert "after-source-hosts" in recommendations[4]["next_probe_command"]
+    assert "Protodex" in recommendations[5]["rationale"]
+    assert "after-source-hosts" in recommendations[5]["next_probe_command"]
 
 
 def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Path):

@@ -9,6 +9,7 @@ from server.services.growth.ai_visibility_text import unique_strings
 SOURCE_HOST_ACTION_RESERVE = {
     "glama.ai",
     "mcpservers.org",
+    "protodex.io",
     "smithery.ai",
 }
 

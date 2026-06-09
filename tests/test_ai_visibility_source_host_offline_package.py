@@ -45,6 +45,11 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "validation_command": "Record MCPFind browser confirmation.",
                     },
                     {
+                        "surface": "protodex",
+                        "rationale": "Protodex accepts MCP server submissions by GitHub issue.",
+                        "validation_command": "Record Protodex issue URL.",
+                    },
+                    {
                         "surface": "docs_disambiguation_links",
                         "draft_type": "brand_disambiguation_answer_block",
                         "rationale": "Synapse.org appeared in exact identity answers.",
@@ -80,6 +85,15 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["mcpfind.org"].draft_type == "directory_submission"
     assert draft_by_host["mcpfind.org"].submit_url == "https://mcpfind.org/submit"
     assert draft_by_host["mcpfind.org"].submission_payload["category"] == "payments"
+    assert draft_by_host["protodex.io"].draft_type == "directory_submission"
+    assert (
+        "LuciferForge/mcp-directory/issues/new"
+        in draft_by_host["protodex.io"].submit_url
+    )
+    assert (
+        draft_by_host["protodex.io"].submission_payload["github_issue_repository"]
+        == "LuciferForge/mcp-directory"
+    )
     assert draft_by_host["docs.synapse-network.ai"].draft_type == (
         "owned_brand_disambiguation_refresh"
     )
@@ -114,6 +128,14 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert item_by_host["mcpfind.org"].execution_status == "pending_submission"
     assert item_by_host["mcpfind.org"].live_listing_search_urls[0] == (
         "https://mcpfind.org/?q=Synapse%20Network"
+    )
+    assert item_by_host["protodex.io"].execution_status == "pending_submission"
+    assert item_by_host["protodex.io"].live_listing_search_urls[0] == (
+        "https://protodex.io/?q=Synapse%20Network"
+    )
+    assert any(
+        field.label == "GitHub repository URL"
+        for field in item_by_host["protodex.io"].submission_fields
     )
     assert any(
         field.label == "Category" and field.value == "payments"

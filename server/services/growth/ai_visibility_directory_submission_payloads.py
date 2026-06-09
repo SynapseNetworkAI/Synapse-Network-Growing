@@ -96,6 +96,8 @@ def directory_submission_payload(
             ],
             "browser_submission_required": True,
         }
+    if host == "protodex.io":
+        return _protodex_payload(base_payload)
     return {
         **base_payload,
         "login_required": host == "mcp-marketplace.io",
@@ -197,4 +199,34 @@ def _alternativeto_payload(base_payload: dict[str, object]) -> dict[str, object]
             "invoke_and_pay",
             "get_receipt",
         ],
+    }
+
+
+def _protodex_payload(base_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **base_payload,
+        "submission_method": (
+            "Open the Protodex GitHub issue prefill, submit the public "
+            "SynapseNetworkAI MCP repository, category, and brief description, "
+            "then record the issue URL as source-host submission evidence."
+        ),
+        "listing_type": "MCP server index listing",
+        "category": "API Integration",
+        "github_issue_repository": "LuciferForge/mcp-directory",
+        "review_sla": "Protodex states submissions are reviewed and added within 7 days.",
+        "form_fields": [
+            "Repository URL",
+            "Category",
+            "Brief description",
+        ],
+        "tags": [
+            "Remote MCP",
+            "paid API discovery",
+            "AI agent payments",
+            "USDC settlement",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "browser_submission_required": False,
     }

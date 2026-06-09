@@ -40,6 +40,7 @@ SURFACE_HOSTS = {
     "glama": "glama.ai",
     "mcpservers": "mcpservers.org",
     "mcp_marketplace": "mcp-marketplace.io",
+    "protodex": "protodex.io",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }

@@ -1,0 +1,40 @@
+{
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-protodex-public-search",
+  "snapshot_type": "public_web_search_source_host",
+  "observed_at": "2026-06-10T00:35:00+08:00",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "next_actions": [
+    "Record Protodex GitHub issue submission evidence, then wait for live listing and rerun unchanged GPT/Claude/Grok/Gemini probes."
+  ],
+  "queries": [
+    {
+      "query": "Submit an MCP server Protodex",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Protodex Submit Your MCP Server",
+          "url": "https://protodex.io/submit.html"
+        },
+        {
+          "name": "LuciferForge mcp-directory",
+          "url": "https://github.com/LuciferForge/mcp-directory"
+        }
+      ]
+    },
+    {
+      "query": "MCP server index API Integration Protodex",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "Protodex MCP Server Index",
+          "url": "https://protodex.io/"
+        },
+        {
+          "name": "Protodex GitHub submission issue",
+          "url": "https://github.com/LuciferForge/mcp-directory/issues/new"
+        }
+      ]
+    }
+  ]
+}

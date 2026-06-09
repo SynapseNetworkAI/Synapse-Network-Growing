@@ -49,7 +49,13 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
 
 
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
-    for host in ("mcpservers.org", "mcpfind.org", "docs.mcpay.tech", "github.com"):
+    for host in (
+        "mcpservers.org",
+        "mcpfind.org",
+        "protodex.io",
+        "docs.mcpay.tech",
+        "github.com",
+    ):
         response = synced_client.post(
             "/api/growth/ai-visibility/checks",
             json={
@@ -77,6 +83,7 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     assert set(payload["source_hosts"]) == {
         "mcpservers.org",
         "mcpfind.org",
+        "protodex.io",
         "docs.mcpay.tech",
         "github.com",
     }
@@ -104,6 +111,20 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         == "https://mcp.synapse-network.ai/mcp"
     )
     assert action_by_host["mcpfind.org"]["submission_payload"]["category"] == "payments"
+    assert action_by_host["protodex.io"]["action_type"] == "directory_listing"
+    assert "LuciferForge/mcp-directory/issues/new" in action_by_host["protodex.io"][
+        "submit_url"
+    ]
+    assert (
+        action_by_host["protodex.io"]["submission_payload"][
+            "github_issue_repository"
+        ]
+        == "LuciferForge/mcp-directory"
+    )
+    assert (
+        action_by_host["protodex.io"]["submission_payload"]["category"]
+        == "API Integration"
+    )
     assert action_by_host["docs.mcpay.tech"]["ownership"] == "not_directly_editable"
     assert action_by_host["github.com"]["action_type"] == "owned_or_partner_listing"
     assert "https://mcp.synapse-network.ai/mcp" in "\n".join(
