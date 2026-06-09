@@ -26,6 +26,19 @@ PAYLOAD_TERMS = [
     "get_receipt",
 ]
 MATCH_TERMS = [*BRAND_TERMS, *PAYLOAD_TERMS]
+FETCH_BLOCK_HTTP_STATUSES = {403, 429}
+FETCH_BLOCK_MARKERS = [
+    "cf-mitigated",
+    "challenge-platform",
+    "challenges.cloudflare.com",
+    "cloudflare",
+    "just a moment",
+    "attention required",
+    "noindex,nofollow",
+    "verify you are human",
+    "browser check",
+    "captcha",
+]
 
 
 def source_host_live_spot_check_from_checklist(
@@ -123,6 +136,19 @@ def _check_search_url(
             evidence_excerpt=str(exc)[:300],
             next_action="Open the search URL in a browser or retry after the host is reachable.",
         )
+    if _is_fetch_blocked(http_status, body):
+        return GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(
+            host=host,
+            search_url=search_url,
+            status="fetch_blocked",
+            http_status=http_status,
+            missing_terms=MATCH_TERMS,
+            evidence_excerpt=_excerpt(body),
+            next_action=(
+                "Open the search URL in an operator-owned browser session and "
+                "record browser or screenshot evidence; CLI cannot verify this host."
+            ),
+        )
     matched, missing = _term_matches(body)
     candidate_found = _has_brand_and_payload_match(matched)
     return GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(
@@ -170,6 +196,13 @@ def _has_brand_and_payload_match(matched: list[str]) -> bool:
     )
 
 
+def _is_fetch_blocked(http_status: int, body: str) -> bool:
+    if http_status not in FETCH_BLOCK_HTTP_STATUSES:
+        return False
+    lowered = body.lower()
+    return any(marker in lowered for marker in FETCH_BLOCK_MARKERS)
+
+
 def _excerpt(body: str) -> str:
     compact = re.sub(r"\s+", " ", body).strip()
     lower = compact.lower()
@@ -190,7 +223,7 @@ def _overall_status(
         return "ready_to_execute"
     if any(item.status == "candidate_found" for item in items):
         return "candidate_found_needs_live_listing_evidence"
-    if any(item.status == "fetch_failed" for item in items):
+    if any(item.status in {"fetch_failed", "fetch_blocked"} for item in items):
         return "partial_fetch_failure"
     return "no_candidate_found"
 

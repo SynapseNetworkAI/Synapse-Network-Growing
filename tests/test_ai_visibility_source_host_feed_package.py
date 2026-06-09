@@ -459,6 +459,56 @@ def test_ai_visibility_source_host_live_spot_check_reports_fetch_failure(
     assert "No Synapse source-host listing candidate was found" in result.blockers[-1]
 
 
+def test_ai_visibility_source_host_live_spot_check_marks_challenge_fetch_blocked():
+    from server.schemas_growth import (
+        GrowthAIVisibilitySourceHostExecutionChecklistOut,
+        GrowthAIVisibilitySourceHostExecutionItemOut,
+    )
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist_model,
+    )
+
+    checklist = GrowthAIVisibilitySourceHostExecutionChecklistOut(
+        generated_at=datetime.now(timezone.utc),
+        feed_key="mcp_paid_api_discovery",
+        status="ready_for_operator_execution",
+        items=[
+            GrowthAIVisibilitySourceHostExecutionItemOut(
+                key="alternativeto",
+                host="alternativeto.net",
+                draft_type="directory_submission",
+                execution_status="pending_submission",
+                target_url="https://alternativeto.net/software/submit/",
+                action_required="Submit listing.",
+                live_listing_search_urls=[
+                    "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server"
+                ],
+                validation_command="Record browser confirmation.",
+                re_probe_command="python scripts/growth/probe.py",
+                completion_gate="Live listing evidence recorded.",
+            )
+        ],
+    )
+
+    result = source_host_live_spot_check_from_checklist_model(
+        checklist,
+        execute=True,
+        fetcher=lambda _url: (
+            403,
+            "<title>Just a moment...</title>"
+            "<meta name=\"robots\" content=\"noindex,nofollow\">"
+            "Checking if the site connection is secure. "
+            "https://challenges.cloudflare.com challenge-platform",
+        ),
+    )
+
+    assert result.status == "partial_fetch_failure"
+    assert result.items[0].status == "fetch_blocked"
+    assert result.items[0].http_status == 403
+    assert result.items[0].matched_terms == []
+    assert "operator-owned browser session" in result.items[0].next_action
+
+
 def test_ai_visibility_source_host_live_spot_check_reports_no_candidate(
     db_session,
 ):
