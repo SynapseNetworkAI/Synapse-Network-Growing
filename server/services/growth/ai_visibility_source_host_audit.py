@@ -17,6 +17,7 @@ SOURCE_HOST_FRAME = "Directory Source-Host Submission Pack"
 
 @dataclass(frozen=True)
 class SourceHostAuditFacts:
+    required_directory_hosts: list[str] = field(default_factory=list)
     checklist_hosts: list[str] = field(default_factory=list)
     framed_checklist_hosts: list[str] = field(default_factory=list)
     submission_command_hosts: list[str] = field(default_factory=list)
@@ -40,23 +41,28 @@ def source_host_audit_facts(
     checklist_hosts: list[str] = []
     framed_hosts: list[str] = []
     command_hosts: list[str] = []
+    required_hosts: list[str] = []
     submitted: list[str] = []
     live: list[str] = []
     evidence_files: list[str] = []
+    latest_checklist = _latest_checklist_payload(root)
+
+    if latest_checklist:
+        payload, path = latest_checklist
+        _collect_checklist_hosts(
+            payload,
+            checklist_hosts=checklist_hosts,
+            framed_hosts=framed_hosts,
+            command_hosts=command_hosts,
+            required_hosts=required_hosts,
+            evidence_files=evidence_files,
+            path=path,
+        )
 
     for path in sorted(root.glob("*.json")):
         payload = _read_json(path)
         if not payload:
             continue
-        if payload.get("checklist_type") == "source_host_feed_execution":
-            _collect_checklist_hosts(
-                payload,
-                checklist_hosts=checklist_hosts,
-                framed_hosts=framed_hosts,
-                command_hosts=command_hosts,
-                evidence_files=evidence_files,
-                path=path,
-            )
         if payload.get("module_key") == "ai_visibility_source_host_execution":
             _collect_execution_evidence(
                 payload,
@@ -67,6 +73,7 @@ def source_host_audit_facts(
             )
 
     return SourceHostAuditFacts(
+        required_directory_hosts=unique_strings(required_hosts),
         checklist_hosts=unique_strings(checklist_hosts),
         framed_checklist_hosts=unique_strings(framed_hosts),
         submission_command_hosts=unique_strings(command_hosts),
@@ -80,7 +87,13 @@ def merge_source_host_audit_facts(
     first: SourceHostAuditFacts,
     second: SourceHostAuditFacts,
 ) -> SourceHostAuditFacts:
+    required = (
+        first.required_directory_hosts
+        if first.required_directory_hosts
+        else second.required_directory_hosts
+    )
     return SourceHostAuditFacts(
+        required_directory_hosts=unique_strings(required),
         checklist_hosts=unique_strings(first.checklist_hosts + second.checklist_hosts),
         framed_checklist_hosts=unique_strings(
             first.framed_checklist_hosts + second.framed_checklist_hosts
@@ -100,6 +113,7 @@ def source_host_checklist_facts(checklist: Any) -> SourceHostAuditFacts:
     checklist_hosts: list[str] = []
     framed_hosts: list[str] = []
     command_hosts: list[str] = []
+    required_hosts: list[str] = []
     for item in getattr(checklist, "items", []) or []:
         host = str(getattr(item, "host", "") or "").strip()
         if not host:
@@ -111,7 +125,10 @@ def source_host_checklist_facts(checklist: Any) -> SourceHostAuditFacts:
             getattr(item, "submission_confirmation_command", "") or ""
         ):
             command_hosts.append(host)
+            if _required_item_priority(getattr(item, "priority", 0)):
+                required_hosts.append(host)
     return SourceHostAuditFacts(
+        required_directory_hosts=unique_strings(required_hosts),
         checklist_hosts=unique_strings(checklist_hosts),
         framed_checklist_hosts=unique_strings(framed_hosts),
         submission_command_hosts=unique_strings(command_hosts),
@@ -120,7 +137,7 @@ def source_host_checklist_facts(checklist: Any) -> SourceHostAuditFacts:
 
 def missing_hosts(
     have: list[str],
-    required: tuple[str, ...] = REQUIRED_DIRECTORY_HOSTS,
+    required: tuple[str, ...] | list[str] = REQUIRED_DIRECTORY_HOSTS,
 ) -> list[str]:
     present = {_host_surface(item) for item in have}
     return [host for host in required if _host_surface(host) not in present]
@@ -132,24 +149,48 @@ def _collect_checklist_hosts(
     checklist_hosts: list[str],
     framed_hosts: list[str],
     command_hosts: list[str],
+    required_hosts: list[str],
     evidence_files: list[str],
     path: Path,
 ) -> None:
     matched = False
     for item in payload.get("items", []) or []:
-        host = str(item.get("host") or "").strip()
+        host = _item_host(item)
         if not host:
             continue
         matched = True
         checklist_hosts.append(host)
-        if str(item.get("design_handoff_frame") or "") == SOURCE_HOST_FRAME:
+        if _uses_source_host_frame(item):
             framed_hosts.append(host)
-        if "--evidence-mode submission-confirmation" in str(
-            item.get("submission_confirmation_command") or ""
-        ):
+        if _has_submission_confirmation_command(item):
             command_hosts.append(host)
+            if _required_item_priority(item.get("priority")):
+                required_hosts.append(host)
     if matched:
         evidence_files.append(_relative_evidence_path(path))
+
+
+def _latest_checklist_payload(root: Path) -> tuple[dict[str, Any], Path] | None:
+    latest: tuple[dict[str, Any], Path] | None = None
+    for path in sorted(root.glob("*.json")):
+        payload = _read_json(path)
+        if payload.get("checklist_type") == "source_host_feed_execution":
+            latest = (payload, path)
+    return latest
+
+
+def _item_host(item: dict[str, Any]) -> str:
+    return str(item.get("host") or "").strip()
+
+
+def _uses_source_host_frame(item: dict[str, Any]) -> bool:
+    return str(item.get("design_handoff_frame") or "") == SOURCE_HOST_FRAME
+
+
+def _has_submission_confirmation_command(item: dict[str, Any]) -> bool:
+    return "--evidence-mode submission-confirmation" in str(
+        item.get("submission_confirmation_command") or ""
+    )
 
 
 def _collect_execution_evidence(
@@ -176,6 +217,14 @@ def _host_surface(value: str) -> str:
     if "." in host:
         return host.split(".", 1)[0].replace("-", "_")
     return host.replace("-", "_")
+
+
+def _required_item_priority(value: object) -> bool:
+    try:
+        priority = int(value or 0)
+    except (TypeError, ValueError):
+        return False
+    return 0 < priority <= 3
 
 
 def _relative_evidence_path(path: Path) -> str:

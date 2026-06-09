@@ -217,11 +217,12 @@ def _static_requirement(
 def _source_host_handoff_requirement(
     facts,
 ) -> GrowthAIVisibilityGoalAuditRequirementOut:
-    missing_frame = missing_hosts(facts.framed_checklist_hosts)
-    missing_command = missing_hosts(facts.submission_command_hosts)
+    required_hosts = _required_directory_hosts(facts)
+    missing_frame = missing_hosts(facts.framed_checklist_hosts, required_hosts)
+    missing_command = missing_hosts(facts.submission_command_hosts, required_hosts)
     passed = not missing_frame and not missing_command
     blocker = (
-        "Source-host checklist is missing AIToolNet/AlternativeTo design frame or "
+        "Source-host checklist is missing current directory design frame or "
         "submission-confirmation commands."
     )
     return GrowthAIVisibilityGoalAuditRequirementOut(
@@ -229,9 +230,7 @@ def _source_host_handoff_requirement(
         title="Directory source-host handoff",
         status="completed" if passed else "blocked",
         evidence=(
-            f"{SOURCE_HOST_FRAME} covers {', '.join(REQUIRED_DIRECTORY_HOSTS)}."
-            if passed
-            else ""
+            f"{SOURCE_HOST_FRAME} covers {', '.join(required_hosts)}." if passed else ""
         ),
         blocker="" if passed else blocker,
         next_action=""
@@ -243,7 +242,8 @@ def _source_host_handoff_requirement(
 def _source_host_submission_requirement(
     facts,
 ) -> GrowthAIVisibilityGoalAuditRequirementOut:
-    missing = missing_hosts(facts.submitted_or_live_surfaces)
+    required_hosts = _required_directory_hosts(facts)
+    missing = missing_hosts(facts.submitted_or_live_surfaces, required_hosts)
     passed = not missing
     blocker = (
         "Missing source-host submission confirmation evidence for "
@@ -261,14 +261,15 @@ def _source_host_submission_requirement(
         blocker="" if passed else blocker,
         next_action=""
         if passed
-        else "Submit AIToolNet/AlternativeTo forms and record confirmation evidence.",
+        else "Submit current P0 directory forms and record confirmation evidence.",
     )
 
 
 def _source_host_live_requirement(
     facts,
 ) -> GrowthAIVisibilityGoalAuditRequirementOut:
-    missing = missing_hosts(facts.live_surfaces)
+    required_hosts = _required_directory_hosts(facts)
+    missing = missing_hosts(facts.live_surfaces, required_hosts)
     passed = not missing
     blocker = (
         "Directory submission is not enough; live listing evidence is missing for "
@@ -288,6 +289,10 @@ def _source_host_live_requirement(
         if passed
         else "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
     )
+
+
+def _required_directory_hosts(facts) -> list[str]:
+    return list(facts.required_directory_hosts or REQUIRED_DIRECTORY_HOSTS)
 
 
 def _feed_readiness_requirement(

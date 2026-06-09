@@ -1,7 +1,7 @@
 {
   "blockers": [
-    "Missing source-host submission confirmation evidence for aitoolnet.com, alternativeto.net.",
-    "Directory submission is not enough; live listing evidence is missing for aitoolnet.com, alternativeto.net.",
+    "Missing source-host submission confirmation evidence for mcp.directory, alternativeto.net.",
+    "Directory submission is not enough; live listing evidence is missing for mcp.directory, alternativeto.net.",
     "Run and pass live feed readiness before external GPT/Claude/Grok/Gemini probes.",
     "Missing real external GPT/Claude/Grok/Gemini evidence: official citations are still insufficient.",
     "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
@@ -10,11 +10,11 @@
   ],
   "completed_count": 6,
   "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/goal-audit.json",
-  "generated_at": "2026-06-09T05:15:46.917152Z",
+  "generated_at": "2026-06-09T05:35:59.432882Z",
   "goal_achieved": false,
   "module_key": "ai_visibility",
   "next_actions": [
-    "Submit AIToolNet/AlternativeTo forms and record confirmation evidence.",
+    "Submit current P0 directory forms and record confirmation evidence.",
     "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
     "Run live readiness and fix feed blockers.",
     "Run full external probes and record evidence.",
@@ -70,7 +70,7 @@
     },
     {
       "blocker": "",
-      "evidence": "Directory Source-Host Submission Pack covers aitoolnet.com, alternativeto.net.",
+      "evidence": "Directory Source-Host Submission Pack covers mcp.directory, alternativeto.net.",
       "key": "source_host_handoff",
       "next_action": "",
       "required": true,
@@ -78,16 +78,16 @@
       "title": "Directory source-host handoff"
     },
     {
-      "blocker": "Missing source-host submission confirmation evidence for aitoolnet.com, alternativeto.net.",
+      "blocker": "Missing source-host submission confirmation evidence for mcp.directory, alternativeto.net.",
       "evidence": "",
       "key": "source_host_submission_evidence",
-      "next_action": "Submit AIToolNet/AlternativeTo forms and record confirmation evidence.",
+      "next_action": "Submit current P0 directory forms and record confirmation evidence.",
       "required": true,
       "status": "blocked",
       "title": "Directory submission evidence"
     },
     {
-      "blocker": "Directory submission is not enough; live listing evidence is missing for aitoolnet.com, alternativeto.net.",
+      "blocker": "Directory submission is not enough; live listing evidence is missing for mcp.directory, alternativeto.net.",
       "evidence": "",
       "key": "source_host_live_evidence",
       "next_action": "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",

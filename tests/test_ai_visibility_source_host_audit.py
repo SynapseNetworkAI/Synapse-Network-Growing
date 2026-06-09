@@ -69,5 +69,54 @@ def test_source_host_audit_distinguishes_submission_from_live(tmp_path: Path):
     assert "Directory submission is not enough" in live.blocker
 
 
+def test_source_host_audit_uses_latest_checklist_for_required_hosts(tmp_path: Path):
+    _write_json(
+        tmp_path
+        / "2026-06-09-after-provider-key-refresh-source-host-execution-checklist.json",
+        {
+            "module_key": "ai_visibility",
+            "checklist_type": "source_host_feed_execution",
+            "items": [
+                _checklist_item("aitoolnet.com", priority=1),
+                _checklist_item("alternativeto.net", priority=2),
+            ],
+        },
+    )
+    _write_json(
+        tmp_path
+        / "2026-06-09-after-zshrc-provider-keys-source-host-execution-checklist.json",
+        {
+            "module_key": "ai_visibility",
+            "checklist_type": "source_host_feed_execution",
+            "items": [
+                _checklist_item("mcp.directory", priority=1),
+                _checklist_item("alternativeto.net", priority=3),
+                _checklist_item("mcp-marketplace.io", priority=7),
+            ],
+        },
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+    submission = _source_host_submission_requirement(facts)
+
+    assert facts.required_directory_hosts == ["mcp.directory", "alternativeto.net"]
+    assert "mcp.directory" in submission.blocker
+    assert "alternativeto.net" in submission.blocker
+    assert "aitoolnet.com" not in submission.blocker
+    assert "mcp-marketplace.io" not in submission.blocker
+
+
+def _checklist_item(host: str, *, priority: int) -> dict:
+    return {
+        "host": host,
+        "priority": priority,
+        "design_handoff_frame": "Directory Source-Host Submission Pack",
+        "submission_confirmation_command": (
+            "python scripts/growth/record_ai_visibility_source_host_execution.py "
+            "--evidence-mode submission-confirmation"
+        ),
+    }
+
+
 def _write_json(path: Path, payload: dict):
     path.write_text(json.dumps(payload), encoding="utf-8")
