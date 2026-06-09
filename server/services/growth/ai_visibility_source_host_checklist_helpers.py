@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 from server.config import PROJECT_ROOT
 from server.schemas_growth import (
@@ -414,22 +415,38 @@ def _submission_confirmation_command(
 def _latest_live_evidence(host: str) -> LatestLiveEvidence:
     surface = source_host_surface(host)
     root = PROJECT_ROOT / "docs/archive/evidence/growth/ai-visibility"
-    latest: tuple[datetime, str, dict[str, object]] | None = None
-    for path in sorted(root.glob("*.json")) if root.exists() else []:
-        payload = _read_json(path)
-        if payload.get("module_key") != "ai_visibility_source_host_execution":
-            continue
-        if str(payload.get("surface") or "") != surface:
-            continue
-        status = str(payload.get("status") or "")
-        if status not in {"live_verified", "missing_required_terms"}:
-            continue
-        candidate = (_evidence_timestamp(payload), path.name, payload)
-        if latest is None or candidate[:2] > latest[:2]:
-            latest = candidate
-    if latest is None:
+    candidates = list(_live_evidence_candidates(root, surface=surface))
+    if not candidates:
         return LatestLiveEvidence()
-    payload = latest[2]
+    latest = max(candidates, key=lambda candidate: candidate[:2])
+    return _latest_live_evidence_from_payload(latest[2])
+
+
+def _live_evidence_candidates(
+    root: Path, *, surface: str
+) -> list[tuple[datetime, str, dict[str, object]]]:
+    if not root.exists():
+        return []
+    candidates = []
+    for path in sorted(root.glob("*.json")):
+        payload = _read_json(path)
+        if _is_live_evidence_payload(payload, surface=surface):
+            candidates.append((_evidence_timestamp(payload), path.name, payload))
+    return candidates
+
+
+def _is_live_evidence_payload(payload: dict[str, object], *, surface: str) -> bool:
+    status = str(payload.get("status") or "")
+    return (
+        payload.get("module_key") == "ai_visibility_source_host_execution"
+        and str(payload.get("surface") or "") == surface
+        and status in {"live_verified", "missing_required_terms"}
+    )
+
+
+def _latest_live_evidence_from_payload(
+    payload: dict[str, object],
+) -> LatestLiveEvidence:
     return LatestLiveEvidence(
         status=str(payload.get("status") or ""),
         missing_terms=unique_strings(
