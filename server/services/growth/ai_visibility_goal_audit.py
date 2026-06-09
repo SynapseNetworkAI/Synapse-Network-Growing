@@ -24,9 +24,21 @@ from server.services.growth.ai_visibility_design_handoff import (
 )
 from server.services.growth.ai_visibility_plan import ai_visibility_optimization_plan
 from server.services.growth.ai_visibility_scorecard import ai_visibility_feed_scorecard
+from server.services.growth.ai_visibility_source_host_audit import (
+    REQUIRED_DIRECTORY_HOSTS,
+    SOURCE_HOST_FRAME,
+    merge_source_host_audit_facts,
+    missing_hosts,
+    source_host_audit_facts,
+    source_host_checklist_facts,
+)
+from server.services.growth.ai_visibility_source_host_feed import (
+    ai_visibility_source_host_execution_checklist,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 OFFICIAL_HOMEPAGE = "https://www.synapse-network.ai/"
+MCP_DISCOVERY_FEED_KEY = "mcp_paid_api_discovery"
 
 
 def ai_visibility_goal_audit(
@@ -65,10 +77,19 @@ def ai_visibility_goal_audit(
 
 def _audit_context(db: Session) -> dict[str, Any]:
     plan = ai_visibility_optimization_plan()
+    checklist = ai_visibility_source_host_execution_checklist(
+        db,
+        feed_key=MCP_DISCOVERY_FEED_KEY,
+    )
+    source_host_facts = merge_source_host_audit_facts(
+        source_host_checklist_facts(checklist),
+        source_host_audit_facts(),
+    )
     return {
         "plan": plan,
         "docs": ai_agent_payments_docs_blueprint(),
         "handoff": ai_agent_payments_design_handoff(),
+        "source_host_facts": source_host_facts,
         "weekly": ai_visibility_weekly_report(db),
         "cycles": ai_visibility_feed_cycles(db),
         "scorecard": ai_visibility_feed_scorecard(db),
@@ -84,6 +105,7 @@ def _audit_requirements(
     plan = context["plan"]
     docs = context["docs"]
     handoff = context["handoff"]
+    source_host_facts = context["source_host_facts"]
     cycles = context["cycles"]
     scorecard = context["scorecard"]
     weekly = context["weekly"]
@@ -124,6 +146,9 @@ def _audit_requirements(
             ", ".join(item.feed_key for item in plan.feed_experiments),
             "Define brand, category-page, and MCP discovery feed experiments.",
         ),
+        _source_host_handoff_requirement(source_host_facts),
+        _source_host_submission_requirement(source_host_facts),
+        _source_host_live_requirement(source_host_facts),
         _feed_readiness_requirement(cycles, live_readiness, external_gate),
         _external_probe_requirement(weekly),
         _stable_runs_requirement(weekly),
@@ -186,6 +211,82 @@ def _static_requirement(
         evidence=evidence if passed else "",
         blocker="" if passed else next_action,
         next_action="" if passed else next_action,
+    )
+
+
+def _source_host_handoff_requirement(
+    facts,
+) -> GrowthAIVisibilityGoalAuditRequirementOut:
+    missing_frame = missing_hosts(facts.framed_checklist_hosts)
+    missing_command = missing_hosts(facts.submission_command_hosts)
+    passed = not missing_frame and not missing_command
+    blocker = (
+        "Source-host checklist is missing AIToolNet/AlternativeTo design frame or "
+        "submission-confirmation commands."
+    )
+    return GrowthAIVisibilityGoalAuditRequirementOut(
+        key="source_host_handoff",
+        title="Directory source-host handoff",
+        status="completed" if passed else "blocked",
+        evidence=(
+            f"{SOURCE_HOST_FRAME} covers {', '.join(REQUIRED_DIRECTORY_HOSTS)}."
+            if passed
+            else ""
+        ),
+        blocker="" if passed else blocker,
+        next_action=""
+        if passed
+        else "Regenerate the source-host checklist and design handoff package.",
+    )
+
+
+def _source_host_submission_requirement(
+    facts,
+) -> GrowthAIVisibilityGoalAuditRequirementOut:
+    missing = missing_hosts(facts.submitted_or_live_surfaces)
+    passed = not missing
+    blocker = (
+        "Missing source-host submission confirmation evidence for "
+        f"{', '.join(missing)}."
+    )
+    return GrowthAIVisibilityGoalAuditRequirementOut(
+        key="source_host_submission_evidence",
+        title="Directory submission evidence",
+        status="completed" if passed else "blocked",
+        evidence=(
+            f"Submitted or live surfaces: {', '.join(facts.submitted_or_live_surfaces)}."
+            if passed
+            else ""
+        ),
+        blocker="" if passed else blocker,
+        next_action=""
+        if passed
+        else "Submit AIToolNet/AlternativeTo forms and record confirmation evidence.",
+    )
+
+
+def _source_host_live_requirement(
+    facts,
+) -> GrowthAIVisibilityGoalAuditRequirementOut:
+    missing = missing_hosts(facts.live_surfaces)
+    passed = not missing
+    blocker = (
+        "Directory submission is not enough; live listing evidence is missing for "
+        f"{', '.join(missing)}."
+    )
+    return GrowthAIVisibilityGoalAuditRequirementOut(
+        key="source_host_live_evidence",
+        title="Directory live listing evidence",
+        status="completed" if passed else "blocked",
+        evidence=(
+            f"Live source-host listings verified: {', '.join(facts.live_surfaces)}."
+            if passed
+            else ""
+        ),
+        blocker="" if passed else blocker,
+        next_action=""
+        if passed
+        else "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
     )
 
 

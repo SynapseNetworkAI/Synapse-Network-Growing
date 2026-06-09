@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from server.services.growth.ai_visibility_feed_diagnosis_models import (
     SourceHostExecution,
     TARGET_PLATFORMS,
@@ -48,11 +50,15 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
 }
 
 
+class ObservedSourceHostsResult(BaseModel):
+    hosts_by_surface: dict[str, list[str]] = Field(default_factory=dict)
+
+
 def observed_source_host_recommendations(
     *, external_records: list[Any], rerun: str
 ) -> list[SourceHostExecution]:
     recommendations = []
-    observed = observed_hosts_by_surface(external_records)
+    observed = observed_hosts_by_surface(external_records).hosts_by_surface
     for host, config in OBSERVED_SOURCE_HOST_ACTIONS.items():
         queries = observed.get(host)
         if not queries:
@@ -75,7 +81,9 @@ def observed_source_host_recommendations(
     return recommendations
 
 
-def observed_hosts_by_surface(external_records: list[Any]) -> dict[str, list[str]]:
+def observed_hosts_by_surface(
+    external_records: list[Any],
+) -> ObservedSourceHostsResult:
     result: dict[str, list[str]] = {}
     for record in external_records:
         metadata = getattr(record, "metadata", {}) or {}
@@ -88,7 +96,7 @@ def observed_hosts_by_surface(external_records: list[Any]) -> dict[str, list[str
                 continue
             result.setdefault(normalized, [])
             result[normalized] = unique_strings(result[normalized] + [record.query])
-    return result
+    return ObservedSourceHostsResult(hosts_by_surface=result)
 
 
 def normalize_host(value: object) -> str:

@@ -16,7 +16,22 @@ from server.services.growth.ai_visibility_plan import (
 def ai_agent_payments_design_handoff() -> GrowthAIVisibilityDesignHandoffOut:
     plan = ai_visibility_optimization_plan()
     blueprint = ai_agent_payments_docs_blueprint()
-    frames = [
+    return GrowthAIVisibilityDesignHandoffOut(
+        title="Synapse AI Agent Payments Stitch To Figma Handoff",
+        canonical_domain=CANONICAL_HOMEPAGE,
+        figma_file_name="Synapse AI Agent Payments Docs - AI Visibility",
+        stitch_prompt=plan.design_plan.stitch_prompt,
+        frames=_design_frames(),
+        component_specs=_component_specs(),
+        design_tokens=_design_tokens(),
+        import_steps=_import_steps(),
+        implementation_notes=_implementation_notes(blueprint),
+        acceptance_checks=_acceptance_checks(),
+    )
+
+
+def _design_frames() -> list[GrowthAIVisibilityDesignFrameOut]:
+    return [
         _frame(
             name="AI Agent Payments Docs Landing",
             slug="index",
@@ -105,50 +120,54 @@ def ai_agent_payments_design_handoff() -> GrowthAIVisibilityDesignHandoffOut:
             ),
         ),
     ]
-    return GrowthAIVisibilityDesignHandoffOut(
-        title="Synapse AI Agent Payments Stitch To Figma Handoff",
-        canonical_domain=CANONICAL_HOMEPAGE,
-        figma_file_name="Synapse AI Agent Payments Docs - AI Visibility",
-        stitch_prompt=plan.design_plan.stitch_prompt,
-        frames=frames,
-        component_specs=_component_specs(),
-        design_tokens={
-            "surface": "#0b1020",
-            "panel": "#101827",
-            "accent": "#22d3ee",
-            "success": "#34d399",
-            "warning": "#f59e0b",
-            "text_primary": "#f8fafc",
-            "text_secondary": "#94a3b8",
-            "radius": "8px",
-        },
-        import_steps=[
-            "Generate each frame in Stitch using the frame-specific prompts.",
-            "Export Stitch output as image or HTML reference and import into Figma as exploration only.",
-            "Create Figma components for DefinitionBlock, MachineReadableFacts, PaymentFlowSteps, ComparisonTable, FAQSection, and LastUpdated.",
-            "Add SourceHostLinks, SubmissionChecklist, DirectoryMetadataTable, AcceptanceTerms, EvidenceStatus, and RerunProbeCommand components for the MCP paid API discovery frames.",
-            "Map every visual block back to an MDX section from the docs blueprint before implementation.",
-            "Do not treat Figma text as source of truth; final content lives in MDX, llms.txt, sitemap, and schema.",
-        ],
-        implementation_notes=[
-            f"Target repo: {blueprint.target_repo}",
-            f"Implementation root: {blueprint.implementation_root}",
-            "Cards should stay compact with 8px radius or less and no nested cards.",
-            "Use dense technical documentation layout, not a marketing hero.",
-            "Every page needs extractable definition, facts table, FAQ, schema metadata, and last updated date.",
-            "MCP paid API discovery frames must preserve the hosted endpoint, npm package, official registry name, and tool loop as inspectable text.",
-            "Directory submission frames must mark AIToolNet and AlternativeTo as pending until browser/form confirmation or public listing evidence exists.",
-        ],
-        acceptance_checks=[
-            "Figma frame includes the canonical www homepage and docs canonical URL.",
-            "Each component maps to a docs-front reusable block or plain MDX section.",
-            "Comparison table is readable on desktop and collapses without text overlap on mobile.",
-            "Definition blocks are 40-60 words and can stand alone when quoted by answer engines.",
-            "MCP source-host frames include https://mcp.synapse-network.ai/mcp, @synapse-network-ai/mcp-server, io.github.SynapseNetworkAI/synapse-network-mcp-server, and discover_services -> invoke_and_pay -> get_receipt.",
-            "Directory submission frame separates pending source-host intent from verified external citation evidence.",
-            "Implementation can be validated by docs build, sitemap/llms curl, and Growing local validation rows.",
-        ],
-    )
+
+
+def _design_tokens() -> dict[str, str]:
+    return {
+        "surface": "#0b1020",
+        "panel": "#101827",
+        "accent": "#22d3ee",
+        "success": "#34d399",
+        "warning": "#f59e0b",
+        "text_primary": "#f8fafc",
+        "text_secondary": "#94a3b8",
+        "radius": "8px",
+    }
+
+
+def _import_steps() -> list[str]:
+    return [
+        "Generate each frame in Stitch using the frame-specific prompts.",
+        "Export Stitch output as image or HTML reference and import into Figma as exploration only.",
+        "Create Figma components for DefinitionBlock, MachineReadableFacts, PaymentFlowSteps, ComparisonTable, FAQSection, and LastUpdated.",
+        "Add SourceHostLinks, SubmissionChecklist, DirectoryMetadataTable, AcceptanceTerms, EvidenceStatus, and RerunProbeCommand components for the MCP paid API discovery frames.",
+        "Map every visual block back to an MDX section from the docs blueprint before implementation.",
+        "Do not treat Figma text as source of truth; final content lives in MDX, llms.txt, sitemap, and schema.",
+    ]
+
+
+def _implementation_notes(blueprint) -> list[str]:
+    return [
+        f"Target repo: {blueprint.target_repo}",
+        f"Implementation root: {blueprint.implementation_root}",
+        "Cards should stay compact with 8px radius or less and no nested cards.",
+        "Use dense technical documentation layout, not a marketing hero.",
+        "Every page needs extractable definition, facts table, FAQ, schema metadata, and last updated date.",
+        "MCP paid API discovery frames must preserve the hosted endpoint, npm package, official registry name, and tool loop as inspectable text.",
+        "Directory submission frames must mark AIToolNet and AlternativeTo as pending until browser/form confirmation or public listing evidence exists.",
+    ]
+
+
+def _acceptance_checks() -> list[str]:
+    return [
+        "Figma frame includes the canonical www homepage and docs canonical URL.",
+        "Each component maps to a docs-front reusable block or plain MDX section.",
+        "Comparison table is readable on desktop and collapses without text overlap on mobile.",
+        "Definition blocks are 40-60 words and can stand alone when quoted by answer engines.",
+        "MCP source-host frames include https://mcp.synapse-network.ai/mcp, @synapse-network-ai/mcp-server, io.github.SynapseNetworkAI/synapse-network-mcp-server, and discover_services -> invoke_and_pay -> get_receipt.",
+        "Directory submission frame separates pending source-host intent from verified external citation evidence.",
+        "Implementation can be validated by docs build, sitemap/llms curl, and Growing local validation rows.",
+    ]
 
 
 def _frame(
