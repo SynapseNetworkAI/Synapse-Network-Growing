@@ -299,14 +299,19 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert design_payload["source_tool"] == "Stitch"
     assert design_payload["target_tool"] == "Figma"
-    assert len(design_payload["frames"]) == 3
+    assert len(design_payload["frames"]) == 6
     assert design_payload["frames"][0]["source_page_slug"] == "index"
+    frame_slugs = {frame["source_page_slug"] for frame in design_payload["frames"]}
+    assert {"mcp_paid_api_discovery", "directory_source_host_pack"} <= frame_slugs
     assert "DefinitionBlock" in {
+        component["name"] for component in design_payload["component_specs"]
+    }
+    assert "SubmissionChecklist" in {
         component["name"] for component in design_payload["component_specs"]
     }
     assert design_payload["design_tokens"]["radius"] == "8px"
     assert any(
-        "Generate the three frames in Stitch" in step
+        "Generate each frame in Stitch" in step
         for step in design_payload["import_steps"]
     )
 
