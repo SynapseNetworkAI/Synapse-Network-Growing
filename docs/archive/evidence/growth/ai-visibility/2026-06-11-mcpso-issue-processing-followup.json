@@ -1,0 +1,126 @@
+{
+  "module_key": "ai_visibility_source_host_followup",
+  "evidence_role": "source_host_processing_followup_not_external_citation",
+  "generated_at": "2026-06-10T19:54:30Z",
+  "run_group": "2026-06-11-after-mcpso-issue-submission",
+  "surface": "mcp_so",
+  "status": "submitted_but_not_processed_live",
+  "goal_complete": false,
+  "source_urls": {
+    "github_submission_issue": "https://github.com/chatmcp/mcpso/issues/1",
+    "submission_comment": "https://github.com/chatmcp/mcpso/issues/1#issuecomment-4673778929",
+    "mcp_so_candidate_detail": "https://mcp.so/server/synapse-network-mcp-server",
+    "mcp_so_search": "https://mcp.so/?q=SynapseNetworkAI%20Synapse-Network-MCP-Server",
+    "chat_mcp_so_search": "https://chat.mcp.so/?q=SynapseNetworkAI%20Synapse-Network-MCP-Server",
+    "mcp_so_submit_form": "https://mcp.so/submit",
+    "chat_mcp_so_submit_form": "https://chat.mcp.so/submit"
+  },
+  "github_issue_state": {
+    "issue_state": "OPEN",
+    "comment_count": 831,
+    "synapse_comment_author": "haochencheng",
+    "synapse_comment_created_at": "2026-06-10T19:38:17Z",
+    "synapse_comment_is_latest_observed_comment": true,
+    "maintainer_response_after_synapse_comment": false,
+    "latest_observed_comment_url": "https://github.com/chatmcp/mcpso/issues/1#issuecomment-4673778929"
+  },
+  "live_listing_recheck": [
+    {
+      "url": "https://mcp.so/server/synapse-network-mcp-server",
+      "status_code": 200,
+      "status": "candidate_incomplete",
+      "matched_terms": [
+        "Synapse-Network-MCP-Server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "has_sign_in_gate": true,
+      "body_sha256_12": "f3f30a3d39ec"
+    },
+    {
+      "url": "https://mcp.so/?q=SynapseNetworkAI%20Synapse-Network-MCP-Server",
+      "status_code": 200,
+      "status": "candidate_incomplete",
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "has_sign_in_gate": true,
+      "body_sha256_12": "fcbf291b1737"
+    },
+    {
+      "url": "https://chat.mcp.so/?q=SynapseNetworkAI%20Synapse-Network-MCP-Server",
+      "status_code": 200,
+      "status": "not_found",
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "has_sign_in_gate": true,
+      "body_sha256_12": "8179c9ad0ecb"
+    },
+    {
+      "url": "https://chat.mcp.so/submit",
+      "status_code": 200,
+      "status": "operator_login_required",
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "has_sign_in_gate": true,
+      "body_sha256_12": "3361e88c2df4"
+    },
+    {
+      "url": "https://mcp.so/submit",
+      "status_code": 200,
+      "status": "operator_login_required",
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "has_sign_in_gate": true,
+      "body_sha256_12": "6985bec76a54"
+    }
+  ],
+  "decision": {
+    "rerun_paid_probe_now": false,
+    "reason": "The submitted mcp.so/chat.mcp.so source host has not produced a complete public listing or maintainer response yet, so another unchanged paid answer-engine probe would still measure the pre-listing state.",
+    "next_action": "Wait for mcp.so/chat.mcp.so processing or complete an operator-authenticated listing update, then rerun the unchanged GPT/Claude/Grok/Gemini probe set."
+  }
+}
