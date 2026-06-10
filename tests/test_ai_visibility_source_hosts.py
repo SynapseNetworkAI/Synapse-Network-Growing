@@ -48,6 +48,52 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     assert "docs.mcpay.tech" in report["source_hosts"]
 
 
+def test_ai_visibility_comparison_flags_collision_source_hosts(synced_client):
+    response = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "SynapseNetworkAI/Synapse-Network-MCP-Server paid API calls",
+            "platform": "chatgpt",
+            "answer_summary": "ChatGPT cited the wrong Synapse MCP source host.",
+            "synapse_mentioned": True,
+            "synapse_cited": False,
+            "competitor_mentions": [],
+            "metadata": {
+                "source_hosts": [
+                    "github.com",
+                    "mcp.synapse.org",
+                    "python-docs.synapse.org",
+                ]
+            },
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-10-synapse-org-collision",
+        },
+    )
+    assert response.status_code == 201
+
+    comparison = synced_client.get(
+        "/api/growth/ai-visibility/comparisons"
+        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-10-synapse-org-collision"
+    )
+
+    assert comparison.status_code == 200
+    payload = comparison.json()["items"][0]
+    assert payload["citation_quality_status"] == "brand_collision_present"
+    assert payload["known_collision_competitors"] == [
+        "mcp.synapse.org",
+        "python-docs.synapse.org",
+    ]
+    assert payload["feed_effective"] is False
+
+    weekly = synced_client.get("/api/growth/ai-visibility/weekly-report")
+    assert weekly.status_code == 200
+    weekly_payload = weekly.json()
+    assert any(
+        "mcp.synapse.org, python-docs.synapse.org" in blocker
+        for blocker in weekly_payload["blockers"]
+    )
+
+
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     for host in (
         "mcpservers.org",

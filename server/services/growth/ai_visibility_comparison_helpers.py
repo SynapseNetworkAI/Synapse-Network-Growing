@@ -21,9 +21,9 @@ from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
 KNOWN_BRAND_COLLISION_COMPETITORS = {
-    "synapseproto.com",
-    "synapsenetwork.xyz",
-    "synapse.network",
+    "docs.synapse.sh", "getdrio.com", "mcp.synapse.org",
+    "mcp.synapse.sh", "python-docs.synapse.org", "synapse.network",
+    "synapse.org", "synapseproto.com", "synapsenetwork.xyz",
     "forbes.com/digital-assets/assets/synapse-network-zksnp",
 }
 
@@ -43,7 +43,7 @@ def _comparison_out(
     counts = _comparison_counts(external_rows, previous)
     official_cited_urls = _official_cited_urls(external_rows)
     known_collision_competitors = _known_collision_mentions(
-        aggregate["top_competitors"]
+        [*aggregate["top_competitors"], *aggregate["source_hosts"]]
     )
     comparison_status = _comparison_status(
         external_checks_count=len(external_rows),
@@ -254,7 +254,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
-        and not _known_collision_mentions(item.top_competitors)
+        and not item.known_collision_competitors
     )
 
 
@@ -328,7 +328,7 @@ def _comparison_collision_mentions(
 ) -> list[str]:
     collisions: set[str] = set()
     for item in comparisons:
-        collisions.update(_known_collision_mentions(item.top_competitors))
+        collisions.update(item.known_collision_competitors)
     return sorted(collisions)
 
 
@@ -362,9 +362,13 @@ def _known_collision_mentions(values: list[str]) -> list[str]:
     collisions: set[str] = set()
     for value in values:
         normalized = str(value or "").strip().lower()
-        for collision in KNOWN_BRAND_COLLISION_COMPETITORS:
-            if collision in normalized:
-                collisions.add(collision)
+        matches = [
+            collision
+            for collision in KNOWN_BRAND_COLLISION_COMPETITORS
+            if collision in normalized
+        ]
+        if matches:
+            collisions.add(max(matches, key=len))
     return sorted(collisions)
 
 
