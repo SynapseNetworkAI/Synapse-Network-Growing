@@ -14,6 +14,8 @@ def directory_submission_payload(
         return _glama_payload(base_payload)
     if host == "lobehub.com":
         return _lobehub_payload(base_payload)
+    if host in {"chat.mcp.so", "mcp.so"}:
+        return _mcp_so_payload(host, base_payload)
     if host == "mcp.directory":
         return {
             **base_payload,
@@ -211,6 +213,65 @@ def _lobehub_payload(base_payload: dict[str, object]) -> dict[str, object]:
             "get_receipt",
         ],
         "browser_submission_required": True,
+    }
+
+
+def _mcp_so_payload(host: str, base_payload: dict[str, object]) -> dict[str, object]:
+    issue_url = "https://github.com/chatmcp/mcpso/issues/1"
+    return {
+        **base_payload,
+        "submission_method": (
+            f"Use the public {host}/submit form when an operator is signed in. "
+            "If browser login is unavailable, add a listing comment to "
+            "chatmcp/mcpso issue #1 and record the comment URL."
+        ),
+        "listing_type": "MCP directory listing",
+        "submit_url": f"https://{host}/submit",
+        "github_issue_repository": "chatmcp/mcpso",
+        "github_issue_url": issue_url,
+        "github_issue_comment_url": issue_url,
+        "login_required": True,
+        "submission_blocker": (
+            f"{host} submit form requires site sign-in. GitHub issue #1 is the "
+            "public fallback path for server links when no site session is "
+            "available."
+        ),
+        "form_fields": [
+            "Type",
+            "Name",
+            "URL",
+            "Server Config",
+        ],
+        "server_config": {
+            "mcpServers": {
+                "synapse-network": {
+                    "type": "streamable-http",
+                    "url": "https://mcp.synapse-network.ai/mcp",
+                    "headers": {
+                        "Authorization": "Bearer <Synapse Agent Credential>",
+                    },
+                }
+            }
+        },
+        "tags": [
+            "Remote MCP",
+            "paid API discovery",
+            "agent payments",
+            "AgentPay",
+            "USDC settlement",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "acceptance_terms": [
+            "Synapse Network",
+            "SynapseNetworkAI",
+            "synapse-network-mcp-server",
+            "https://mcp.synapse-network.ai/mcp",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
     }
 
 

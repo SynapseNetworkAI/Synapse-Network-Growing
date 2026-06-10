@@ -99,9 +99,14 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
     assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
     assert draft_by_host["chat.mcp.so"].draft_type == "mcp_search_surface_review"
-    assert draft_by_host["chat.mcp.so"].status == "needs_operator_review"
+    assert draft_by_host["chat.mcp.so"].status == "operator_login_required"
     assert draft_by_host["chat.mcp.so"].validation_command == (
         "Record chat.mcp.so listing evidence."
+    )
+    assert draft_by_host["chat.mcp.so"].submit_url == "https://chat.mcp.so/submit"
+    assert (
+        draft_by_host["chat.mcp.so"].submission_payload["github_issue_repository"]
+        == "chatmcp/mcpso"
     )
     assert draft_by_host["dock0.dev"].draft_type == "competitor_source_host_review"
     assert draft_by_host["dock0.dev"].status == "needs_operator_review"
@@ -608,10 +613,16 @@ def test_offline_source_host_package_maps_exact_query_collision_surfaces(
         "mysynap.com",
         "synapbus.dev",
     }
-    assert draft_by_host["mcp.so"].draft_type == "contextual_partner_or_guest_pitch"
+    assert draft_by_host["mcp.so"].draft_type == "directory_submission"
+    assert draft_by_host["mcp.so"].status == "operator_login_required"
+    assert draft_by_host["mcp.so"].submit_url == "https://mcp.so/submit"
+    assert (
+        draft_by_host["mcp.so"].submission_payload["github_issue_repository"]
+        == "chatmcp/mcpso"
+    )
     assert draft_by_host["ubos.tech"].status == "needs_operator_review"
 
     checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
     item_by_host = {item.host: item for item in checklist.items}
-    assert item_by_host["mcp.so"].execution_status == "pending_operator_review"
+    assert item_by_host["mcp.so"].execution_status == "pending_operator_login"
     assert "truthful partner" in item_by_host["ubos.tech"].action_required
