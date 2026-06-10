@@ -1,0 +1,410 @@
+{
+  "module_key": "ai_visibility",
+  "generated_at": "2026-06-10T16:56:10.067686Z",
+  "goal_status": "optimizing",
+  "goal_achieved": false,
+  "required_stable_runs": 3,
+  "stable_positive_runs": 0,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "covered_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini",
+    "grok"
+  ],
+  "missing_platforms": [],
+  "total_external_checks": 724,
+  "total_mentioned_count": 68,
+  "total_cited_count": 15,
+  "latest_feed_key": "mcp_paid_api_discovery",
+  "latest_run_group": "2026-06-11-after-metadata-refresh-gate",
+  "latest_comparison_status": "inconclusive_provider_failure",
+  "feed_reports": [
+    {
+      "feed_key": "mcp_paid_api_discovery",
+      "latest_run_group": "2026-06-11-after-metadata-refresh-gate",
+      "comparison_status": "inconclusive_provider_failure",
+      "citation_quality_status": "brand_collision_present",
+      "feed_effective": false,
+      "external_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini",
+        "grok"
+      ],
+      "missing_platforms": [],
+      "known_collision_competitors": [
+        "python-docs.synapse.org",
+        "synapse.org"
+      ],
+      "source_hosts": [
+        "mcp.directory",
+        "docs.mcpay.tech",
+        "anythingmcp.com",
+        "coincodecap.com",
+        "dev.to",
+        "findingwise.com",
+        "mcp-marketplace.io",
+        "mcp.so",
+        "mcpplaygroundonline.com",
+        "python-docs.synapse.org"
+      ],
+      "source_host_actions": [
+        {
+          "host": "mcp.directory",
+          "surface": "mcp_directory",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "mcp_directory_listing",
+          "rationale": "MCP Directory appeared repeatedly in answer-engine source hosts for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing."
+        },
+        {
+          "host": "docs.mcpay.tech",
+          "surface": "docs_mcpay_tech",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.mcpay.tech appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "anythingmcp.com",
+          "surface": "anythingmcp_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "anythingmcp.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "coincodecap.com",
+          "surface": "coincodecap_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "coincodecap.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "dev.to",
+          "surface": "dev_to",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "dev.to appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "findingwise.com",
+          "surface": "findingwise_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "findingwise.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "mcp-marketplace.io",
+          "surface": "mcp_marketplace",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "mcp-marketplace.io appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "mcp.so",
+          "surface": "mcp_so",
+          "observed_count": 1,
+          "priority": "p0",
+          "draft_type": "mcp_directory_listing",
+          "rationale": "mcp.so appeared in exact SynapseNetwork MCP answer sources, so Synapse needs either a corrected public listing or a recorded review path that uses the exact SynapseNetworkAI identifiers."
+        },
+        {
+          "host": "mcpplaygroundonline.com",
+          "surface": "mcpplaygroundonline_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "mcpplaygroundonline.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "python-docs.synapse.org",
+          "surface": "docs_disambiguation_links",
+          "observed_count": 1,
+          "priority": "p0",
+          "draft_type": "brand_disambiguation_answer_block",
+          "rationale": "ChatGPT cited Synapse.org biomedical documentation for exact SynapseNetwork MCP queries, so Synapse Network needs stronger owned disambiguation language on docs, README, and registry surfaces."
+        }
+      ],
+      "official_cited_urls": [],
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "mentioned_delta": 0,
+      "cited_delta": 0,
+      "latest_run_at": "2026-06-10T16:55:54.919053",
+      "next_actions": [
+        "Add or strengthen disambiguation copy for known collision domains: python-docs.synapse.org, synapse.org.",
+        "Fix provider/API probe failure and rerun the same query.",
+        "Deploy/refresh feed assets and rerun the same API probe.",
+        "Prioritize third-party presence on cited answer-engine hosts: mcp.directory, docs.mcpay.tech, anythingmcp.com."
+      ]
+    },
+    {
+      "feed_key": "agent_payment_category_pages",
+      "latest_run_group": "2026-06-10-after-mcp-registry-017",
+      "comparison_status": "inconclusive_provider_failure",
+      "citation_quality_status": "brand_collision_present",
+      "feed_effective": false,
+      "external_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini",
+        "grok"
+      ],
+      "missing_platforms": [],
+      "known_collision_competitors": [
+        "docs.synapse.sh",
+        "mysynap.com",
+        "python-docs.synapse.org",
+        "synapse.org"
+      ],
+      "source_hosts": [
+        "docs.mcpay.tech",
+        "docs.omni.dev",
+        "docs.synapse.sh",
+        "mysynap.com",
+        "playbooks.com",
+        "python-docs.synapse.org",
+        "cashfree.com",
+        "docs-dev.seamless.ai",
+        "docs.cdp.coinbase.com",
+        "docs.hyperline.co"
+      ],
+      "source_host_actions": [
+        {
+          "host": "docs.mcpay.tech",
+          "surface": "docs_mcpay_tech",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.mcpay.tech appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs.omni.dev",
+          "surface": "docs_omni_dev",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.omni.dev appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs.synapse.sh",
+          "surface": "docs_synapse_sh",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.synapse.sh appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "mysynap.com",
+          "surface": "mysynap_com",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "brand_collision_source_host_review",
+          "rationale": "mysynap.com appeared in exact SynapseNetwork MCP source hosts, so Synapse needs explicit brand-collision handling for this domain."
+        },
+        {
+          "host": "playbooks.com",
+          "surface": "playbooks_com",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "playbooks.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "python-docs.synapse.org",
+          "surface": "docs_disambiguation_links",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "brand_disambiguation_answer_block",
+          "rationale": "ChatGPT cited Synapse.org biomedical documentation for exact SynapseNetwork MCP queries, so Synapse Network needs stronger owned disambiguation language on docs, README, and registry surfaces."
+        },
+        {
+          "host": "cashfree.com",
+          "surface": "cashfree_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "cashfree.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs-dev.seamless.ai",
+          "surface": "docs_dev_seamless_ai",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs-dev.seamless.ai appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs.cdp.coinbase.com",
+          "surface": "docs_cdp_coinbase_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.cdp.coinbase.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs.hyperline.co",
+          "surface": "docs_hyperline_co",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.hyperline.co appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        }
+      ],
+      "official_cited_urls": [],
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "mentioned_delta": 0,
+      "cited_delta": 0,
+      "latest_run_at": "2026-06-10T08:24:19.294619",
+      "next_actions": [
+        "Add or strengthen disambiguation copy for known collision domains: docs.synapse.sh, mysynap.com, python-docs.synapse.org, synapse.org.",
+        "Fix provider/API probe failure and rerun the same query.",
+        "Deploy/refresh feed assets and rerun the same API probe.",
+        "Prioritize third-party presence on cited answer-engine hosts: docs.mcpay.tech, docs.omni.dev, docs.synapse.sh."
+      ]
+    },
+    {
+      "feed_key": "brand_disambiguation_www",
+      "latest_run_group": "2026-06-08-full-after-citation-facts-pr",
+      "comparison_status": "improved",
+      "citation_quality_status": "missing_official_citation",
+      "feed_effective": false,
+      "external_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini",
+        "grok"
+      ],
+      "missing_platforms": [],
+      "known_collision_competitors": [],
+      "source_hosts": [
+        "vertexaisearch.cloud.google.com",
+        "w3.org",
+        "mcp.so",
+        "github.com",
+        "agenticcontrolplane.com",
+        "chat.mcp.so",
+        "dock0.dev",
+        "docs.mcpay.tech",
+        "mcpservers.org",
+        "pulsemcp.com"
+      ],
+      "source_host_actions": [
+        {
+          "host": "vertexaisearch.cloud.google.com",
+          "surface": "vertexaisearch_cloud_google_com",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "vertexaisearch.cloud.google.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "w3.org",
+          "surface": "w3_org",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "w3.org appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "mcp.so",
+          "surface": "mcp_so",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "mcp_directory_listing",
+          "rationale": "mcp.so appeared in exact SynapseNetwork MCP answer sources, so Synapse needs either a corrected public listing or a recorded review path that uses the exact SynapseNetworkAI identifiers."
+        },
+        {
+          "host": "github.com",
+          "surface": "github_com",
+          "observed_count": 2,
+          "priority": "p0",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "github.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "agenticcontrolplane.com",
+          "surface": "agenticcontrolplane_com",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "agenticcontrolplane.com appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "chat.mcp.so",
+          "surface": "chat_mcp_so",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "chat.mcp.so appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "dock0.dev",
+          "surface": "dock0_dev",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "dock0.dev appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "docs.mcpay.tech",
+          "surface": "docs_mcpay_tech",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "contextual_source_host_review",
+          "rationale": "docs.mcpay.tech appeared in answer-engine source hosts, so review whether Synapse needs a truthful listing, correction request, partner mention, or owned disambiguation refresh before the next unchanged probe."
+        },
+        {
+          "host": "mcpservers.org",
+          "surface": "mcpservers",
+          "observed_count": 1,
+          "priority": "p0",
+          "draft_type": "mcp_directory_listing",
+          "rationale": "MCPServers appeared in answer-engine source hosts for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing."
+        },
+        {
+          "host": "pulsemcp.com",
+          "surface": "pulsemcp",
+          "observed_count": 1,
+          "priority": "p1",
+          "draft_type": "mcp_directory_listing",
+          "rationale": "PulseMCP is a live MCP directory surface that exposes official server.json and Remote MCP metadata, so Synapse should keep its listing fresh for MCP client and answer-engine discovery."
+        }
+      ],
+      "official_cited_urls": [],
+      "mentioned_count": 5,
+      "cited_count": 0,
+      "mentioned_delta": 2,
+      "cited_delta": 0,
+      "latest_run_at": "2026-06-08T05:03:19.823596",
+      "next_actions": [
+        "Compare against previous run group and keep feeding cited surfaces.",
+        "Fix provider/API probe failure and rerun the same query.",
+        "Prioritize third-party presence on cited answer-engine hosts: vertexaisearch.cloud.google.com, w3.org, mcp.so."
+      ]
+    }
+  ],
+  "blockers": [
+    "Fewer than three stable positive external runs have been recorded.",
+    "Known Synapse brand collision results still appear in external probe evidence: docs.synapse.sh, mysynap.com, python-docs.synapse.org, synapse.org."
+  ],
+  "next_actions": [
+    "Add or strengthen disambiguation copy for known collision domains: python-docs.synapse.org, synapse.org.",
+    "Fix provider/API probe failure and rerun the same query.",
+    "Add or strengthen disambiguation copy for known collision domains: docs.synapse.sh, mysynap.com, python-docs.synapse.org, synapse.org."
+  ],
+  "recommended_feed_key": "mcp_paid_api_discovery",
+  "recommended_probe_template_command": "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-weekly --mode after-feed --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-weekly.jsonl"
+}
