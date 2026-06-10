@@ -31,6 +31,11 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         "--diagnosis-file",
         help="Optional feed diagnosis JSON to build an offline checklist without the Ops API ledger.",
     )
+    parser.add_argument(
+        "--skip-source-host-audit",
+        action="store_true",
+        help="Do not annotate offline diagnosis items with existing source-host evidence.",
+    )
     parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
     args = parser.parse_args()
 
@@ -39,6 +44,7 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
             args.diagnosis_file,
             feed_key=args.feed_key,
             run_group=args.run_group or None,
+            use_source_host_audit=not args.skip_source_host_audit,
         )
     else:
         checklist = run_with_db(
@@ -69,15 +75,20 @@ def _build_execution_checklist_from_diagnosis(
     *,
     feed_key: str,
     run_group: str | None,
+    use_source_host_audit: bool = True,
 ):
     from server.services.growth.ai_visibility_source_host_offline import (
         source_host_execution_checklist_from_diagnosis,
+    )
+    from scripts.growth.ai_visibility_source_host_audit_cli import (
+        maybe_offline_source_host_audit_facts,
     )
 
     return source_host_execution_checklist_from_diagnosis(
         diagnosis_file,
         feed_key=feed_key,
         run_group=run_group,
+        audit_facts=maybe_offline_source_host_audit_facts(use_source_host_audit),
     )
 
 

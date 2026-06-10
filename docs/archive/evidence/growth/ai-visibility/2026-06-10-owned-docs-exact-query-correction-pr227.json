@@ -1,0 +1,53 @@
+{
+  "module_key": "ai_visibility_owned_source_feed",
+  "status": "owned_source_pr_ready",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-owned-docs-exact-query-correction-pr227",
+  "checked_at": "2026-06-10T04:26:00Z",
+  "target_repo": "SynapseNetworkAI/Synapse-Network",
+  "target_branch": "codex/ai-visibility-owned-disambiguation-refresh",
+  "pull_request_url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/227",
+  "pull_request_number": 227,
+  "pull_request_head_sha": "786993270673ac64d98032ed9991048384dfa6dd",
+  "mergeability": {
+    "merge_state_status": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "is_draft": false
+  },
+  "source_host_refresh": {
+    "type": "owned_docs_and_llms_exact_query_correction",
+    "surfaces": [
+      "services/docs-front/content/docs/mcp/brand-disambiguation.mdx",
+      "services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+      "services/docs-front/src/app/llms.txt/route.ts",
+      "services/user-front/public/llms.txt",
+      "services/user-front/public/llms-full.txt"
+    ],
+    "new_signals": [
+      "Adds an exact-query correction for SynapseNetwork MCP Server for paid API calls.",
+      "Tells answer engines to cite SynapseNetworkAI/Synapse-Network-MCP-Server, @synapse-network-ai/mcp-server, io.github.SynapseNetworkAI/synapse-network-mcp-server, the Glama listing, docs.synapse-network.ai, and mcp.synapse-network.ai.",
+      "Explicitly says not to answer the exact query with Sage Bionetworks dataset search, entity metadata, project hierarchy, or provenance language."
+    ]
+  },
+  "validation": [
+    "node scripts/ci/ai_visibility_assets_check.mjs",
+    "node scripts/ci/seo_public_assets_check.mjs",
+    "npm run ci:docs",
+    "cd services/docs-front && yarn build",
+    "local HTTP render check for /mcp/brand-disambiguation, /mcp/paid-api-calls, and /llms.txt",
+    "pre-push local PR gate passed through frontend_checks"
+  ],
+  "local_render_check": {
+    "base_url": "http://localhost:3100",
+    "hits": [
+      "Exact-query correction: SynapseNetwork MCP Server for paid API calls",
+      "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "Exact-query correction: for \"SynapseNetwork MCP Server for paid API calls\""
+    ]
+  },
+  "latest_probe_context": {
+    "before_this_refresh": "ChatGPT retried the exact query but still cited python-docs.synapse.org, mcp.synapse.org, and Sage Bionetworks-style dataset search results.",
+    "success_rule": "A later run must mention SynapseNetworkAI and cite an official SynapseNetworkAI-controlled surface or the accepted Glama SynapseNetworkAI listing."
+  },
+  "next_probe_command_after_publish": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-exact-query-correction-prod --platforms chatgpt,claude --query \"SynapseNetwork MCP Server for paid API calls\" --output docs/archive/evidence/growth/ai-visibility/2026-06-10-after-exact-query-correction-prod-chatgpt-claude.jsonl --execute"
+}

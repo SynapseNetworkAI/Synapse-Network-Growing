@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 KNOWN_BRAND_COLLISION_COMPETITORS = {
+    "docs.synapse.sh",
+    "getdrio.com",
+    "mcp.synapse.sh",
     "python-docs.synapse.org",
     "mcp.synapse.org",
     "synapse.org",

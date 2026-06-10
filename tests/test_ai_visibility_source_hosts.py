@@ -86,6 +86,15 @@ def test_ai_visibility_comparison_flags_synapse_org_source_host_collision(
         "Add or strengthen disambiguation copy for known collision domains: "
         "mcp.synapse.org, python-docs.synapse.org, synapse.org."
     )
+    assert payload["feed_effective"] is False
+
+    weekly = synced_client.get("/api/growth/ai-visibility/weekly-report")
+    assert weekly.status_code == 200
+    weekly_payload = weekly.json()
+    assert any(
+        "mcp.synapse.org, python-docs.synapse.org, synapse.org" in blocker
+        for blocker in weekly_payload["blockers"]
+    )
 
 
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):

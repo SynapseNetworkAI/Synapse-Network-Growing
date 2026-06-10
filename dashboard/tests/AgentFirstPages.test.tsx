@@ -587,6 +587,6 @@ describe('agent-first pages smoke', () => {
     )
     await waitFor(() => expect(mockApi.getErrors).toHaveBeenCalled())
     expect(screen.getByText('错误列表')).toBeInTheDocument()
-    expect(screen.getByText('Synapse Gateway')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('Synapse Gateway')).toBeInTheDocument())
   })
 })

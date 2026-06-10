@@ -1,0 +1,22 @@
+{
+  "checked_at": "2026-06-10T03:19:06.867414+00:00",
+  "module_key": "ai_visibility_owned_source_feed",
+  "status": "live_verified",
+  "checks": [
+    {
+      "surface": "readme",
+      "url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md",
+      "ok": true,
+      "missing_terms": [],
+      "content_length": 26034
+    },
+    {
+      "surface": "llms",
+      "url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/llms.txt",
+      "ok": true,
+      "missing_terms": [],
+      "content_length": 19136
+    }
+  ],
+  "commit_sha": "535f72f"
+}

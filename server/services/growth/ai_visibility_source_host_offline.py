@@ -20,6 +20,9 @@ from server.services.growth.ai_visibility_source_host_checklist_helpers import (
 from server.services.growth.ai_visibility_source_host_directory_config import (
     DIRECTORY_SUBMIT_URLS,
 )
+from server.services.growth.ai_visibility_source_host_surfaces import (
+    source_host_surface,
+)
 
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
@@ -53,12 +56,14 @@ def source_host_feed_package_from_diagnosis(
     *,
     feed_key: str | None = None,
     run_group: str | None = None,
+    audit_facts: object | None = None,
 ) -> GrowthAIVisibilitySourceHostFeedPackageOut:
     payload = _read_json(diagnosis_path)
     safe_feed_key = feed_key or str(payload.get("feed_key") or DEFAULT_FEED_KEY)
     safe_run_group = run_group or str(payload.get("run_group") or "")
     drafts = [
-        _draft_from_recommendation(rec, i) for i, rec in _recommendations(payload)
+        _draft_from_recommendation(rec, i, audit_facts=audit_facts)
+        for i, rec in _recommendations(payload)
     ]
     blockers: list[str] = []
     if not drafts:
@@ -82,11 +87,13 @@ def source_host_execution_checklist_from_diagnosis(
     *,
     feed_key: str | None = None,
     run_group: str | None = None,
+    audit_facts: object | None = None,
 ) -> GrowthAIVisibilitySourceHostExecutionChecklistOut:
     package = source_host_feed_package_from_diagnosis(
         diagnosis_path,
         feed_key=feed_key,
         run_group=run_group,
+        audit_facts=audit_facts,
     )
     return source_host_execution_checklist_from_package(package)
 
@@ -103,18 +110,25 @@ def _recommendations(payload: dict[str, object]) -> list[tuple[int, dict[str, ob
 
 
 def _draft_from_recommendation(
-    recommendation: dict[str, object], index: int
+    recommendation: dict[str, object],
+    index: int,
+    *,
+    audit_facts: object | None,
 ) -> GrowthAIVisibilitySourceHostDraftOut:
     host = _host_for_surface(recommendation)
     draft_type = _draft_type_for_recommendation(recommendation, host)
     submit_url = DIRECTORY_SUBMIT_URLS.get(host, "")
     summary = _summary(recommendation)
     payload = _submission_payload(host)
+    status = _status_for_draft(draft_type, submit_url, payload)
+    status = _audit_status_override(host=host, status=status, audit_facts=audit_facts)
+    if audit_facts:
+        payload["source_host_audit_status"] = status
     return GrowthAIVisibilitySourceHostDraftOut(
         host=host,
         priority=index,
         draft_type=draft_type,
-        status=_status_for_draft(draft_type, submit_url, payload),
+        status=status,
         target_url=submit_url or f"https://{host}/",
         submit_url=submit_url,
         title=_title_for_draft(host, draft_type),
@@ -129,6 +143,24 @@ def _draft_from_recommendation(
         probe_followup=str(recommendation.get("next_probe_command") or ""),
         operator_notes=_operator_notes(host, draft_type),
     )
+
+
+def _audit_status_override(
+    *,
+    host: str,
+    status: str,
+    audit_facts: object | None,
+) -> str:
+    if not audit_facts:
+        return status
+    surface = source_host_surface(host)
+    if surface in {source_host_surface(item) for item in audit_facts.live_surfaces}:
+        return "already_live"
+    if surface in {
+        source_host_surface(item) for item in audit_facts.review_pending_surfaces
+    }:
+        return "review_pending_live_recheck"
+    return status
 
 
 def _host_for_surface(recommendation: dict[str, object]) -> str:

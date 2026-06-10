@@ -1,0 +1,62 @@
+{
+  "module_key": "ai_visibility",
+  "check_type": "source_host_live_spot_check",
+  "generated_at": "2026-06-10T05:59:52.499559Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-exact-query-chatgpt-after-source-host-refresh",
+  "execute": true,
+  "status": "candidate_found_needs_live_listing_evidence",
+  "items": [
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
+      "status": "candidate_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>Synapse Network MCP MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=Synapse+Network+MCP\" rel=\"canonical\"/><meta content=\"Synapse Network MCP MCP Servers\" property=\"og:titl",
+      "next_action": "Record live-listing evidence."
+    },
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
+      "status": "candidate_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapsenetwork",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "synapse network",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>SynapseNetwork MCP Server MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=SynapseNetwork+MCP+Server\" rel=\"canonical\"/><meta content=\"SynapseNetwork MCP Server MCP Servers\"",
+      "next_action": "Record live-listing evidence."
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "execute": "python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --checklist-file docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-source-host-execution-checklist.json --execute",
+    "record_live_listing": "python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live --surface <surface> --source-url <public-listing-url>"
+  }
+}

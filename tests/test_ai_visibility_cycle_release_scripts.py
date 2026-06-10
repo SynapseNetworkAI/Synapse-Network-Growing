@@ -216,6 +216,34 @@ def test_cycle_summary_detects_external_citation(tmp_path: Path):
         "grok",
         "gemini",
     }
+
+
+def test_cycle_summary_rejects_unrelated_mcp_registry_citation(tmp_path: Path):
+    probe_path = tmp_path / "external-wrong-registry.jsonl"
+    probe_path.write_text(
+        json.dumps(
+            {
+                "query": "SynapseNetworkAI MCP Registry",
+                "platform": "chatgpt",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-after-registry-feed",
+                "answer_summary": "ChatGPT cited a different MCP Registry server.",
+                "synapse_mentioned": True,
+                "synapse_cited": True,
+                "cited_urls": [
+                    "https://registry.modelcontextprotocol.io/?q=io.github.MPP32%2Fmpp32-mcp-server"
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = cycle_summary.parse_probe_file(probe_path)
+    payload = cycle_summary.summarize_cycle(records, source_path=str(probe_path))
+
+    assert payload["status"] == "partial_external_probe"
+    assert payload["external_cited_count"] == 0
+    assert payload["comparison"]["cited_delta"] == 0
     assert (
         "comparisons?feed_key=mcp_paid_api_discovery" in payload["commands"]["compare"]
     )

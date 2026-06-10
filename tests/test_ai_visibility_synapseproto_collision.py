@@ -47,7 +47,10 @@ def test_synapseproto_is_known_brand_collision_in_probe_metadata():
     )
 
     assert "synapseproto.com" in KNOWN_COLLISION_DOMAINS
+    assert "mcp.synapse.org" in KNOWN_COLLISION_DOMAINS
+    assert "python-docs.synapse.org" in KNOWN_COLLISION_DOMAINS
     assert "synapseproto.com" in records[0].metadata["known_collision_domains"]
+    assert "mcp.synapse.org" in records[0].metadata["known_collision_domains"]
 
 
 def test_synapseproto_collision_does_not_count_as_synapse_citation():
@@ -62,6 +65,27 @@ def test_synapseproto_collision_does_not_count_as_synapse_citation():
     assert payload["synapse_mentioned"] is False
     assert payload["synapse_cited"] is False
     assert "synapseproto.com" in payload["competitor_mentions"]
+
+
+def test_synapse_org_collision_does_not_count_as_synapse_citation():
+    payload = api_probe.answer_payload(
+        platform="chatgpt",
+        model="gpt-test",
+        text=(
+            "Synapse offers an MCP server for biomedical data queries through "
+            "the Sage Bionetworks endpoint."
+        ),
+        urls=[
+            "https://python-docs.synapse.org/en/latest/guides/synapse_mcp/",
+            "https://mcp.synapse.org/mcp",
+        ],
+        request_id="req-2",
+    )
+
+    assert payload["synapse_mentioned"] is False
+    assert payload["synapse_cited"] is False
+    assert "python-docs.synapse.org" in payload["competitor_mentions"]
+    assert "mcp.synapse.org" in payload["competitor_mentions"]
 
 
 def test_public_search_snapshot_records_synapseproto_competitor():

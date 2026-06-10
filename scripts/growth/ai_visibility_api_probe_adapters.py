@@ -10,9 +10,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from scripts.growth.generate_ai_visibility_probe_template import KNOWN_COLLISION_DOMAINS
 from scripts.growth.ai_visibility_api_probe_scoring import is_official_synapse_mention
-from server.services.growth.ai_visibility_official_sources import is_official_citation_url
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
+)
+from scripts.growth.generate_ai_visibility_probe_template import KNOWN_COLLISION_DOMAINS
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"

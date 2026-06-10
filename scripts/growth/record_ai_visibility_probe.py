@@ -21,7 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from server.services.growth.ai_visibility_official_sources import (  # noqa: E402
-    OFFICIAL_CITATION_PREFIXES,
+    is_official_citation_url,
 )
 
 DEFAULT_API_BASE = "http://localhost:9700/api"
@@ -34,6 +34,7 @@ EXTERNAL_PLATFORMS = {
     "google_ai",
     "bing_copilot",
     "gemini",
+    "grok",
     "public_web_search",
 }
 
@@ -257,11 +258,7 @@ def validate_records(
 
 
 def _has_official_citation(urls: list[str]) -> bool:
-    return any(
-        url.startswith(prefix)
-        for url in urls
-        for prefix in OFFICIAL_CITATION_PREFIXES
-    )
+    return any(is_official_citation_url(url) for url in urls)
 
 
 def post_records(api_base: str, records: list[ProbeRecord]) -> list[Any]:

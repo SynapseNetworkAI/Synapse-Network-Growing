@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "checklist_type": "source_host_feed_execution",
-  "generated_at": "2026-06-10T11:48:22.275953Z",
+  "generated_at": "2026-06-10T12:16:49.961724Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-10-source-host-layered",
   "status": "ready_for_operator_execution",
@@ -11,10 +11,10 @@
       "host": "mcp.directory",
       "priority": 1,
       "draft_type": "directory_submission",
-      "execution_status": "pending_submission",
+      "execution_status": "review_pending_live_recheck",
       "target_url": "https://mcp.directory/submit",
       "design_handoff_frame": "Directory Source-Host Submission Pack",
-      "action_required": "Submit the directory form using the non-secret payload.",
+      "action_required": "Do not resubmit; recheck the review-pending listing until the public source-host page includes the required Synapse terms.",
       "submission_fields": [
         {
           "label": "GitHub repository URL",
@@ -53,16 +53,11 @@
         }
       ],
       "submission_steps": [
-        "Open https://mcp.directory/submit in an operator-owned browser session.",
-        "Fill only the non-secret submission fields from this checklist.",
-        "Add the Remote MCP endpoint and tool list to the description if the form has no dedicated fields.",
-        "Submit or save draft only after the browser preview matches the Synapse Remote MCP facts.",
-        "Capture a screenshot or public receipt URL before marking the item submitted."
+        "Do not submit the form again while the directory review is pending.",
+        "Open the live listing search URLs on a fixed cadence.",
+        "Record live-listing evidence only after a public page includes the required Synapse terms."
       ],
       "evidence_recording_steps": [
-        "Latest live check failed for this source host; missing terms: SynapseNetwork, mcp.synapse-network.ai, Synapse-Network-MCP-Server. Treat this as an operator submission/update blocker.",
-        "Record submission confirmation with --surface mcp_directory.",
-        "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
         "Use evidence-mode live-listing only after the public listing URL is accessible.",
         "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists."
       ],
@@ -85,11 +80,10 @@
       "latest_live_evidence_url": "https://mcp.directory/?q=Synapse%20Network",
       "latest_live_validation_summary": "mcp_directory source host is missing required terms: SynapseNetwork, mcp.synapse-network.ai, Synapse-Network-MCP-Server.",
       "required_evidence": [
-        "submission_url_or_receipt",
-        "submitted_payload_summary",
-        "screenshot"
+        "public_listing_url",
+        "live_curl_or_browser_validation"
       ],
-      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcp_directory --source-url https://mcp.directory/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_directory-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_directory-submission-confirmation.json",
+      "submission_confirmation_command": "",
       "validation_command": "Record MCP Directory browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -99,10 +93,10 @@
       "host": "mcpservers.org",
       "priority": 2,
       "draft_type": "directory_submission",
-      "execution_status": "pending_submission",
+      "execution_status": "already_live",
       "target_url": "https://mcpservers.org/submit",
       "design_handoff_frame": "Directory Source-Host Submission Pack",
-      "action_required": "Submit the directory form using the non-secret payload.",
+      "action_required": "No submission action required; source-host evidence is already live.",
       "submission_fields": [
         {
           "label": "Server or product name",
@@ -150,18 +144,9 @@
           "notes": "Use as the documentation/reference URL when available."
         }
       ],
-      "submission_steps": [
-        "Open https://mcpservers.org/submit in an operator-owned browser session.",
-        "Fill only the non-secret submission fields from this checklist.",
-        "Add the Remote MCP endpoint and tool list to the description if the form has no dedicated fields.",
-        "Submit or save draft only after the browser preview matches the Synapse Remote MCP facts.",
-        "Capture a screenshot or public receipt URL before marking the item submitted."
-      ],
+      "submission_steps": [],
       "evidence_recording_steps": [
-        "Record submission confirmation with --surface mcpservers.",
-        "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
-        "Use evidence-mode live-listing only after the public listing URL is accessible.",
-        "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists."
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
       ],
       "live_listing_search_urls": [
         "https://mcpservers.org/?q=Synapse%20Network",
@@ -178,11 +163,9 @@
       "latest_live_evidence_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
       "latest_live_validation_summary": "mcpservers source host is live and matched 6 required terms.",
       "required_evidence": [
-        "submission_url_or_receipt",
-        "submitted_payload_summary",
-        "screenshot"
+        "existing_live_source_host_evidence"
       ],
-      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcpservers --source-url https://mcpservers.org/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcpservers-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcpservers-submission-confirmation.json",
+      "submission_confirmation_command": "",
       "validation_command": "Record MCPServers browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
@@ -220,13 +203,15 @@
       "host": "registry.modelcontextprotocol.io",
       "priority": 4,
       "draft_type": "contextual_partner_or_guest_pitch",
-      "execution_status": "pending_operator_review",
+      "execution_status": "already_live",
       "target_url": "https://registry.modelcontextprotocol.io/",
       "design_handoff_frame": "Directory Source-Host Submission Pack",
-      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "action_required": "No submission action required; source-host evidence is already live.",
       "submission_fields": [],
       "submission_steps": [],
-      "evidence_recording_steps": [],
+      "evidence_recording_steps": [
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+      ],
       "live_listing_search_urls": [],
       "live_listing_validation_steps": [],
       "latest_live_evidence_status": "live_verified",
@@ -234,9 +219,7 @@
       "latest_live_evidence_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
       "latest_live_validation_summary": "registry_modelcontextprotocol_io source host is live and matched 3 required terms.",
       "required_evidence": [
-        "review_notes",
-        "target_contact_or_surface",
-        "decision_or_published_url"
+        "existing_live_source_host_evidence"
       ],
       "submission_confirmation_command": "",
       "validation_command": "mcp-publisher publish && curl 'https://registry.modelcontextprotocol.io/v0.1/servers?search=synapse'",
@@ -304,10 +287,10 @@
       "host": "glama.ai",
       "priority": 7,
       "draft_type": "directory_submission",
-      "execution_status": "pending_submission",
+      "execution_status": "already_live",
       "target_url": "https://glama.ai/mcp/servers",
       "design_handoff_frame": "Directory Source-Host Submission Pack",
-      "action_required": "Submit the directory form using the non-secret payload.",
+      "action_required": "No submission action required; source-host evidence is already live.",
       "submission_fields": [
         {
           "label": "Server or product name",
@@ -355,19 +338,9 @@
           "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
         }
       ],
-      "submission_steps": [
-        "Open https://glama.ai/mcp/servers in an operator-owned browser session.",
-        "Fill only the non-secret submission fields from this checklist.",
-        "Add the Remote MCP endpoint and tool list to the description if the form has no dedicated fields.",
-        "Submit or save draft only after the browser preview matches the Synapse Remote MCP facts.",
-        "Capture a screenshot or public receipt URL before marking the item submitted."
-      ],
+      "submission_steps": [],
       "evidence_recording_steps": [
-        "Latest live check failed for this source host; missing terms: Synapse Network MCP Server. Treat this as an operator submission/update blocker.",
-        "Record submission confirmation with --surface glama_ai.",
-        "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
-        "Use evidence-mode live-listing only after the public listing URL is accessible.",
-        "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists."
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
       ],
       "live_listing_search_urls": [
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
@@ -386,11 +359,9 @@
       "latest_live_evidence_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
       "latest_live_validation_summary": "glama_ai source host is missing required terms: Synapse Network MCP Server.",
       "required_evidence": [
-        "submission_url_or_receipt",
-        "submitted_payload_summary",
-        "screenshot"
+        "existing_live_source_host_evidence"
       ],
-      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface glama_ai --source-url https://glama.ai/mcp/servers --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-glama_ai-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-glama_ai-submission-confirmation.json",
+      "submission_confirmation_command": "",
       "validation_command": "curl -fsS 'https://glama.ai/search?q=Synapse%20Network%20MCP'",
       "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
       "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."

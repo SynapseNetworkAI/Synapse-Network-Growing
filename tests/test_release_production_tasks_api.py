@@ -379,6 +379,13 @@ def test_production_local_branch_helper_uses_repo_env_override(monkeypatch):
 
     def fake_run(args, **kwargs):
         calls.append(args)
+        if args[3:6] == ["fetch", "--quiet", "origin"]:
+            return release_production_tasks_service.subprocess.CompletedProcess(
+                args=args,
+                returncode=0,
+                stdout="",
+                stderr="",
+            )
         return release_production_tasks_service.subprocess.CompletedProcess(
             args=args,
             returncode=0,
@@ -396,7 +403,46 @@ def test_production_local_branch_helper_uses_repo_env_override(monkeypatch):
 
     assert sha == "clean-main-sha"
     assert error is None
-    assert calls[0][:3] == ["git", "-C", "/tmp/synapse-network-clean-main"]
+    assert calls[0] == [
+        "git",
+        "-C",
+        "/tmp/synapse-network-clean-main",
+        "fetch",
+        "--quiet",
+        "origin",
+        "main",
+    ]
+    assert calls[1] == [
+        "git",
+        "-C",
+        "/tmp/synapse-network-clean-main",
+        "rev-parse",
+        "refs/remotes/origin/main^{commit}",
+    ]
+
+
+def test_production_local_branch_helper_reports_fetch_failure(monkeypatch):
+    monkeypatch.setattr(config, "E2E_MODE", False)
+    monkeypatch.setenv("SYNAPSE_NETWORK_REPO", "/tmp/synapse-network-clean-main")
+
+    def fake_run(args, **kwargs):
+        return release_production_tasks_service.subprocess.CompletedProcess(
+            args=args,
+            returncode=1,
+            stdout="",
+            stderr="fetch failed",
+        )
+
+    monkeypatch.setattr(
+        release_production_tasks_service.subprocess, "run", fake_run
+    )
+
+    sha, error = release_production_tasks_service._local_branch_commit_sha(
+        "synapse-network", "main"
+    )
+
+    assert sha is None
+    assert error == "fetch failed"
 
 
 def test_production_gate_blocks_stale_target_commit(monkeypatch, db_session):

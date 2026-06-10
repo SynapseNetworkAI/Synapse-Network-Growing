@@ -1,0 +1,31 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-mcpservers-submission-confirmed",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/submit",
+  "checked_at": "2026-06-10T03:45:22.943124+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "0ca2a5487815bddda46a701c4f2eb0730a23fc2d9670be351c6bbf1886908612",
+  "content_bytes": 251,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "mcpservers.org browser submission returned HTTP 200 with submission status pending; submitted metadata includes Synapse Network MCP Server name, GitHub repository URL, finance category, short description, free listing plan, and operator contact email.",
+  "screenshot_url": "docs/archive/evidence/growth/ai-visibility/2026-06-10-mcpservers-submit-result.png",
+  "validation_summary": "mcpservers browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-mcpservers-submission-confirmed-after-source-host --platforms chatgpt,claude,gemini --execute"
+}

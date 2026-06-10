@@ -22,6 +22,9 @@ from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
 from server.services.growth.ai_visibility_plan import (  # noqa: E402
     ai_visibility_feed_packages,
 )
+from server.services.growth.ai_visibility_official_sources import (  # noqa: E402
+    is_official_citation_url,
+)
 from server.services.growth.ai_visibility_probe_failures import (  # noqa: E402
     has_provider_failure_missing_fact,
     provider_failure_summaries,
@@ -185,7 +188,7 @@ def summarize_cycle(
             1 for record in external_records if record.synapse_mentioned
         ),
         "external_cited_count": sum(
-            1 for record in external_records if record.synapse_cited
+            1 for record in external_records if record_has_official_citation(record)
         ),
         "target_platforms": target_platforms,
         "covered_platforms": covered_platforms,
@@ -333,7 +336,7 @@ def cycle_status(
         return "ready_for_external_probe"
     if missing_platforms:
         return "partial_external_probe"
-    if any(record.synapse_cited for record in external_records):
+    if any(record_has_official_citation(record) for record in external_records):
         return "citation_observed"
     if any(record.synapse_mentioned for record in external_records):
         return "mention_observed"
@@ -462,6 +465,10 @@ def is_local_validation(record: ProbeRecord) -> bool:
 
 def is_api_probe_readiness_blocker(record: ProbeRecord) -> bool:
     return str(record.metadata.get("mode", "")).strip() == "api_probe_readiness_blocker"
+
+
+def record_has_official_citation(record: ProbeRecord) -> bool:
+    return any(is_official_citation_url(url) for url in record.cited_urls)
 
 
 def is_provider_failure(record: ProbeRecord) -> bool:

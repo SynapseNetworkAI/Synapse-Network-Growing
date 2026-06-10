@@ -267,6 +267,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.mentioned_count >= 2
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
+        and not item.known_collision_competitors
         and not known_collision_mentions(item.top_competitors)
     )
 

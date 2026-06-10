@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-06-10",
+  "run_group": "2026-06-10-exact-query-chatgpt-after-source-host-refresh",
+  "target_query": "SynapseNetwork MCP Server for paid API calls",
+  "probe_result": {
+    "platform": "chatgpt",
+    "synapse_mentioned": true,
+    "synapse_cited": false,
+    "result_rank": 1,
+    "official_cited_urls": [],
+    "observed_source_hosts": [
+      "agent402.dev",
+      "agenticcontrolplane.com",
+      "chat.mcp.so",
+      "dock0.dev",
+      "docs.mcpay.tech",
+      "gmcp.dev",
+      "helius.dev",
+      "mcp.so",
+      "mysynap.com",
+      "python-docs.synapse.org",
+      "whopmcp.com"
+    ],
+    "collision_or_competitor_mentions": [
+      "x402",
+      "mcpay",
+      "dock0",
+      "python-docs.synapse.org",
+      "synapse.org"
+    ],
+    "interpretation": "ChatGPT now mentions SynapseNetwork for the exact query, but still cites Sage Bionetworks Synapse and paid-MCP competitor source hosts instead of official SynapseNetworkAI sources."
+  },
+  "generated_operator_artifacts": [
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh.jsonl",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-feed-diagnosis.json",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-source-host-recommendations.jsonl",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-cycle-summary.json",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-source-host-feed-package.json",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-source-host-execution-checklist.json",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-exact-query-chatgpt-after-source-host-refresh-live-spot-check.json"
+  ],
+  "source_host_actions": [
+    {
+      "surface": "github_readme",
+      "status": "merged_to_main",
+      "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/32",
+      "merge_commit_sha": "af9384ee14f3eb491060b5465f6f1008cb4b2e85",
+      "merged_at": "2026-06-10T06:04:33Z",
+      "validation": "GitHub API main README.md and llms.txt both start with or include SynapseNetwork MCP Server for paid API calls.",
+      "readiness_command": "npm run release:readiness",
+      "readiness_result": "passed"
+    },
+    {
+      "surface": "official_mcp_registry",
+      "status": "blocked_on_publisher_auth",
+      "validation": "mcp-publisher validate passed, but mcp-publisher publish failed with 401 because the local Registry JWT token is expired.",
+      "next_action": "Complete mcp-publisher login github device authorization, then rerun mcp-publisher publish and registry search validation."
+    },
+    {
+      "surface": "glama",
+      "status": "candidate_found_needs_live_listing_evidence",
+      "validation": "Glama public search returned SynapseNetwork MCP candidate terms, but the listing HTML did not expose the hosted endpoint, GitHub URL, npm package, or tool names needed for answer-engine extraction.",
+      "next_action": "Refresh Glama listing metadata or submit a stronger listing payload, then rerun live spot-check."
+    }
+  ],
+  "live_external_verification": {
+    "github_api_readme_main": {
+      "status": 200,
+      "matched_terms": [
+        "# SynapseNetwork MCP Server for paid API calls",
+        "SynapseNetwork MCP Server for paid API calls is the official Model Context Protocol",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ]
+    },
+    "github_api_llms_main": {
+      "status": 200,
+      "matched_terms": [
+        "# SynapseNetwork MCP Server for paid API calls",
+        "SynapseNetwork MCP Server for paid API calls is the official Model Context Protocol",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ]
+    },
+    "registry_search_before_publish": {
+      "status": 200,
+      "response": "{\"servers\":[],\"metadata\":{\"count\":0}}"
+    }
+  },
+  "next_iteration": [
+    "Finish MCP Registry publisher GitHub device authorization and publish server.json.",
+    "Refresh Glama listing copy so the public page exposes Remote MCP endpoint, GitHub URL, npm package, and tool names.",
+    "Rerun the unchanged ChatGPT exact-query probe after GitHub raw cache and registry/listing updates settle.",
+    "Rerun Claude, Grok, and Gemini probes only after account credit/quota blockers are cleared."
+  ]
+}

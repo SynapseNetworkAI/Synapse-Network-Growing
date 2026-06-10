@@ -76,3 +76,28 @@ def test_provider_failure_redacts_account_identifiers(monkeypatch):
     assert "e1874538-b2a3-4c03-a773-ccd3373313db" not in grok.answer_summary
     assert "project_proj123456" not in grok.answer_summary
     assert "team [REDACTED]" in grok.answer_summary
+
+
+def test_provider_failure_records_platform_model_override(monkeypatch):
+    monkeypatch.setenv("GENIMI_API_KEY", "secret-gemini-key")
+    monkeypatch.setenv("GEMINI_AI_VISIBILITY_MODEL", "gemini-2.0-flash-lite")
+
+    def fake_call_platform(platform: str, query: str):  # noqa: ARG001
+        raise RuntimeError(
+            "POST https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-2.0-flash-lite:generateContent failed with 429"
+        )
+
+    monkeypatch.setattr(api_probe, "call_platform", fake_call_platform)
+
+    records = api_probe.run_api_probes(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-api-probe",
+        platforms=["gemini"],
+        queries=["Synapse Network MCP server for paid API calls"],
+    )
+
+    assert validate_records(records) == []
+    gemini = records[0]
+    assert gemini.metadata["api_model"] == "gemini-2.0-flash-lite"
+    assert "secret-gemini-key" not in gemini.answer_summary

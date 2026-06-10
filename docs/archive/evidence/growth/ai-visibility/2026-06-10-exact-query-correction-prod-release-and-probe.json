@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-06-10",
+  "run_group": "2026-06-10-after-exact-query-correction-prod-four-platform",
+  "target_query": "SynapseNetwork MCP Server for paid API calls",
+  "synapse_network_release": {
+    "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/227",
+    "merge_commit_sha": "13c4190d5a6e4d99dcfb64ff705b21ef87700f1e",
+    "merged_at": "2026-06-10T04:41:38Z"
+  },
+  "deployments": [
+    {
+      "service": "docs-front",
+      "environment": "staging",
+      "release_task_id": 269,
+      "deployment_record_id": 272,
+      "revision": "synapse-staging-docs-front-00036-7dj",
+      "image_digest": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:803108bb12dc2a2cd3d52adbf55873c1157b30a7065487acefc35843cf3c8412"
+    },
+    {
+      "service": "user-front",
+      "environment": "staging",
+      "release_task_id": 270,
+      "deployment_record_id": 273,
+      "revision": "synapse-staging-user-front-00048-fxh",
+      "image_digest": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:479fcd46e6a638b6fd16d2891dc0cc9dda9b7c75fa08693084775bf53084bbea"
+    },
+    {
+      "service": "docs-front",
+      "environment": "production",
+      "release_task_id": 271,
+      "deployment_record_id": 274,
+      "revision": "synapse-prod-docs-front-00025-9br",
+      "image_digest": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:0b7f67fc07bb5a4121cee1e1fe3a7765c5987d10113c02ea0b62cd08a6fce5e8"
+    },
+    {
+      "service": "user-front",
+      "environment": "production",
+      "release_task_id": 272,
+      "deployment_record_id": 275,
+      "revision": "synapse-prod-user-front-00035-ggp",
+      "image_digest": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:1802af6b8117850a988db38ee78e2acd3ef37beb604095036ced4c9ad632c1d9"
+    }
+  ],
+  "live_verification": [
+    {
+      "url": "https://docs.synapse-network.ai/mcp/brand-disambiguation",
+      "status": 200,
+      "required_text_present": "Exact-query correction: SynapseNetwork MCP Server for paid API calls"
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "status": 200,
+      "required_text_present": "SynapseNetworkAI/Synapse-Network-MCP-Server"
+    },
+    {
+      "url": "https://docs.synapse-network.ai/llms.txt",
+      "status": 200,
+      "required_text_present": "Exact-query correction: for \"SynapseNetwork MCP Server for paid API calls\""
+    },
+    {
+      "url": "https://www.synapse-network.ai/llms.txt",
+      "status": 200,
+      "required_text_present": "Exact-query correction: for \"SynapseNetwork MCP Server for paid API calls\""
+    },
+    {
+      "url": "https://www.synapse-network.ai/llms-full.txt",
+      "status": 200,
+      "required_text_present": "What should ChatGPT answer for SynapseNetwork MCP Server for paid API calls?"
+    }
+  ],
+  "production_gate_bug": {
+    "bug_id": 73,
+    "fingerprint": "production-gate-stale-local-main-ref",
+    "fix": "Refresh origin/<branch> and resolve refs/remotes/origin/<branch> for production same-commit gates instead of trusting a stale local branch.",
+    "validation": "python3 -m pytest tests/test_release_production_tasks_api.py tests/test_release_task_gate_status_api.py -q",
+    "validation_result": "22 passed in 13.34s"
+  },
+  "probe_outputs": [
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-exact-query-correction-prod-chatgpt-claude.jsonl",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-exact-query-correction-prod-four-platform.jsonl"
+  ],
+  "four_platform_result": {
+    "chatgpt": {
+      "synapse_mentioned": true,
+      "synapse_cited": false,
+      "source_hosts": [
+        "agent402.dev",
+        "agenticcontrolplane.com",
+        "chat.mcp.so",
+        "dock0.dev",
+        "docs.mcpay.tech",
+        "gmcp.dev",
+        "helius.dev",
+        "mcp.so",
+        "mcp.synapse.org",
+        "mysynap.com",
+        "python-docs.synapse.org",
+        "whopmcp.com"
+      ],
+      "interpretation": "Still collides with Sage Bionetworks Synapse and non-official paid-MCP sources."
+    },
+    "claude": {
+      "synapse_mentioned": false,
+      "synapse_cited": false,
+      "blocker": "Anthropic API credit balance is too low."
+    },
+    "grok": {
+      "synapse_mentioned": false,
+      "synapse_cited": false,
+      "blocker": "xAI team has used available credits or reached the monthly spending limit."
+    },
+    "gemini": {
+      "synapse_mentioned": false,
+      "synapse_cited": false,
+      "blocker": "Gemini API returned no answer text."
+    }
+  },
+  "next_iteration": [
+    "Increase third-party source-host coverage for the exact query, especially official MCP registry and MCP directory pages that answer paid API call use cases directly.",
+    "Keep exact-query correction in owned docs and llms assets live while search indexes refresh.",
+    "Rerun the same four-platform probe after provider credit blockers are cleared and Gemini returns answer text."
+  ]
+}
