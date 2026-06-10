@@ -1,0 +1,34 @@
+{
+  "module_key": "ai_visibility_source_host_submission",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/submit",
+  "submitted_at": "2026-06-10T03:45:04.050Z",
+  "submit_url": "https://mcpservers.org/_serverFn/62b9fa2877951ac582b1d0a4835a88ab4b119b1d5fd1a39a67a6a9faadcbc72d",
+  "requests": [
+    {
+      "url": "https://mcpservers.org/_serverFn/62b9fa2877951ac582b1d0a4835a88ab4b119b1d5fd1a39a67a6a9faadcbc72d",
+      "method": "POST",
+      "payload_keys": [
+        "plan",
+        "name",
+        "description",
+        "url",
+        "category",
+        "email"
+      ]
+    }
+  ],
+  "responses": [
+    {
+      "url": "https://mcpservers.org/_serverFn/62b9fa2877951ac582b1d0a4835a88ab4b119b1d5fd1a39a67a6a9faadcbc72d",
+      "status": 200,
+      "statusText": "",
+      "body": "{\"t\":10,\"i\":0,\"p\":{\"k\":[\"result\",\"error\",\"context\"],\"v\":[{\"t\":10,\"i\":1,\"p\":{\"k\":[\"submission\"],\"v\":[{\"t\":10,\"i\":2,\"p\":{\"k\":[\"id\",\"name\",\"description\",\"url\",\"category\",\"email\",\"status\",\"plan\",\"paymentStatus\",\"subscriptionId\",\"createdAt\",\"updatedAt\",\"deletedAt\"],\"v\":[{\"t\":0,\"s\":3167},{\"t\":1,\"s\":\"Synapse Network MCP Server\"},{\"t\":1,\"s\":\"Remote MCP for paid API discovery, paid invocations, and receipts.\"},{\"t\":1,\"s\":\"https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\"},{\"t\":1,\"s\":\"finance\"},{\"t\":1,\"s\":\"support@synapse-network.ai\"},{\"t\":1,\"s\":\"pending\"},{\"t\":1,\"s\":\"free\"},{\"t\":1,\"s\":\"not_required\"},{\"t\":2,\"s\":0},{\"t\":5,\"i\":3,\"s\":\"2026-06-10T03:44:59.443Z\"},{\"t\":5,\"i\":4,\"s\":\"2026-06-10T03:44:59.443Z\"},{\"t\":2,\"s\":0}]},\"o\":0}]},\"o\":0},{\"t\":2,\"s\":1},{\"t\":11,\"i\":5,\"p\":{\"k\":[],\"v\":[]},\"o\":0}]},\"o\":0}"
+    }
+  ],
+  "page_text_summary": "MCP Servers\nHome\nRemote Servers\nTopics\nClients\nAgent Skills\nEnglish\nAdvertise\nSubmit\nSubmission Successful!\n\nYour MCP server \"Synapse Network MCP Server\" has been submitted successfully.\n\nYour submission will be reviewed within 12 hours.\n\nYou will receive an email notification once your submission is approved.\n\n← Back to Home\nNewest MCP Servers\nOfficial MCP Servers\nRemote MCP Servers\nMCP Topics\nBlog\ncontact [at] mcpservers.org\nNotebookLM Web Importer\n\nImport web pages and YouTube videos to NotebookLM with one click. Trusted by 200,000+ users.\n\nInstall Chrome Extension",
+  "screenshot_path": "docs/archive/evidence/growth/ai-visibility/2026-06-10-mcpservers-submit-result.png",
+  "submitted_payload_summary": "Submitted Synapse Network MCP Server to mcpservers.org free listing with GitHub URL, finance category, short description, and operator contact email.",
+  "error": "",
+  "evidence_role": "source_host_submission_confirmation_not_external_citation"
+}
