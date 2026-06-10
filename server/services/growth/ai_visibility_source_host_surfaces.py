@@ -8,6 +8,7 @@ SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
     "glama.ai": "glama",
+    "glama_ai": "glama",
     "lobehub.com": "lobehub",
     "mcp.directory": "mcp_directory",
     "mcpfind.org": "mcpfind",
@@ -18,6 +19,7 @@ SOURCE_HOST_SURFACES = {
     "protodex.io": "protodex",
     "pulsemcp.com": "pulsemcp",
     "smithery.ai": "smithery",
+    "smithery_ai": "smithery",
     "synapbus.dev": "synapbus_dev",
     "ubos.tech": "ubos_tech",
 }

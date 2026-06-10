@@ -389,6 +389,129 @@ def test_source_host_audit_facts_collects_metadata_refresh_from_spot_check(
     assert "source-host-live-spot-check.json" in facts.evidence_files[0]
 
 
+def test_source_host_metadata_refresh_evidence_can_override_older_live_status(
+    tmp_path: Path,
+):
+    from server.services.growth.ai_visibility_source_host_audit import (
+        source_host_audit_facts,
+    )
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+        source_host_feed_package_from_diagnosis,
+    )
+
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-11-exact-query",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "glama",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "Glama has a partial exact-query candidate.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "2026-06-10-glama-live-source-host.json").write_text(
+        json.dumps(
+            {
+                "module_key": "ai_visibility_source_host_execution",
+                "status": "live_verified",
+                "evidence_type": "live_source_host",
+                "surface": "glama_ai",
+                "checked_at": "2026-06-10T06:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "2026-06-11-glama-live-spot-check.json").write_text(
+        json.dumps(
+            {
+                "check_type": "source_host_live_spot_check",
+                "generated_at": "2026-06-10T16:00:00Z",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-11-exact-query",
+                "execute": True,
+                "status": "candidate_incomplete_needs_metadata_refresh",
+                "items": [
+                    {
+                        "host": "glama.ai",
+                        "status": "candidate_incomplete",
+                        "matched_terms": [
+                            "synapse network",
+                            "synapse-network-mcp-server",
+                        ],
+                        "missing_terms": ["mcp.synapse-network.ai"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+    package = source_host_feed_package_from_diagnosis(
+        diagnosis_path,
+        audit_facts=facts,
+    )
+    checklist = source_host_execution_checklist_from_diagnosis(
+        diagnosis_path,
+        audit_facts=facts,
+    )
+
+    assert facts.surface_statuses["glama"] == "metadata_refresh_required"
+    assert package.drafts[0].host == "glama.ai"
+    assert package.drafts[0].status == "metadata_refresh_required"
+    assert checklist.items[0].host == "glama.ai"
+    assert checklist.items[0].execution_status == "metadata_refresh_required"
+
+
+def test_config_free_source_host_audit_tracks_latest_metadata_refresh_status(
+    tmp_path: Path,
+):
+    from scripts.growth.ai_visibility_source_host_audit_cli import (
+        offline_source_host_audit_facts,
+    )
+
+    (tmp_path / "2026-06-10-glama-live-source-host.json").write_text(
+        json.dumps(
+            {
+                "module_key": "ai_visibility_source_host_execution",
+                "status": "live_verified",
+                "surface": "glama_ai",
+                "checked_at": "2026-06-10T06:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "2026-06-11-glama-live-spot-check.json").write_text(
+        json.dumps(
+            {
+                "check_type": "source_host_live_spot_check",
+                "generated_at": "2026-06-10T16:00:00Z",
+                "items": [
+                    {
+                        "host": "glama.ai",
+                        "status": "candidate_incomplete",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    facts = offline_source_host_audit_facts(tmp_path)
+
+    assert facts.live_surfaces == ["glama_ai"]
+    assert facts.metadata_refresh_surfaces == ["glama.ai"]
+    assert facts.surface_statuses["glama"] == "metadata_refresh_required"
+
+
 def test_offline_source_host_package_maps_exact_query_collision_surfaces(
     tmp_path: Path,
 ):

@@ -158,6 +158,9 @@ def _audit_status_override(
     if not audit_facts:
         return status
     surface = source_host_surface(host)
+    surface_statuses = getattr(audit_facts, "surface_statuses", {})
+    if isinstance(surface_statuses, dict) and surface in surface_statuses:
+        return str(surface_statuses[surface])
     if surface in {source_host_surface(item) for item in audit_facts.live_surfaces}:
         return "already_live"
     if surface in {
