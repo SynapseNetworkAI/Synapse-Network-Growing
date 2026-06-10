@@ -35,6 +35,8 @@ OFFICIAL_NPM_PACKAGE = "@synapse-network-ai/mcp-server"
 SURFACE_HOSTS = {
     "aitoolnet": "aitoolnet.com",
     "alternativeto": "alternativeto.net",
+    "chat_mcp_so": "chat.mcp.so",
+    "dock0_dev": "dock0.dev",
     "mcp_directory": "mcp.directory",
     "mcpfind": "mcpfind.org",
     "official_mcp_registry": "registry.modelcontextprotocol.io",
@@ -184,6 +186,11 @@ def _draft_type_for_recommendation(recommendation: dict[str, object], host: str)
     source_draft_type = str(recommendation.get("draft_type") or "")
     if source_draft_type == "brand_disambiguation_answer_block":
         return "owned_brand_disambiguation_refresh"
+    if source_draft_type in {
+        "competitor_source_host_review",
+        "mcp_search_surface_review",
+    }:
+        return source_draft_type
     if host in DIRECTORY_SUBMIT_URLS:
         return "directory_submission"
     return "contextual_partner_or_guest_pitch"

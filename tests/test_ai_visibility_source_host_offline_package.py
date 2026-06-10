@@ -44,6 +44,18 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "validation_command": "Record MCPServers browser confirmation.",
                     },
                     {
+                        "surface": "chat_mcp_so",
+                        "draft_type": "mcp_search_surface_review",
+                        "rationale": "chat.mcp.so appeared in answer sources.",
+                        "validation_command": "Record chat.mcp.so listing evidence.",
+                    },
+                    {
+                        "surface": "dock0_dev",
+                        "draft_type": "competitor_source_host_review",
+                        "rationale": "dock0.dev appeared in answer sources.",
+                        "validation_command": "Record dock0.dev competitor evidence.",
+                    },
+                    {
                         "surface": "mcpfind",
                         "rationale": "MCPFind appeared in public search results.",
                         "validation_command": "Record MCPFind browser confirmation.",
@@ -86,6 +98,13 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["mcpservers.org"].submit_url == "https://mcpservers.org/submit"
     assert draft_by_host["mcpservers.org"].submission_payload["category"] == "finance"
     assert draft_by_host["mcpservers.org"].submission_payload["plan"] == "free"
+    assert draft_by_host["chat.mcp.so"].draft_type == "mcp_search_surface_review"
+    assert draft_by_host["chat.mcp.so"].status == "needs_operator_review"
+    assert draft_by_host["chat.mcp.so"].validation_command == (
+        "Record chat.mcp.so listing evidence."
+    )
+    assert draft_by_host["dock0.dev"].draft_type == "competitor_source_host_review"
+    assert draft_by_host["dock0.dev"].status == "needs_operator_review"
     assert draft_by_host["mcpfind.org"].draft_type == "directory_submission"
     assert draft_by_host["mcpfind.org"].submit_url == "https://mcpfind.org/submit"
     assert draft_by_host["mcpfind.org"].submission_payload["category"] == "payments"

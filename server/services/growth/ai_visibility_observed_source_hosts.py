@@ -47,6 +47,54 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "CLI probes may receive site-level 403."
         ),
     },
+    "chat.mcp.so": {
+        "surface": "chat_mcp_so",
+        "draft_type": "mcp_search_surface_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "chat.mcp.so appeared in ChatGPT source hosts for exact "
+            "SynapseNetwork MCP queries, so Synapse needs a verified listing "
+            "or recorded no-public-submit path on this MCP search/chat surface."
+        ),
+        "brief": (
+            "Inspect chat.mcp.so for a SynapseNetwork MCP Server result or "
+            "submission/correction path. Use exact identifiers: "
+            "SynapseNetworkAI/Synapse-Network-MCP-Server, "
+            "io.github.SynapseNetworkAI/synapse-network-mcp-server, "
+            "https://mcp.synapse-network.ai/mcp, and the "
+            "discover_services / invoke_and_pay / get_receipt tool loop. If no "
+            "public listing path exists, record the boundary and strengthen "
+            "mcp.so, official registry, GitHub README, and docs disambiguation."
+        ),
+        "validation": (
+            "Record the chat.mcp.so public listing URL, correction/submission "
+            "path, or no-public-submit evidence; rerun exact identifier probes "
+            "after a listing or upstream metadata change."
+        ),
+    },
+    "dock0.dev": {
+        "surface": "dock0_dev",
+        "draft_type": "competitor_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "dock0.dev appeared in ChatGPT source hosts for exact "
+            "SynapseNetwork MCP paid-API queries, so Synapse needs competitor "
+            "positioning and source-host evidence for this answer-engine path."
+        ),
+        "brief": (
+            "Audit dock0.dev as a competitor/control source host. Record whether "
+            "it has llms.txt, sitemap, MCP/payment positioning, partner/contact "
+            "paths, or comparison hooks. Do not ask for an unrelated listing; "
+            "use the findings to refresh Synapse owned comparison copy and "
+            "source-host probes."
+        ),
+        "validation": (
+            "Record dock0.dev public audit evidence and the owned comparison "
+            "copy update or decision not to pursue direct outreach."
+        ),
+    },
     "mcp.directory": {
         "surface": "mcp_directory",
         "draft_type": "mcp_directory_listing",
