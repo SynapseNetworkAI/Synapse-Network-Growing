@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import unquote, urlsplit
 
 from server.schemas_growth import (
     GrowthAIVisibilityOfficialSourceListOut,
@@ -147,4 +148,23 @@ def _mcp_paid_api_doc_sources() -> list[GrowthAIVisibilityOfficialSourceOut]:
 
 
 def is_official_citation_url(url: str) -> bool:
-    return any(url.startswith(prefix) for prefix in OFFICIAL_CITATION_PREFIXES)
+    value = str(url or "").strip()
+    if not value:
+        return False
+    if value.startswith("https://registry.modelcontextprotocol.io/"):
+        return _is_official_mcp_registry_citation(value)
+    return any(
+        value.startswith(prefix)
+        for prefix in OFFICIAL_CITATION_PREFIXES
+        if prefix != "https://registry.modelcontextprotocol.io/"
+    )
+
+
+def _is_official_mcp_registry_citation(url: str) -> bool:
+    parsed = urlsplit(url)
+    haystack = unquote(" ".join([parsed.path, parsed.query, parsed.fragment])).lower()
+    return (
+        "synapsenetworkai" in haystack
+        or "synapse-network-mcp-server" in haystack
+        or "@synapse-network-ai/mcp-server" in haystack
+    )

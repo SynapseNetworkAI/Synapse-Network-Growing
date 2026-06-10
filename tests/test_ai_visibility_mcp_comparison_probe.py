@@ -4,6 +4,7 @@ from scripts.growth.generate_ai_visibility_probe_template import (
 )
 from server.services.growth.ai_visibility_official_sources import (
     ai_visibility_official_sources,
+    is_official_citation_url,
 )
 from server.services.growth.ai_visibility_plan import ai_visibility_feed_packages
 
@@ -45,3 +46,18 @@ def test_mcp_paid_api_official_sources_include_non_blocking_comparison_page():
     assert comparison.canonical_url == COMPARISON_URL
     assert comparison.feed_keys == ["mcp_paid_api_discovery"]
     assert comparison.required_for_success is False
+
+
+def test_mcp_registry_citation_requires_synapse_network_mcp_identifier():
+    assert is_official_citation_url(
+        "https://registry.modelcontextprotocol.io/v0.1/servers"
+        "?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+    )
+    assert is_official_citation_url(
+        "https://registry.modelcontextprotocol.io/?q=%40synapse-network-ai%2Fmcp-server"
+    )
+
+    assert not is_official_citation_url(
+        "https://registry.modelcontextprotocol.io/?q=io.github.MPP32%2Fmpp32-mcp-server"
+    )
+    assert not is_official_citation_url("https://registry.modelcontextprotocol.io/")

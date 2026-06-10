@@ -11,6 +11,9 @@ import urllib.request
 from typing import Any
 
 from scripts.growth.generate_ai_visibility_probe_template import KNOWN_COLLISION_DOMAINS
+from server.services.growth.ai_visibility_official_sources import (
+    is_official_citation_url,
+)
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
@@ -310,16 +313,7 @@ def answer_payload(
 
 
 def is_synapse_url(url: str) -> bool:
-    return any(
-        host in url
-        for host in (
-            "www.synapse-network.ai",
-            "docs.synapse-network.ai",
-            "github.com/SynapseNetworkAI",
-            "mcp.synapse-network.ai",
-            "registry.modelcontextprotocol.io",
-        )
-    )
+    return is_official_citation_url(url)
 
 
 def competitor_mentions(text: str, urls: list[str]) -> list[str]:
