@@ -1,0 +1,95 @@
+{
+  "recorded_at": "2026-06-10T09:52:14Z",
+  "objective": "Deploy the Synapse Remote MCP Glama well-known verification endpoint and capture production evidence for the AI visibility source-host loop.",
+  "growing_release": {
+    "mcp_server_release_id": 3,
+    "release_task_id": 277,
+    "source_type": "mcp_remote_gcloud",
+    "project_key": "synapse-network-mcp-server",
+    "service_key": "remote-mcp",
+    "environment": "production",
+    "target_commit_sha": "6b82545a97a07d3f923124a81f6997411c067f0f",
+    "status_after_public_probe": "openai_smoke_running",
+    "deployment_record_created": false,
+    "ordinary_online_record_created": false,
+    "smoke_evidence": {
+      "status": "public_probe_passed",
+      "healthz": "skipped_cloud_run_reserved_path",
+      "readyz": "passed",
+      "unauthenticated_mcp_status": 401,
+      "remote_endpoint_url": "https://mcp.synapse-network.ai/mcp"
+    }
+  },
+  "cloud_run": {
+    "gcp_project_id": "synapse-network-prod",
+    "region": "us-central1",
+    "service": "synapse-prod-mcp-server",
+    "generation": 9,
+    "latest_created_revision": "synapse-prod-mcp-server-00009-bff",
+    "latest_ready_revision": "synapse-prod-mcp-server-00009-bff",
+    "service_url": "https://synapse-prod-mcp-server-gqb4rdk3cq-uc.a.run.app",
+    "traffic": [
+      {
+        "latestRevision": true,
+        "percent": 100,
+        "revisionName": "synapse-prod-mcp-server-00009-bff"
+      }
+    ],
+    "ingress": "all",
+    "invoker_iam_disabled": true
+  },
+  "public_endpoint_probes": {
+    "readyz": {
+      "url": "https://mcp.synapse-network.ai/readyz",
+      "http_status": 200,
+      "body_summary": {
+        "status": "ready",
+        "gatewayStatus": 404
+      }
+    },
+    "glama_well_known": {
+      "url": "https://mcp.synapse-network.ai/.well-known/glama.json",
+      "http_status": 200,
+      "body_summary": {
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "maintainers": [
+          {
+            "email": "support@synapse-network.ai"
+          }
+        ]
+      }
+    },
+    "unauthenticated_mcp": {
+      "url": "https://mcp.synapse-network.ai/mcp",
+      "method": "POST",
+      "http_status": 401,
+      "expected": true,
+      "body_summary": {
+        "code": "AUTH_REQUIRED",
+        "message": "Remote MCP requires Authorization: Bearer <token>."
+      }
+    }
+  },
+  "openai_remote_mcp_smoke": {
+    "status": "blocked_missing_local_customer_token",
+    "runner_state": "openai_smoke_running",
+    "required_env": [
+      "SYNAPSE_REMOTE_MCP_AUTH_TOKEN",
+      "OPENAI_API_KEY"
+    ],
+    "observed_env_presence_without_values": {
+      "SYNAPSE_REMOTE_MCP_AUTH_TOKEN": "missing",
+      "OPENAI_API_KEY": "present"
+    },
+    "reason": "The production endpoint is public and protected correctly, but the final OpenAI Remote MCP tool-import smoke requires a valid customer or maintainer agt token. The token must remain local and must not be committed to evidence."
+  },
+  "impact_on_ai_visibility_loop": {
+    "source_host": "Glama",
+    "source_host_readiness": "well_known_metadata_live",
+    "next_actions": [
+      "Submit or refresh the Glama MCP listing against https://mcp.synapse-network.ai/.well-known/glama.json.",
+      "Provide SYNAPSE_REMOTE_MCP_AUTH_TOKEN only in the local runner environment, then resume the release worker to complete OpenAI Remote MCP smoke.",
+      "Run the next GPT, Claude, Grok, and Gemini visibility probe cycle after the Glama listing is indexed."
+    ]
+  }
+}
