@@ -1,0 +1,41 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-growing-pr148-merge-source-host-recheck",
+  "surface": "registry_modelcontextprotocol_io",
+  "source_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T17:46:07.508606+00:00",
+  "required_terms": [
+    "0.1.8",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt",
+    "https://mcp.synapse-network.ai/mcp"
+  ],
+  "matched_terms": [
+    "0.1.8",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt",
+    "https://mcp.synapse-network.ai/mcp"
+  ],
+  "missing_terms": [],
+  "content_sha256": "4943b98128524514966ecea75c6bed56204f2ef9b613743e8ea907af91f2d2f2",
+  "content_bytes": 10318,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "Synapse Network MCP Server",
+    "MCP server for paid API calls"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "registry_modelcontextprotocol_io source host is live and matched 5 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-growing-pr148-merge-source-host-recheck-after-source-host --platforms chatgpt,claude --execute"
+}
