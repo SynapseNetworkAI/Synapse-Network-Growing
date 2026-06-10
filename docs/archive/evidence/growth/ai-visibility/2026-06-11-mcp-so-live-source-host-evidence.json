@@ -1,0 +1,41 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-api-probe",
+  "surface": "mcp_so",
+  "source_url": "https://mcp.so/?q=SynapseNetwork",
+  "checked_at": "2026-06-10T23:07:11.667014+00:00",
+  "required_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "mcp.synapse-network.ai",
+    "Synapse-Network-MCP-Server",
+    "discover_services"
+  ],
+  "matched_terms": [],
+  "missing_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "mcp.synapse-network.ai",
+    "Synapse-Network-MCP-Server",
+    "discover_services"
+  ],
+  "content_sha256": "0c3d1660ac99f98ed2e3327336192b621134b7891a4b89ae7cd43baa91751ad9",
+  "content_bytes": 757551,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "target_queries": [
+    "SynapseNetwork MCP vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcp_so source host is missing required terms: Synapse Network, SynapseNetworkAI, mcp.synapse-network.ai, Synapse-Network-MCP-Server, discover_services.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-api-probe-after-source-host --platforms chatgpt,claude,gemini --execute"
+}
