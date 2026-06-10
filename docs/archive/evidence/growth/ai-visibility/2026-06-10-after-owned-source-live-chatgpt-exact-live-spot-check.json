@@ -1,11 +1,11 @@
 {
   "module_key": "ai_visibility",
   "check_type": "source_host_live_spot_check",
-  "generated_at": "2026-06-10T14:48:56.266722Z",
+  "generated_at": "2026-06-10T15:05:55.441854Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-10-after-owned-source-live-chatgpt-exact",
   "execute": true,
-  "status": "candidate_found_needs_live_listing_evidence",
+  "status": "candidate_incomplete_needs_metadata_refresh",
   "items": [
     {
       "host": "mcpservers.org",
@@ -54,7 +54,7 @@
     {
       "host": "glama.ai",
       "search_url": "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
-      "status": "candidate_found",
+      "status": "candidate_incomplete",
       "http_status": 200,
       "matched_terms": [
         "synapse network",
@@ -72,12 +72,12 @@
         "synapsenetwork mcp server"
       ],
       "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>Synapse Network MCP MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=Synapse+Network+MCP\" rel=\"canonical\"/><meta content=\"Synapse Network MCP MCP Servers\" property=\"og:titl",
-      "next_action": "Record live-listing evidence."
+      "next_action": "Refresh directory metadata so the search result includes the Remote MCP endpoint, npm package, or tool names; then rerun this spot check."
     },
     {
       "host": "glama.ai",
       "search_url": "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
-      "status": "candidate_found",
+      "status": "candidate_incomplete",
       "http_status": 200,
       "matched_terms": [
         "synapsenetwork",
@@ -95,7 +95,7 @@
         "io.github.synapsenetworkai/synapse-network-mcp-server"
       ],
       "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>SynapseNetwork MCP Server MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=SynapseNetwork+MCP+Server\" rel=\"canonical\"/><meta content=\"SynapseNetwork MCP Server MCP Servers\"",
-      "next_action": "Record live-listing evidence."
+      "next_action": "Refresh directory metadata so the search result includes the Remote MCP endpoint, npm package, or tool names; then rerun this spot check."
     }
   ],
   "blockers": [],
