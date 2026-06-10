@@ -1,0 +1,308 @@
+{
+  "module_key": "ai_visibility_source_host_review",
+  "evidence_role": "competitor_source_host_review_not_external_citation",
+  "generated_at": "2026-06-10T19:58:56.370516Z",
+  "run_group": "2026-06-11-after-mcpso-issue-submission",
+  "surface": "dock0_dev",
+  "status": "owned_comparison_already_mentions_dock0",
+  "goal_complete": false,
+  "summary": {
+    "dock0_home_reachable": true,
+    "dock0_title": "Dock0 — Get paid per call for your MCP server",
+    "dock0_llms_txt_status": 404,
+    "dock0_sitemap_status": 200,
+    "dock0_search_synapse_status": 404,
+    "dock0_public_contact_signals": [
+      "contact",
+      "github\\.com",
+      "mailto:",
+      "x\\.com"
+    ],
+    "owned_docs_mentions_dock0": true,
+    "owned_docs_with_dock0": [
+      "synapse_docs_paid_api_calls",
+      "synapse_docs_vs_paid_mcp",
+      "synapse_www_llms"
+    ],
+    "next_action": "Record the decision not to pursue direct outreach to dock0 because it is a competitor/control source, not a directory listing host. Owned docs and www llms.txt already mention dock0; rerun unchanged probes only after the next source-host listing or owned metadata change is live."
+  },
+  "source_urls": {
+    "dock0_home": "https://dock0.dev/",
+    "dock0_robots": "https://dock0.dev/robots.txt",
+    "dock0_llms": "https://dock0.dev/llms.txt",
+    "dock0_sitemap": "https://dock0.dev/sitemap.xml",
+    "dock0_search_synapse": "https://dock0.dev/search?q=SynapseNetworkAI",
+    "synapse_docs_paid_api_calls": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+    "synapse_docs_vs_paid_mcp": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+    "synapse_www_llms": "https://www.synapse-network.ai/llms.txt"
+  },
+  "checks": [
+    {
+      "surface": "dock0_home",
+      "url": "https://dock0.dev/",
+      "role": "competitor_home",
+      "status_code": 200,
+      "final_url": "https://www.dock0.dev/",
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 559,
+      "error": "",
+      "page_title": "Dock0 — Get paid per call for your MCP server",
+      "matched_terms": [
+        "dock0",
+        "mcp",
+        "agent",
+        "api",
+        "deployment",
+        "server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "contact_signals": [
+        "mailto:",
+        "contact",
+        "github\\.com",
+        "x\\.com"
+      ],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "42b2b00f481b",
+      "body_length_sampled": 207799,
+      "body_excerpt": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/de161955856a921d-s.p.25da2b95.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" as=\"image\" href=\"/logos/anthropic.svg\"/><link rel=\"preload\" as=\"image\" href=\"/logos/openai.svg\"/><link rel=\"preload\" as=\"image\" href=\"/logos/cursor.svg\"/><link rel=\"preload\" as=\"image\" href=\"/e2b_startups.svg\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/f32d046892b8c43a.css?dpl=dpl_CwKDi8W"
+    },
+    {
+      "surface": "dock0_robots",
+      "url": "https://dock0.dev/robots.txt",
+      "role": "crawler_policy",
+      "status_code": 200,
+      "final_url": "https://www.dock0.dev/robots.txt",
+      "content_type": "text/plain",
+      "elapsed_ms": 163,
+      "error": "",
+      "page_title": "",
+      "matched_terms": [
+        "dock0",
+        "agent"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "contact_signals": [],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "2bf4fcb87e29",
+      "body_length_sampled": 63,
+      "body_excerpt": "User-Agent: *\nAllow: /\n\nSitemap: https://dock0.dev/sitemap.xml\n"
+    },
+    {
+      "surface": "dock0_llms",
+      "url": "https://dock0.dev/llms.txt",
+      "role": "llm_feed",
+      "status_code": 404,
+      "final_url": "https://dock0.dev/llms.txt",
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 138,
+      "error": "HTTP Error 404: Not Found",
+      "page_title": "404: This page could not be found.",
+      "matched_terms": [
+        "dock0",
+        "mcp",
+        "server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "contact_signals": [],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "876524918b74",
+      "body_length_sampled": 14119,
+      "body_excerpt": "<!DOCTYPE html><!--Z9J4UguNdRmTX_LZr4lLc--><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/f32d046892b8c43a.css?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/53d02eea1ad60916.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\"/><script src=\"/_next/static/chunks/8815cf1f4d86872d.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" async=\"\"></script><script src=\"/_next/static/chunks/5ca66e1443fc62d1.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" async=\"\"></script><script src=\"/_next/static/chunks/69be39811437728d.j"
+    },
+    {
+      "surface": "dock0_sitemap",
+      "url": "https://dock0.dev/sitemap.xml",
+      "role": "sitemap",
+      "status_code": 200,
+      "final_url": "https://www.dock0.dev/sitemap.xml",
+      "content_type": "application/xml",
+      "elapsed_ms": 138,
+      "error": "",
+      "page_title": "",
+      "matched_terms": [
+        "dock0"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "contact_signals": [],
+      "has_llms_feed": false,
+      "has_sitemap": true,
+      "body_sha256_12": "867b100bd3a6",
+      "body_length_sampled": 703,
+      "body_excerpt": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n<url>\n<loc>https://dock0.dev</loc>\n<lastmod>2026-04-07T09:17:06.279Z</lastmod>\n<changefreq>weekly</changefreq>\n<priority>1</priority>\n</url>\n<url>\n<loc>https://dock0.dev/about</loc>\n<lastmod>2026-04-07T09:17:06.279Z</lastmod>\n<changefreq>monthly</changefreq>\n<priority>0.8</priority>\n</url>\n<url>\n<loc>https://dock0.dev/terms</loc>\n<lastmod>2026-04-07T09:17:06.279Z</lastmod>\n<changefreq>monthly</changefreq>\n<priority>0.3</priority>\n</url>\n<url>\n<loc>https://dock0.dev/privacy</loc>\n<lastmod>2026-04-07T09:17:06.279Z</lastmod>\n<changefreq>monthly</changefreq>\n<priority>0.3</priority>\n</url>\n</urlse"
+    },
+    {
+      "surface": "dock0_search_synapse",
+      "url": "https://dock0.dev/search?q=SynapseNetworkAI",
+      "role": "site_search",
+      "status_code": 404,
+      "final_url": "https://dock0.dev/search?q=SynapseNetworkAI",
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 127,
+      "error": "HTTP Error 404: Not Found",
+      "page_title": "404: This page could not be found.",
+      "matched_terms": [
+        "dock0",
+        "mcp",
+        "server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "contact_signals": [],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "876524918b74",
+      "body_length_sampled": 14119,
+      "body_excerpt": "<!DOCTYPE html><!--Z9J4UguNdRmTX_LZr4lLc--><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/f32d046892b8c43a.css?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/53d02eea1ad60916.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\"/><script src=\"/_next/static/chunks/8815cf1f4d86872d.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" async=\"\"></script><script src=\"/_next/static/chunks/5ca66e1443fc62d1.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" async=\"\"></script><script src=\"/_next/static/chunks/69be39811437728d.j"
+    },
+    {
+      "surface": "synapse_docs_paid_api_calls",
+      "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "role": "owned_docs_comparison",
+      "status_code": 200,
+      "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 740,
+      "error": "",
+      "page_title": "Synapse Remote MCP Server for Paid API Calls | Synapse Docs",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "dock0",
+        "MCPay",
+        "Paddle",
+        "agent402",
+        "mcp.so",
+        "paid MCP"
+      ],
+      "missing_terms": [],
+      "contact_signals": [
+        "github\\.com"
+      ],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "5d5af1960635",
+      "body_length_sampled": 177346,
+      "body_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark geistsans_47a3c9f1-module__MCSGAW__variable geistmono_cfbefb1d-module__fDTvyq__variable\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/GeistMonoVF-s.p.0ifhplp~93ddj.woff\" as=\"font\" crossorigin=\"\" type=\"font/woff\"/><link rel=\"preload\" href=\"/_next/static/media/GeistVF-s.p.04dvp7dj03si8.woff\" as=\"font\" crossorigin=\"\" type=\"font/woff\"/><link rel=\"preload\" as=\"image\" href=\"/logo-mark.svg\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/07~jd5h7mz58p.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunk"
+    },
+    {
+      "surface": "synapse_docs_vs_paid_mcp",
+      "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "role": "owned_docs_comparison",
+      "status_code": 200,
+      "final_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 644,
+      "error": "",
+      "page_title": "Synapse vs Paid MCP Alternatives | Synapse Docs",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "dock0",
+        "MCPay",
+        "Paddle",
+        "agent402",
+        "mcp.so",
+        "paid MCP"
+      ],
+      "missing_terms": [
+        "Synapse-Network-MCP-Server"
+      ],
+      "contact_signals": [
+        "github\\.com"
+      ],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "db678eec3a6e",
+      "body_length_sampled": 133383,
+      "body_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark geistsans_47a3c9f1-module__MCSGAW__variable geistmono_cfbefb1d-module__fDTvyq__variable\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/GeistMonoVF-s.p.0ifhplp~93ddj.woff\" as=\"font\" crossorigin=\"\" type=\"font/woff\"/><link rel=\"preload\" href=\"/_next/static/media/GeistVF-s.p.04dvp7dj03si8.woff\" as=\"font\" crossorigin=\"\" type=\"font/woff\"/><link rel=\"preload\" as=\"image\" href=\"/logo-mark.svg\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/07~jd5h7mz58p.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunk"
+    },
+    {
+      "surface": "synapse_www_llms",
+      "url": "https://www.synapse-network.ai/llms.txt",
+      "role": "owned_llms_feed",
+      "status_code": 200,
+      "final_url": "https://www.synapse-network.ai/llms.txt",
+      "content_type": "text/plain; charset=UTF-8",
+      "elapsed_ms": 308,
+      "error": "",
+      "page_title": "",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "dock0",
+        "MCPay",
+        "Paddle",
+        "agent402",
+        "mcp.so",
+        "paid MCP"
+      ],
+      "missing_terms": [],
+      "contact_signals": [
+        "github\\.com",
+        "x\\.com"
+      ],
+      "has_llms_feed": false,
+      "has_sitemap": false,
+      "body_sha256_12": "ce0cd066c9f7",
+      "body_length_sampled": 9546,
+      "body_excerpt": "# SynapseNetwork\n\nSynapseNetwork is the settlement layer for the AI agent economy. It lets AI agents buy APIs, LLM calls, data services, tools, and MCP integrations with USDC collateral, instant off-chain charging, and audit-ready settlement receipts.\n\n## Core Facts\n\n- Exact spaced-name identity: Synapse Network is the SynapseNetworkAI product at https://www.synapse-network.ai/ for AI agent payments, paid API calls, Remote MCP, Agent Credentials, bounded USDC spend, provider settlement, and receipts.\n- Category: AI agent payment and settlement infrastructure\n- Users: AI agent builders, API providers, LLM providers, data providers, tool providers, and MCP server builders\n- Settlement asset: U"
+    }
+  ]
+}
