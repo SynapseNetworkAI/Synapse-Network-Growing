@@ -1,0 +1,30 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-mcp-github-main-merge",
+  "surface": "official_mcp_registry",
+  "source_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=SynapseNetworkAI",
+  "checked_at": "2026-06-10T02:14:58.514194+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "00de7e626e608fe66962f518cdc74e8c2e045c2a155ee9600667b3027bd81359",
+  "content_bytes": 224,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "mcp-publisher validate passed for merged server.json, but mcp-publisher publish is blocked locally because the Registry JWT token is expired; operator GitHub device login is required before metadata refresh can be published.",
+  "screenshot_url": "terminal:mcp-publisher-publish-expired-registry-jwt",
+  "validation_summary": "official_mcp_registry browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-mcp-github-main-merge-after-source-host --platforms chatgpt,claude,gemini --execute"
+}
