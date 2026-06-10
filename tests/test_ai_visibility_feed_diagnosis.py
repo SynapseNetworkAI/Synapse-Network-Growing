@@ -79,6 +79,54 @@ def test_diagnosis_marks_validation_only_rows_as_no_external_evidence(tmp_path: 
     )
 
 
+def test_diagnosis_separates_provider_failures_from_completed_external_rows(
+    tmp_path: Path,
+):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="MCP server for paid API calls",
+                    competitors=["x402"],
+                ),
+                {
+                    **probe_row(
+                        platform="claude",
+                        query="MCP server for paid API calls",
+                    ),
+                    "answer_summary": (
+                        "claude API probe failed for 'MCP server for paid API calls': "
+                        "credit balance is too low"
+                    ),
+                    "missing_facts": [
+                        "claude API probe failed: credit balance is too low"
+                    ],
+                    "next_action": (
+                        "Fix provider/API probe failure and rerun the same query."
+                    ),
+                },
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    assert diagnosis["status"] == "partial_external_probe"
+    assert diagnosis["external_probe_count"] == 1
+    assert diagnosis["provider_failure_count"] == 1
+    assert diagnosis["covered_platforms"] == ["chatgpt"]
+    issue_keys = {item["issue_key"] for item in diagnosis["issues"]}
+    assert "api_probe_provider_failures" in issue_keys
+    provider_issue = next(
+        item
+        for item in diagnosis["issues"]
+        if item["issue_key"] == "api_probe_provider_failures"
+    )
+    assert "claude API probe failed for 1 query" in provider_issue["summary"]
+
+
 def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
     records = parse_probe_file(
         write_probe_jsonl(

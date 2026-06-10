@@ -24,6 +24,12 @@ from scripts.growth.record_ai_visibility_probe import (  # noqa: E402
     parse_probe_file,
     validate_records,
 )
+from scripts.growth.ai_visibility_feed_diagnosis_records import (  # noqa: E402
+    diagnosis_status,
+    external_blocker_and_failure_records,
+    scope_for,
+    target_platforms_for,
+)
 from server.services.growth.ai_visibility_feed_diagnosis_models import (  # noqa: E402
     API_MONETIZATION_COMPETITORS,
     BRAND_COLLISIONS,
@@ -31,12 +37,14 @@ from server.services.growth.ai_visibility_feed_diagnosis_models import (  # noqa
     FeedDiagnosis,
     FeedDiagnosisCommands,
     FeedDiagnosisIssue,
-    FeedDiagnosisScope,
     SourceHostExecution,
     TARGET_PLATFORMS,
 )
 from server.services.growth.ai_visibility_observed_source_hosts import (  # noqa: E402
     observed_source_host_recommendations,
+)
+from server.services.growth.ai_visibility_probe_failures import (  # noqa: E402
+    provider_failure_summaries,
 )
 from server.services.growth.ai_visibility_text import unique_strings  # noqa: E402
 
@@ -76,14 +84,23 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
 
 
 def diagnose_feed(records: list[ProbeRecord], *, source_path: str) -> FeedDiagnosis:
-    external_records, blocker_records = external_and_blocker_records(records)
+    (
+        external_records,
+        blocker_records,
+        provider_failure_records,
+    ) = external_blocker_and_failure_records(records)
     scope = scope_for(records)
-    target_platforms = target_platforms_for(external_records)
+    target_platforms = target_platforms_for(external_records + provider_failure_records)
     covered_platforms = sorted(
         {record.platform for record in external_records if record.platform}
     )
     competitor_map = competitors_by_name(external_records)
-    issues = issue_list(external_records, blocker_records, competitor_map)
+    issues = issue_list(
+        external_records,
+        blocker_records,
+        provider_failure_records,
+        competitor_map,
+    )
     recommendations = recommendations_for(
         feed_key=scope.feed_key,
         run_group=scope.run_group,
@@ -92,7 +109,11 @@ def diagnose_feed(records: list[ProbeRecord], *, source_path: str) -> FeedDiagno
         competitor_map=competitor_map,
     )
     return FeedDiagnosis(
-        status=diagnosis_status(external_records, blocker_records),
+        status=diagnosis_status(
+            external_records,
+            blocker_records,
+            provider_failure_records,
+        ),
         generated_at=datetime.now(UTC).isoformat(),
         source_path=source_path,
         feed_key=scope.feed_key,
@@ -102,6 +123,7 @@ def diagnose_feed(records: list[ProbeRecord], *, source_path: str) -> FeedDiagno
         record_count=len(records),
         external_probe_count=len(external_records),
         api_probe_blocker_count=len(blocker_records),
+        provider_failure_count=len(provider_failure_records),
         external_mentioned_count=sum(
             1 for record in external_records if record.synapse_mentioned
         ),
@@ -130,39 +152,6 @@ def diagnose_feed(records: list[ProbeRecord], *, source_path: str) -> FeedDiagno
     )
 
 
-def external_and_blocker_records(
-    records: list[ProbeRecord],
-) -> tuple[list[ProbeRecord], list[ProbeRecord]]:
-    blockers = [record for record in records if is_api_probe_readiness_blocker(record)]
-    external = [
-        record
-        for record in records
-        if not is_local_validation(record)
-        and not is_api_probe_readiness_blocker(record)
-    ]
-    return external, blockers
-
-
-def scope_for(records: list[ProbeRecord]) -> FeedDiagnosisScope:
-    feed_keys = sorted({record.feed_key for record in records if record.feed_key})
-    run_groups = sorted({record.run_group for record in records if record.run_group})
-    return FeedDiagnosisScope(
-        feed_keys=feed_keys,
-        run_groups=run_groups,
-        feed_key=feed_keys[0] if len(feed_keys) == 1 else "mixed",
-        run_group=run_groups[0] if len(run_groups) == 1 else "mixed",
-    )
-
-
-def target_platforms_for(external_records: list[ProbeRecord]) -> list[str]:
-    observed = {record.platform for record in external_records}
-    if not observed:
-        return TARGET_PLATFORMS
-    ordered = [platform for platform in TARGET_PLATFORMS if platform in observed]
-    extra = sorted(observed - set(TARGET_PLATFORMS))
-    return ordered + extra
-
-
 def competitors_by_name(records: list[ProbeRecord]) -> CompetitorMap:
     result: dict[str, list[str]] = {}
     for record in records:
@@ -178,15 +167,23 @@ def competitors_by_name(records: list[ProbeRecord]) -> CompetitorMap:
 def issue_list(
     external_records: list[ProbeRecord],
     blocker_records: list[ProbeRecord],
+    provider_failure_records: list[ProbeRecord],
     competitor_map: CompetitorMap,
 ) -> list[FeedDiagnosisIssue]:
-    return probe_evidence_issues(external_records, blocker_records) + competitor_issues(
-        competitor_map
+    return (
+        probe_evidence_issues(
+            external_records,
+            blocker_records,
+            provider_failure_records,
+        )
+        + competitor_issues(competitor_map)
     )
 
 
 def probe_evidence_issues(
-    external_records: list[ProbeRecord], blocker_records: list[ProbeRecord]
+    external_records: list[ProbeRecord],
+    blocker_records: list[ProbeRecord],
+    provider_failure_records: list[ProbeRecord],
 ) -> list[FeedDiagnosisIssue]:
     issues = []
     if blocker_records and not external_records:
@@ -195,6 +192,14 @@ def probe_evidence_issues(
                 issue_key="api_probe_blocked",
                 severity="p0",
                 summary="Answer-engine API probe keys are missing or not visible to the runner.",
+            )
+        )
+    if provider_failure_records:
+        issues.append(
+            FeedDiagnosisIssue(
+                issue_key="api_probe_provider_failures",
+                severity="p0",
+                summary="; ".join(provider_failure_summaries(provider_failure_records)),
             )
         )
     if not external_records:
@@ -446,18 +451,6 @@ def queries_for_terms(competitor_map: CompetitorMap, terms: set[str]) -> list[st
     )
 
 
-def diagnosis_status(
-    external_records: list[ProbeRecord], blocker_records: list[ProbeRecord]
-) -> str:
-    if not external_records:
-        if blocker_records:
-            return "external_probe_blocked"
-        return "no_external_probe_evidence"
-    if any(record.synapse_cited for record in external_records):
-        return "citation_observed"
-    return "source_host_actions_required"
-
-
 def api_probe_command(feed_key: str, run_group: str, platforms: list[str]) -> str:
     platform_arg = ",".join(platforms or TARGET_PLATFORMS)
     return (
@@ -465,14 +458,6 @@ def api_probe_command(feed_key: str, run_group: str, platforms: list[str]) -> st
         f"--feed-key {feed_key} --run-group {run_group} "
         f"--platforms {platform_arg} --execute"
     )
-
-
-def is_local_validation(record: ProbeRecord) -> bool:
-    return record.platform.endswith("_validation")
-
-
-def is_api_probe_readiness_blocker(record: ProbeRecord) -> bool:
-    return str(record.metadata.get("mode", "")).strip() == "api_probe_readiness_blocker"
 
 
 def normalize_name(value: str) -> str:
