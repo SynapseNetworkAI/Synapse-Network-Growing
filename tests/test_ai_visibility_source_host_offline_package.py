@@ -276,6 +276,11 @@ def test_offline_source_host_package_marks_live_and_review_pending_items(
                         "rationale": "MCP Directory appeared in answer sources.",
                     },
                     {
+                        "surface": "glama",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "Glama has a partial Synapse candidate.",
+                    },
+                    {
                         "surface": "protodex",
                         "draft_type": "mcp_directory_listing",
                         "rationale": "Protodex appeared in public search.",
@@ -287,6 +292,7 @@ def test_offline_source_host_package_marks_live_and_review_pending_items(
     )
     facts = SimpleNamespace(
         review_pending_surfaces=["mcp_directory"],
+        metadata_refresh_surfaces=["glama"],
         live_surfaces=["protodex"],
     )
 
@@ -301,6 +307,11 @@ def test_offline_source_host_package_marks_live_and_review_pending_items(
         draft_by_host["mcp.directory"].submission_payload["source_host_audit_status"]
         == "review_pending_live_recheck"
     )
+    assert draft_by_host["glama.ai"].status == "metadata_refresh_required"
+    assert (
+        draft_by_host["glama.ai"].submission_payload["source_host_audit_status"]
+        == "metadata_refresh_required"
+    )
 
     checklist = source_host_execution_checklist_from_diagnosis(
         diagnosis_path,
@@ -312,10 +323,70 @@ def test_offline_source_host_package_marks_live_and_review_pending_items(
     )
     assert item_by_host["mcp.directory"].submission_confirmation_command == ""
     assert "Do not resubmit" in item_by_host["mcp.directory"].action_required
+    assert item_by_host["glama.ai"].execution_status == "metadata_refresh_required"
+    assert (
+        "Refresh the existing directory listing metadata"
+        in item_by_host["glama.ai"].action_required
+    )
+    assert (
+        "metadata_refresh_receipt_or_screenshot"
+        in item_by_host["glama.ai"].required_evidence
+    )
+    assert (
+        "Updated SynapseNetwork MCP Server"
+        in item_by_host["glama.ai"].submission_confirmation_command
+    )
     assert item_by_host["protodex.io"].execution_status == "already_live"
     assert item_by_host["protodex.io"].required_evidence == [
         "existing_live_source_host_evidence"
     ]
+
+
+def test_source_host_audit_facts_collects_metadata_refresh_from_spot_check(
+    tmp_path: Path,
+):
+    from server.services.growth.ai_visibility_source_host_audit import (
+        source_host_audit_facts,
+    )
+
+    spot_check_path = tmp_path / "source-host-live-spot-check.json"
+    spot_check_path.write_text(
+        json.dumps(
+            {
+                "check_type": "source_host_live_spot_check",
+                "generated_at": "2026-06-10T00:00:00Z",
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-after-owned-source-live",
+                "execute": True,
+                "status": "candidate_incomplete_needs_metadata_refresh",
+                "items": [
+                    {
+                        "host": "glama.ai",
+                        "search_url": (
+                            "https://glama.ai/mcp/servers?query=Synapse%20Network"
+                        ),
+                        "status": "candidate_incomplete",
+                        "matched_terms": [
+                            "synapse network",
+                            "synapse-network-mcp-server",
+                        ],
+                        "missing_terms": ["mcp.synapse-network.ai"],
+                    },
+                    {
+                        "host": "mcpservers.org",
+                        "search_url": "https://mcpservers.org/?q=Synapse%20Network",
+                        "status": "not_found",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+
+    assert facts.metadata_refresh_surfaces == ["glama.ai"]
+    assert "source-host-live-spot-check.json" in facts.evidence_files[0]
 
 
 def test_offline_source_host_package_maps_exact_query_collision_surfaces(

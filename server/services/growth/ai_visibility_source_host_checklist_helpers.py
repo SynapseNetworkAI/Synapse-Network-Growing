@@ -183,6 +183,8 @@ def _execution_status(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
         return "already_live"
     if draft.status == "review_pending_live_recheck":
         return "review_pending_live_recheck"
+    if draft.status == "metadata_refresh_required":
+        return "metadata_refresh_required"
     if draft.status == "ready_to_submit":
         return "pending_submission"
     if draft.status == "ready_to_publish_on_owned_channels":
@@ -199,6 +201,12 @@ def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
         return (
             "Do not resubmit; recheck the review-pending listing until the public "
             "source-host page includes the required Synapse terms."
+        )
+    if draft.status == "metadata_refresh_required":
+        return (
+            "Refresh the existing directory listing metadata so it includes the "
+            "Remote MCP endpoint, npm package, GitHub repository, and tool names; "
+            "then rerun the live spot-check before external GPT/Claude probes."
         )
     if draft.status == "operator_login_required":
         return (
@@ -365,6 +373,13 @@ def _submission_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
             "Open the live listing search URLs on a fixed cadence.",
             "Record live-listing evidence only after a public page includes the required Synapse terms.",
         ]
+    if draft.status == "metadata_refresh_required":
+        return [
+            "Open the existing public listing or directory account in an operator-owned browser session.",
+            "Update the listing description or metadata with the Remote MCP endpoint, GitHub repository, npm package, docs URL, and tool names.",
+            "Capture the saved-update receipt or screenshot before recording evidence.",
+            "Rerun the source-host live spot-check; do not run GPT/Claude success probes until the spot-check reports a complete candidate or live listing.",
+        ]
     if draft.draft_type != "directory_submission":
         return []
     return [
@@ -385,6 +400,12 @@ def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> li
         return [
             "Use evidence-mode live-listing only after the public listing URL is accessible.",
             "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists.",
+        ]
+    if draft.status == "metadata_refresh_required":
+        return [
+            "Use evidence-mode submission-confirmation for the metadata refresh receipt or screenshot.",
+            "Use evidence-mode live-listing only after the public listing includes the missing Synapse terms.",
+            "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes only after the refreshed listing is live.",
         ]
     if draft.draft_type != "directory_submission":
         return []
@@ -413,6 +434,12 @@ def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]
         return ["existing_live_source_host_evidence"]
     if draft.status == "review_pending_live_recheck":
         return ["public_listing_url", "live_curl_or_browser_validation"]
+    if draft.status == "metadata_refresh_required":
+        return [
+            "metadata_refresh_receipt_or_screenshot",
+            "updated_payload_summary",
+            "live_spot_check_complete_candidate",
+        ]
     if draft.draft_type == "directory_submission":
         return ["submission_url_or_receipt", "submitted_payload_summary", "screenshot"]
     if draft.draft_type == "owned_comparison_refresh":
@@ -428,6 +455,7 @@ def _submission_confirmation_command(
     if draft.draft_type != "directory_submission":
         return ""
     surface = source_host_surface(draft.host)
+    action = "Updated" if draft.status == "metadata_refresh_required" else "Submitted"
     return (
         "python scripts/growth/record_ai_visibility_source_host_execution.py "
         "--feed-key mcp_paid_api_discovery "
@@ -435,7 +463,7 @@ def _submission_confirmation_command(
         f"--surface {surface} "
         f"--source-url {draft.submit_url or draft.target_url} "
         "--evidence-mode submission-confirmation "
-        '--submitted-payload-summary "Submitted SynapseNetwork MCP Server with '
+        f'--submitted-payload-summary "{action} SynapseNetwork MCP Server with '
         "Remote MCP endpoint, GitHub, npm package, discover_services, "
         'invoke_and_pay, and get_receipt." '
         "--screenshot-url docs/archive/evidence/growth/ai-visibility/"

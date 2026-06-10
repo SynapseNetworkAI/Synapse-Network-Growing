@@ -28,6 +28,7 @@ class SourceHostAuditFacts:
     submitted_surfaces: list[str] = field(default_factory=list)
     submission_blockers: list[str] = field(default_factory=list)
     review_pending_surfaces: list[str] = field(default_factory=list)
+    metadata_refresh_surfaces: list[str] = field(default_factory=list)
     live_surfaces: list[str] = field(default_factory=list)
     evidence_files: list[str] = field(default_factory=list)
     checklist_generated_at: datetime | None = None
@@ -52,6 +53,7 @@ def source_host_audit_facts(
     submitted: list[str] = []
     blockers: list[str] = []
     review_pending: list[str] = []
+    metadata_refresh: list[str] = []
     live: list[str] = []
     evidence_files: list[str] = []
     latest_checklist = _latest_checklist_payload(root)
@@ -82,6 +84,13 @@ def source_host_audit_facts(
                 evidence_files=evidence_files,
                 path=path,
             )
+        if payload.get("check_type") == "source_host_live_spot_check":
+            _collect_live_spot_check_evidence(
+                payload,
+                metadata_refresh=metadata_refresh,
+                evidence_files=evidence_files,
+                path=path,
+            )
 
     return SourceHostAuditFacts(
         required_directory_hosts=unique_strings(required_hosts),
@@ -91,6 +100,7 @@ def source_host_audit_facts(
         submitted_surfaces=unique_strings(submitted),
         submission_blockers=unique_strings(blockers),
         review_pending_surfaces=unique_strings(review_pending),
+        metadata_refresh_surfaces=unique_strings(metadata_refresh),
         live_surfaces=unique_strings(live),
         evidence_files=unique_strings(evidence_files),
         checklist_generated_at=_generated_at(payload) if latest_checklist else None,
@@ -120,6 +130,9 @@ def merge_source_host_audit_facts(
         ),
         review_pending_surfaces=unique_strings(
             first.review_pending_surfaces + second.review_pending_surfaces
+        ),
+        metadata_refresh_surfaces=unique_strings(
+            first.metadata_refresh_surfaces + second.metadata_refresh_surfaces
         ),
         live_surfaces=unique_strings(first.live_surfaces + second.live_surfaces),
         evidence_files=unique_strings(first.evidence_files + second.evidence_files),
@@ -238,6 +251,28 @@ def _collect_execution_evidence(
         evidence_files.append(_relative_evidence_path(path))
     if payload.get("status") == "live_verified":
         live.append(surface)
+        evidence_files.append(_relative_evidence_path(path))
+
+
+def _collect_live_spot_check_evidence(
+    payload: dict[str, Any],
+    *,
+    metadata_refresh: list[str],
+    evidence_files: list[str],
+    path: Path,
+) -> None:
+    matched = False
+    for item in payload.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "candidate_incomplete":
+            continue
+        host = _item_host(item)
+        if not host:
+            continue
+        matched = True
+        metadata_refresh.append(host)
+    if matched:
         evidence_files.append(_relative_evidence_path(path))
 
 

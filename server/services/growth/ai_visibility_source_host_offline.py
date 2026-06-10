@@ -164,6 +164,9 @@ def _audit_status_override(
         source_host_surface(item) for item in audit_facts.review_pending_surfaces
     }:
         return "review_pending_live_recheck"
+    metadata_refresh_surfaces = getattr(audit_facts, "metadata_refresh_surfaces", [])
+    if surface in {source_host_surface(item) for item in metadata_refresh_surfaces}:
+        return "metadata_refresh_required"
     return status
 
 
