@@ -1,0 +1,53 @@
+{
+  "module_key": "ai_visibility_owned_source_feed",
+  "status": "owned_source_pr_ready",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-owned-docs-disambiguation-pr227",
+  "checked_at": "2026-06-10T04:00:00Z",
+  "target_repo": "SynapseNetworkAI/Synapse-Network",
+  "target_branch": "codex/ai-visibility-owned-disambiguation-refresh",
+  "pull_request_url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/227",
+  "pull_request_number": 227,
+  "pull_request_head_sha": "cde50138f218af2a5c1385a40a42f7ce936fd296",
+  "mergeability": {
+    "merge_state_status": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "is_draft": false
+  },
+  "source_host_refresh": {
+    "type": "owned_docs_and_llms_refresh",
+    "surfaces": [
+      "https://docs.synapse-network.ai/mcp/brand-disambiguation",
+      "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "https://docs.synapse-network.ai/llms.txt",
+      "https://www.synapse-network.ai/llms.txt",
+      "https://www.synapse-network.ai/llms-full.txt"
+    ],
+    "new_signals": [
+      "Explicitly classifies python-docs.synapse.org and dataset/entity metadata answers as Sage Bionetworks Synapse collisions.",
+      "Adds the Glama SynapseNetworkAI MCP Connector listing as third-party directory evidence.",
+      "Adds a 2026-06-10 ChatGPT correction for the query SynapseNetwork MCP Server for paid API calls."
+    ]
+  },
+  "validation": [
+    "node scripts/ci/ai_visibility_assets_check.mjs",
+    "node scripts/ci/seo_public_assets_check.mjs",
+    "npm run ci:docs",
+    "cd services/docs-front && yarn build",
+    "local Playwright render check for /mcp/brand-disambiguation, /mcp/paid-api-calls, and /llms.txt",
+    "pre-push local PR gate passed through frontend_checks"
+  ],
+  "render_evidence": {
+    "json": "docs/archive/evidence/ai-seo/2026-06-10-owned-disambiguation-refresh/render-evidence.json",
+    "screenshots": [
+      "docs/archive/evidence/ai-seo/2026-06-10-owned-disambiguation-refresh/brand-disambiguation.png",
+      "docs/archive/evidence/ai-seo/2026-06-10-owned-disambiguation-refresh/paid-api-calls.png",
+      "docs/archive/evidence/ai-seo/2026-06-10-owned-disambiguation-refresh/docs-llms.png"
+    ]
+  },
+  "latest_probe_context": {
+    "before_this_refresh": "ChatGPT mentioned SynapseNetwork for a paid MCP query but cited python-docs.synapse.org and described dataset search/entity metadata behavior; Claude remained blocked by Anthropic credit balance.",
+    "success_rule": "A later run must mention SynapseNetworkAI and cite an official SynapseNetworkAI-controlled surface."
+  },
+  "next_probe_command_after_publish": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-owned-docs-disambiguation-prod --platforms chatgpt,claude --query \"SynapseNetwork MCP Server for paid API calls\" --output docs/archive/evidence/growth/ai-visibility/2026-06-10-after-owned-docs-disambiguation-prod-chatgpt-claude.jsonl --execute"
+}
