@@ -1,0 +1,192 @@
+{
+  "apply_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-11-live-refresh-after-fix-feed-validation.jsonl --allow-local-validation --apply",
+  "blocked_count": 0,
+  "canonical_homepage": "https://www.synapse-network.ai/",
+  "generated_at": "2026-06-10T20:32:40.708762Z",
+  "items": [
+    {
+      "answer_summary": "Live feed validation passed: www_ai_agent_payments=200; www_agent_payment_api=200; docs_ai_agent_payments=200",
+      "checked_urls": [
+        "https://www.synapse-network.ai/ai-agent-payments",
+        "https://www.synapse-network.ai/agent-payment-api",
+        "https://docs.synapse-network.ai/ai-agent-payments"
+      ],
+      "checks": [
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/ai-agent-payments",
+          "label": "www_ai_agent_payments",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/ai-agent-payments"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/agent-payment-api",
+          "label": "www_agent_payment_api",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/agent-payment-api"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://docs.synapse-network.ai/ai-agent-payments",
+          "label": "docs_ai_agent_payments",
+          "ok": true,
+          "status": 200,
+          "url": "https://docs.synapse-network.ai/ai-agent-payments"
+        }
+      ],
+      "external_probe_ready": true,
+      "feed_key": "agent_payment_category_pages",
+      "feed_ready": true,
+      "missing_facts": [],
+      "next_action": "Run GPT/Claude/Grok category probes for AI agent payment queries.",
+      "platform": "www_live_validation",
+      "query": "AI Agent Payments live feed readiness",
+      "run_group": "2026-06-11-live-refresh-after-fix",
+      "status": "ready"
+    },
+    {
+      "answer_summary": "Live feed validation passed: bare_domain_redirect=308; robots=200; llms=200; sitemap=200",
+      "checked_urls": [
+        "https://synapse-network.ai/",
+        "https://www.synapse-network.ai/robots.txt",
+        "https://www.synapse-network.ai/llms.txt",
+        "https://www.synapse-network.ai/sitemap.xml"
+      ],
+      "checks": [
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://synapse-network.ai/",
+          "label": "bare_domain_redirect",
+          "ok": true,
+          "status": 308,
+          "url": "https://synapse-network.ai/"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/robots.txt",
+          "label": "robots",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/robots.txt"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/llms.txt",
+          "label": "llms",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/llms.txt"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/sitemap.xml",
+          "label": "sitemap",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/sitemap.xml"
+        }
+      ],
+      "external_probe_ready": true,
+      "feed_key": "brand_disambiguation_www",
+      "feed_ready": true,
+      "missing_facts": [],
+      "next_action": "Run GPT/Claude/Grok brand probes with generated template.",
+      "platform": "www_live_validation",
+      "query": "Brand disambiguation live feed readiness",
+      "run_group": "2026-06-11-live-refresh-after-fix",
+      "status": "ready"
+    },
+    {
+      "answer_summary": "Live feed validation passed: www_homepage=200; docs_mcp_paid_api_calls=200; docs_mcp_source_host_comparison=200; www_llms_mcp=200; mcp_readyz=200; mcp_unauth_post=401",
+      "checked_urls": [
+        "https://www.synapse-network.ai/",
+        "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "https://www.synapse-network.ai/llms.txt",
+        "https://mcp.synapse-network.ai/readyz",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "checks": [
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/",
+          "label": "www_homepage",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "label": "docs_mcp_paid_api_calls",
+          "ok": true,
+          "status": 200,
+          "url": "https://docs.synapse-network.ai/mcp/paid-api-calls"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+          "label": "docs_mcp_source_host_comparison",
+          "ok": true,
+          "status": 200,
+          "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+        },
+        {
+          "contains_synapse": true,
+          "error": "",
+          "final_url": "https://www.synapse-network.ai/llms.txt",
+          "label": "www_llms_mcp",
+          "ok": true,
+          "status": 200,
+          "url": "https://www.synapse-network.ai/llms.txt"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://mcp.synapse-network.ai/readyz",
+          "label": "mcp_readyz",
+          "ok": true,
+          "status": 200,
+          "url": "https://mcp.synapse-network.ai/readyz"
+        },
+        {
+          "contains_synapse": false,
+          "error": "",
+          "final_url": "https://mcp.synapse-network.ai/mcp",
+          "label": "mcp_unauth_post",
+          "ok": true,
+          "status": 401,
+          "url": "https://mcp.synapse-network.ai/mcp"
+        }
+      ],
+      "external_probe_ready": true,
+      "feed_key": "mcp_paid_api_discovery",
+      "feed_ready": true,
+      "missing_facts": [],
+      "next_action": "Run MCP discovery probes and ChatGPT/Claude connector checks.",
+      "platform": "mcp_live_validation",
+      "query": "Remote MCP live readiness",
+      "run_group": "2026-06-11-live-refresh-after-fix",
+      "status": "ready"
+    }
+  ],
+  "module_key": "ai_visibility",
+  "ready_count": 3,
+  "run_group": "2026-06-11-live-refresh-after-fix",
+  "status": "ready_for_external_probe",
+  "total": 3,
+  "validation_command": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key agent_payment_category_pages --feed-key brand_disambiguation_www --feed-key mcp_paid_api_discovery --run-group 2026-06-11-live-refresh-after-fix --output docs/archive/evidence/growth/ai-visibility/2026-06-11-live-refresh-after-fix-feed-validation.jsonl"
+}
