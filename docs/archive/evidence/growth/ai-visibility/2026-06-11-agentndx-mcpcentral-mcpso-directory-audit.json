@@ -1,0 +1,134 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "directory_source_host_audit_and_submission",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-agentndx-mcpcentral-mcpso-directory-audit",
+  "generated_at": "2026-06-10T18:53:09Z",
+  "status": "agentndx_submitted_mcpcentral_partial_other_directories_gap",
+  "summary": "AgentNDX accepted a public review submission for Synapse Network MCP. MCP Central exposes the official SynapseNetworkAI server in sitemap, but the detail page is Cloudflare-gated/missing tool terms from the CLI fetch. mcp.so has a guessed slug that returns Project not found. PulseMCP, MCP Central, and MseeP have mixed crawler/form boundaries that should not be counted as answer-engine visibility yet.",
+  "agentndx": {
+    "root": "https://agentndx.ai/",
+    "robots": {
+      "allows_gptbot": true,
+      "allows_claudebot": true,
+      "allows_perplexitybot": true,
+      "sitemap": "https://agentndx.ai/sitemap-index.xml"
+    },
+    "submit_page": {
+      "url": "https://agentndx.ai/submit",
+      "http_status": "HTTP/2 308 then HTTP/2 200",
+      "form_action": "/api/submit",
+      "required_fields_observed": [
+        "name",
+        "github_url"
+      ],
+      "optional_fields_used": [
+        "homepage_url",
+        "protocols",
+        "description",
+        "contact"
+      ],
+      "review_policy_text_observed": "AgentNDX is curated — no self-serve publishing. Submit your server for review. We'll evaluate within 48 hours."
+    },
+    "submitted_payload_summary": {
+      "name": "Synapse Network MCP Server",
+      "github_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "homepage_url": "https://www.synapse-network.ai/",
+      "protocols": [
+        "MCP",
+        "x402"
+      ],
+      "description_terms": [
+        "Remote MCP",
+        "bounded USDC spend",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "contact": "support@synapse-network.ai",
+      "secrets_or_credentials_included": false
+    },
+    "submit_response": {
+      "post_url": "https://agentndx.ai/api/submit",
+      "http_status": "HTTP/2 302",
+      "redirect_location": "/submit?success=1",
+      "success_page_url": "https://agentndx.ai/submit?success=1",
+      "success_page_contains_submission_received": true,
+      "success_page_contains_review_within_48_hours": true
+    },
+    "post_submit_public_search": {
+      "search_page_checked": "https://agentndx.ai/search?q=Synapse%20Network%20MCP",
+      "official_listing_found": false,
+      "api_services_check_result": "The public API query did not return parseable JSON during this run; the listing is treated as review-pending, not live."
+    },
+    "evidence_role": "source_host_submission_confirmation_not_external_citation",
+    "completion_gate": "Only count AgentNDX as live source-host evidence after search/API or a public /server URL includes Synapse Network, SynapseNetworkAI, Remote MCP URL, and tool names."
+  },
+  "mcpcentral": {
+    "sitemap_url": "https://mcpcentral.io/sitemap.xml",
+    "sitemap_contains_official_synapse_url": true,
+    "official_url": "https://mcpcentral.io/servers/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "detail_fetch_status": "HTTP/2 403 Cloudflare challenge observed in curl fetch; record_ai_visibility_source_host_execution saw only identifier terms, not full listing terms.",
+    "source_host_execution_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-mcpcentral-live-source-host-execution.json",
+    "latest_status": "missing_required_terms",
+    "matched_terms": [
+      "SynapseNetworkAI",
+      "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+    ],
+    "missing_terms": [
+      "Synapse Network",
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt"
+    ],
+    "counts_as_live_source_host_success": false
+  },
+  "mcp_so": {
+    "guessed_url": "https://mcp.so/server/synapse-network-mcp-server",
+    "http_status": "HTTP/2 200",
+    "canonical_slug_present": true,
+    "page_result": "Project not found",
+    "matched_terms": [
+      "Synapse-Network-MCP-Server"
+    ],
+    "missing_terms": [
+      "Synapse Network",
+      "SynapseNetworkAI",
+      "mcp.synapse-network.ai",
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt",
+      "@synapse-network-ai/mcp-server"
+    ],
+    "submit_page": "https://mcp.so/submit",
+    "submit_page_status": "HTTP/2 200; contains submit form copy but also sign-in surface. No automated submission was performed in this run.",
+    "counts_as_live_source_host_success": false
+  },
+  "pulsemcp": {
+    "servers_url": "https://www.pulsemcp.com/servers",
+    "servers_page_status": "HTTP/2 200; no Synapse required terms found in fetched page.",
+    "submit_url": "https://www.pulsemcp.com/submit",
+    "submit_status": "HTTP/2 403 Cloudflare attention page in CLI fetch.",
+    "robots_boundary": "robots.txt allows general search but disallows GPTBot, ClaudeBot, Google-Extended, and several AI/training bots; do not prioritize as AI-answer source-host until a listing is live and accessible.",
+    "counts_as_live_source_host_success": false
+  },
+  "mseep": {
+    "submit_url": "https://mseep.ai/submit",
+    "submit_status": "HTTP/2 200",
+    "observed_policy": "For open source projects, make the MCP server public on GitHub with an open source license and include MCP Server or mcp-server in README; MseeP says it will automatically discover and scan it. Commercial/private listings require contact form.",
+    "synapse_repo_matches_auto_discovery_basics": true,
+    "listing_found_in_this_run": false,
+    "counts_as_live_source_host_success": false
+  },
+  "decision": {
+    "new_successful_feed_action": "AgentNDX review submission accepted via 302 success redirect and success page.",
+    "new_partial_live_surface": "MCP Central sitemap contains official SynapseNetworkAI server URL but detail fetch is not yet adequate evidence.",
+    "next_actions": [
+      "Recheck AgentNDX in 48 hours for public /server listing or API result.",
+      "Use a browser session or downstream public cache to validate MCP Central detail page after Cloudflare challenge clears.",
+      "Submit or claim mcp.so only through a human/operator account because current guessed slug is Project not found.",
+      "Do not rerun GPT/Claude probes until at least one of AgentNDX, MCP Central detail page, Smithery, Glama metadata, or mcp.directory becomes complete live evidence."
+    ]
+  }
+}

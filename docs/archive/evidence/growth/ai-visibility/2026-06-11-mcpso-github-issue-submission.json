@@ -1,0 +1,44 @@
+{
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "form_findings": {
+    "chat_mcp_so_submit_form_status": "reachable_but_site_sign_in_required",
+    "login_boundary": "The submit page client code rejects unauthenticated submissions with Please Sign in to submit a server.",
+    "mcp_so_submit_form_status": "reachable_but_site_sign_in_required",
+    "required_fields_observed": [
+      "Type",
+      "Name",
+      "URL",
+      "Server Config"
+    ]
+  },
+  "generated_at": "2026-06-10T19:40:19.952649+00:00",
+  "goal_complete": false,
+  "module_key": "ai_visibility_source_host_submission",
+  "next_action": "Recheck mcp.so and chat.mcp.so public listings after the issue comment is processed; rerun unchanged ChatGPT/Claude probes only after listing or metadata changes are live.",
+  "source_urls": {
+    "chat_mcp_so_submit_form": "https://chat.mcp.so/submit",
+    "github_submission_issue": "https://github.com/chatmcp/mcpso/issues/1",
+    "mcp_so_submit_form": "https://mcp.so/submit",
+    "submission_comment": "https://github.com/chatmcp/mcpso/issues/1#issuecomment-4673778929"
+  },
+  "status": "submitted_via_public_github_issue_comment",
+  "submission_reason": "mcp.so and chat.mcp.so were observed in ChatGPT source hosts for exact SynapseNetwork MCP paid API queries.",
+  "submitted_public_fields": {
+    "auth_boundary": "User-owned Synapse Agent Credential placeholder only; no token value submitted.",
+    "brand_disambiguation": "Synapse Network at synapse-network.ai, not Sage Bionetworks Synapse / synapse.org.",
+    "category": "Finance / API monetization / Agent payments",
+    "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+    "github": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "name": "Synapse Network MCP Server",
+    "npm": "https://www.npmjs.com/package/@synapse-network-ai/mcp-server",
+    "official_registry_name": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+    "tools": [
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt"
+    ],
+    "transport": "Streamable HTTP"
+  },
+  "surface": "mcp_so"
+}

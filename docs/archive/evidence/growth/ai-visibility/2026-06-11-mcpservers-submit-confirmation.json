@@ -1,0 +1,32 @@
+{
+  "module_key": "ai_visibility",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-glama-listing-title-refresh",
+  "generated_at": "2026-06-10T18:11:49Z",
+  "surface": "mcpservers_org",
+  "status": "submitted_review_pending",
+  "submission": {
+    "id": 3193,
+    "name": "Synapse Network MCP Server",
+    "description": "Remote MCP for AI agent paid API discovery, payments, and receipts.",
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "category": "finance",
+    "email": "support@synapse-network.ai",
+    "review_status": "pending",
+    "plan": "free",
+    "payment_status": "not_required",
+    "created_at": "2026-06-10T18:11:49.285Z"
+  },
+  "submission_method": {
+    "form_url": "https://mcpservers.org/submit",
+    "server_function_url": "https://mcpservers.org/_serverFn/62b9fa2877951ac582b1d0a4835a88ab4b119b1d5fd1a39a67a6a9faadcbc72d",
+    "http_status": 200,
+    "response_content_type": "application/json",
+    "serialized_response": true,
+    "premium_checkbox_checked": false
+  },
+  "artifact_paths": [
+    "docs/archive/evidence/growth/ai-visibility/2026-06-11-mcpservers-submit-filled-form.png"
+  ],
+  "operator_note": "The headless browser form click did not navigate to the success panel because Cloudflare Turnstile warned about headless automation, so the same site-exposed TanStack server function was used with the free plan FormData. The server returned a pending free submission and no paid premium option was selected."
+}

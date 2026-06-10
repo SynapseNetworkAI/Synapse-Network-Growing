@@ -1,6 +1,10 @@
 def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     for platform, cited, hosts in (
-        ("chatgpt", False, ["docs.mcpay.tech", "mcpservers.org"]),
+        (
+            "chatgpt",
+            False,
+            ["docs.mcpay.tech", "mcpservers.org", "chat.mcp.so", "dock0.dev"],
+        ),
         ("claude", True, ["synapse-network.ai"]),
     ):
         response = synced_client.post(
@@ -31,6 +35,8 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     assert set(payload["source_hosts"]) == {
         "docs.mcpay.tech",
         "mcpservers.org",
+        "chat.mcp.so",
+        "dock0.dev",
         "synapse-network.ai",
     }
     assert "MCPay" in payload["top_competitors"]
@@ -45,6 +51,14 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     assert action_by_host["mcpservers.org"]["observed_count"] == 1
     assert action_by_host["docs.mcpay.tech"]["surface"] == "docs_mcpay_tech"
     assert action_by_host["docs.mcpay.tech"]["priority"] == "p1"
+    assert action_by_host["chat.mcp.so"]["surface"] == "chat_mcp_so"
+    assert action_by_host["chat.mcp.so"]["priority"] == "p0"
+    assert action_by_host["chat.mcp.so"]["draft_type"] == "mcp_search_surface_review"
+    assert action_by_host["dock0.dev"]["surface"] == "dock0_dev"
+    assert action_by_host["dock0.dev"]["priority"] == "p0"
+    assert action_by_host["dock0.dev"]["draft_type"] == (
+        "competitor_source_host_review"
+    )
 
     weekly = synced_client.get("/api/growth/ai-visibility/weekly-report")
     report = next(
@@ -53,6 +67,8 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
         if item["feed_key"] == "mcp_paid_api_discovery"
     )
     assert "docs.mcpay.tech" in report["source_hosts"]
+    assert "chat.mcp.so" in report["source_hosts"]
+    assert "dock0.dev" in report["source_hosts"]
     report_action_by_host = {
         item["host"]: item for item in report["source_host_actions"]
     }

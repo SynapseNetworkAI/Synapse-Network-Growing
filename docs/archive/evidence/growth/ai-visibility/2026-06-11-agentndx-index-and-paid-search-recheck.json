@@ -1,0 +1,55 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "directory_post_submit_index_recheck",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-agentndx-index-recheck-after-submit",
+  "generated_at": "2026-06-10T18:56:07Z",
+  "source_host": "agentndx.ai",
+  "status": "submitted_not_indexed_yet",
+  "summary": "After the successful AgentNDX submission receipt, the free full index still has zero Synapse matches. Paid search requires x402 payment and returned HTTP 402. Treat AgentNDX as review-pending, not live source-host evidence.",
+  "submission_evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-agentndx-mcpcentral-mcpso-directory-audit.json",
+  "free_index_recheck": {
+    "url": "https://agentndx.ai/api/servers.json",
+    "http_status": "HTTP/2 200",
+    "content_type": "application/json",
+    "total": 519,
+    "updated": "2026-06-10",
+    "server_count": 519,
+    "match_terms": [
+      "synapse network",
+      "synapsenetworkai",
+      "synapse-network-mcp-server",
+      "mcp.synapse-network.ai",
+      "@synapse-network-ai/mcp-server"
+    ],
+    "synapse_matches_found": 0,
+    "matched_records_preview": []
+  },
+  "paid_search_recheck": {
+    "url": "https://agentndx.ai/api/search?q=Synapse%20Network%20MCP&limit=10",
+    "http_status": "HTTP/2 402",
+    "body_summary": "{}",
+    "openapi_contract": "/api/search is x402 paid search; OpenAPI documents HTTP 402 for unpaid requests at $0.005 USDC.",
+    "paid_probe_not_run": true
+  },
+  "related_directory_boundaries": {
+    "aitoolnet": {
+      "search_url": "https://aitoolnet.com/search?q=Synapse%20Network%20MCP",
+      "submit_url": "https://aitoolnet.com/submit",
+      "cli_fetch_status": "HTTP/2 403 Cloudflare challenge; sitemap index had no Synapse/MCP match in this run.",
+      "counts_as_live_source_host_success": false
+    },
+    "alternativeto": {
+      "search_url": "https://alternativeto.net/browse/search/?q=Synapse%20Network%20MCP",
+      "guessed_product_url": "https://alternativeto.net/software/synapse-network-mcp-server/",
+      "submit_url": "https://alternativeto.net/software/new/",
+      "cli_fetch_status": "HTTP/2 403 Cloudflare challenge; robots disallows /browse/search/ and account/manage surfaces, so no automated submit was attempted.",
+      "counts_as_live_source_host_success": false
+    }
+  },
+  "decision": {
+    "counts_as_source_host_success": false,
+    "counts_as_submission_followup_evidence": true,
+    "next_action": "Recheck AgentNDX free index and a public /server URL after its stated 48-hour review window; do not run paid AgentNDX x402 search or answer-engine probes until a live listing appears or operator approves paid probe spend."
+  }
+}

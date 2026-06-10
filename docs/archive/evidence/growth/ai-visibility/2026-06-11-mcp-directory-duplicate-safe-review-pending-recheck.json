@@ -1,0 +1,28 @@
+{
+  "module_key": "ai_visibility_source_host_submission",
+  "surface": "mcp_directory",
+  "source_url": "https://mcp.directory/submit",
+  "submit_url": "https://mcp.directory/api/submit-server",
+  "generated_at": "2026-06-10T18:05:05.270129+00:00",
+  "status": "already_submitted_review_pending",
+  "status_code": 409,
+  "response_body": "{\"error\":\"This repository has already been submitted. We'll review it soon!\"}",
+  "attempts": [
+    {
+      "attempted_at": "2026-06-10T18:05:04.123810+00:00",
+      "payload_keys": [
+        "description",
+        "githubUrl",
+        "npmPackage"
+      ],
+      "description_length": 67,
+      "status": "already_submitted_review_pending",
+      "status_code": 409,
+      "response_body": "{\"error\":\"This repository has already been submitted. We'll review it soon!\"}"
+    }
+  ],
+  "submitted_payload_summary": "Duplicate-safe current recheck for SynapseNetworkAI/Synapse-Network-MCP-Server. Payload used GitHub repo, npm package, and short non-secret description.",
+  "evidence_role": "source_host_review_pending_confirmation_not_external_citation",
+  "live_listing_search_url": "https://mcp.directory/?q=Synapse%20Network",
+  "next_action": "Do not resubmit while mcp.directory reports the repository is already submitted; recheck live listing/search after review window or contact directory operator if stale."
+}

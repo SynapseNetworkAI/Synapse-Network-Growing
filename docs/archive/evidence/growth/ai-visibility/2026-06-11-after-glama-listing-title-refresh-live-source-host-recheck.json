@@ -1,0 +1,84 @@
+{
+  "module_key": "ai_visibility",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-glama-listing-title-refresh",
+  "generated_at": "2026-06-10T17:58:00Z",
+  "status": "partial_source_host_refresh_not_visible_yet",
+  "summary": "Glama now exposes Synapse Network MCP title, description, and Remote MCP URL in the public connector page, but ChatGPT probes still do not mention or cite Synapse for paid MCP/API payment queries. Production /.well-known/glama.json is still the old maintainer-only payload because the MCP Cloud Run metadata fix has not been deployed.",
+  "live_checks": [
+    {
+      "surface": "remote_mcp_readyz",
+      "url": "https://mcp.synapse-network.ai/readyz",
+      "status": "passed",
+      "evidence": "HTTP 200 with {\"status\":\"ready\",\"gatewayStatus\":404}"
+    },
+    {
+      "surface": "remote_mcp_unauthenticated_mcp",
+      "url": "https://mcp.synapse-network.ai/mcp",
+      "status": "passed",
+      "evidence": "Unauthenticated JSON-RPC POST returned HTTP 401 with Bearer resource metadata challenge."
+    },
+    {
+      "surface": "glama_connector_page",
+      "url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "status": "partially_refreshed",
+      "evidence": "HTML title and meta description include Synapse Network MCP Server for paid API calls and the Remote MCP URL, but page text did not include discover_services, invoke_and_pay, or get_receipt."
+    },
+    {
+      "surface": "remote_mcp_glama_well_known",
+      "url": "https://mcp.synapse-network.ai/.well-known/glama.json",
+      "status": "stale",
+      "evidence": "Live response remains maintainer-only metadata and does not include name, serverUrl, discover_services, invoke_and_pay, or get_receipt."
+    },
+    {
+      "surface": "official_mcp_registry",
+      "url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "status": "passed",
+      "evidence": "Registry search includes SynapseNetworkAI, Remote MCP URL, and all three MCP tool names."
+    },
+    {
+      "surface": "mcp_directory",
+      "url": "https://mcp.directory/?q=Synapse%20Network",
+      "status": "submitted_review_pending_not_live",
+      "evidence": "Public search still does not expose Synapse terms, but the current submit API recheck returned 409: repository already submitted and under review."
+    },
+    {
+      "surface": "mcpservers_org",
+      "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "status": "live_verified",
+      "evidence": "The public detail page now includes Synapse Network, SynapseNetworkAI, Synapse-Network-MCP-Server, mcp.synapse-network.ai, discover_services, invoke_and_pay, and get_receipt. Public search and remote sitemap had not yet reflected the listing."
+    }
+  ],
+  "external_probe_result": {
+    "probe_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-glama-listing-title-refresh-external-probes.jsonl",
+    "summary_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-glama-listing-title-refresh-cycle-summary.json",
+    "record_count": 8,
+    "completed_external_probe_count": 2,
+    "external_mentioned_count": 0,
+    "external_cited_count": 0,
+    "chatgpt_observed_source_hosts": [
+      "docs.mcpay.tech",
+      "agent402.dev",
+      "developer.paddle.com",
+      "mcp.paddle.com",
+      "mcp.directory"
+    ],
+    "provider_blockers": [
+      "Claude API credit balance is too low.",
+      "Grok/xAI account has used available credits or reached monthly spending limit.",
+      "Gemini API free-tier quota was exhausted for gemini-2.5-flash."
+    ]
+  },
+  "deploy_blocker": {
+    "surface": "mcp_remote_gcloud_metadata_deploy",
+    "status": "blocked_by_local_gcloud_reauth",
+    "evidence": "gcloud auth print-access-token failed non-interactively for cliff@synapse-network.ai and asked for gcloud auth login. The session did not deploy or claim Remote MCP production success."
+  },
+  "next_actions": [
+    "Re-authenticate gcloud and deploy Synapse-Network-MCP-Server main so production /.well-known/glama.json exposes name, serverUrl, and tool metadata.",
+    "Do not resubmit mcp.directory while the submit API returns already-submitted/review-pending; recheck the listing after the review window or contact the directory operator with the 409 evidence.",
+    "Keep the mcpservers.org live listing as source-host evidence and rerun unchanged probes after the next new feed asset is live; do not use the $39 premium path without explicit operator approval.",
+    "Feed or earn mentions on ChatGPT-observed source hosts, especially docs.mcpay.tech-adjacent comparisons, agent402.dev comparison context, Paddle MCP comparison context, and directory pages.",
+    "After the MCP deploy and directory review/indexing refresh, rerun the unchanged ChatGPT/Claude probe matrix for this same feed key."
+  ]
+}

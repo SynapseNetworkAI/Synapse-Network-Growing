@@ -1,0 +1,409 @@
+{
+  "checks": [
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/cecdbce2880c059c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-1e56b3c3206210e2.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><scr",
+      "body_length_sampled": 489109,
+      "body_sha256_12": "605c09d8582e",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 1036,
+      "error": "",
+      "final_url": "https://mcp.so/",
+      "has_submit_language": true,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://mcp.so/"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/cecdbce2880c059c.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/5956480ff8919f17.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/c19df4dfccfb564d.css\" data-precedence=\"next\"/><link rel",
+      "body_length_sampled": 71249,
+      "body_sha256_12": "744cbd842b44",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 159,
+      "error": "",
+      "final_url": "https://mcp.so/server/synapse-network-mcp-server",
+      "has_submit_language": true,
+      "matched_terms": [
+        "synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://mcp.so/server/synapse-network-mcp-server"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/cecdbce2880c059c.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/5956480ff8919f17.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/c19df4dfccfb564d.css\" data-precedence=\"next\"/><link rel",
+      "body_length_sampled": 70674,
+      "body_sha256_12": "fd2fbc46a9ac",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 161,
+      "error": "",
+      "final_url": "https://mcp.so/server/synapsenetworkai-synapse-network-mcp-server",
+      "has_submit_language": true,
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "Synapse Network",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://mcp.so/server/synapsenetworkai-synapse-network-mcp-server"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-1e56b3c3206210e2.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><script src=\"/_next/static/chunks/5774-3c92e2fd4a5f0665.js\" async=\"\"></script><script src=\"/_next",
+      "body_length_sampled": 9750,
+      "body_sha256_12": "000021c3b326",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 87,
+      "error": "",
+      "final_url": "https://mcp.so/server/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://mcp.so/server/io.github.SynapseNetworkAI/synapse-network-mcp-server"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-1e56b3c3206210e2.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><script src=\"/_next/static/chunks/5774-3c92e2fd4a5f0665.js\" async=\"\"></script><script src=\"/_next",
+      "body_length_sampled": 9750,
+      "body_sha256_12": "e843a377fdba",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 96,
+      "error": "",
+      "final_url": "https://mcp.so/search?q=SynapseNetworkAI",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://mcp.so/search?q=SynapseNetworkAI"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/66449ed0e802001c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-1e56b3c3206210e2.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><script src=\"/_next/static/chunks/5774-3c92e2fd4a5f0665.js\" async=\"\"></script><script src=\"/_next",
+      "body_length_sampled": 9750,
+      "body_sha256_12": "0ccdeca5a88c",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 86,
+      "error": "",
+      "final_url": "https://mcp.so/search?q=Synapse%20Network%20MCP",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://mcp.so/search?q=Synapse%20Network%20MCP"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/b7229002b135bd8b.css\" data-precedence=\"next\"/><link rel=\"stylesheet\" href=\"/_next/static/css/cecdbce2880c059c.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9643fd714685f15d.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><scr",
+      "body_length_sampled": 499387,
+      "body_sha256_12": "4811575d35dc",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 2202,
+      "error": "",
+      "final_url": "https://chat.mcp.so/",
+      "has_submit_language": true,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://chat.mcp.so/"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/b7229002b135bd8b.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9643fd714685f15d.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><script src=\"/_next/static/chunks/5774-3c92e2fd4a5f0665.js\" async=\"\"></script><script src=\"/_next",
+      "body_length_sampled": 9404,
+      "body_sha256_12": "549a3f71d8bf",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 1802,
+      "error": "",
+      "final_url": "https://chat.mcp.so/search?q=SynapseNetworkAI",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://chat.mcp.so/search?q=SynapseNetworkAI"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/css/b7229002b135bd8b.css\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/webpack-9643fd714685f15d.js\"/><script src=\"/_next/static/chunks/ec7a6716-6cab3e3f753fb035.js\" async=\"\"></script><script src=\"/_next/static/chunks/5774-3c92e2fd4a5f0665.js\" async=\"\"></script><script src=\"/_next",
+      "body_length_sampled": 9404,
+      "body_sha256_12": "5abea5ff031d",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 193,
+      "error": "",
+      "final_url": "https://chat.mcp.so/search?q=Synapse%20Network%20MCP",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://chat.mcp.so/search?q=Synapse%20Network%20MCP"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/de161955856a921d-s.p.25da2b95.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" as=\"image\" href=\"/logos/anthropic.svg\"/><link rel=\"preload\" as=\"image\" href=\"/logos/openai.svg\"/>",
+      "body_length_sampled": 207799,
+      "body_sha256_12": "42b2b00f481b",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 614,
+      "error": "",
+      "final_url": "https://www.dock0.dev/",
+      "has_submit_language": true,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://dock0.dev/"
+    },
+    {
+      "body_excerpt": "User-Agent: * Allow: / Sitemap: https://dock0.dev/sitemap.xml",
+      "body_length_sampled": 63,
+      "body_sha256_12": "2bf4fcb87e29",
+      "collision_signals": [],
+      "content_type": "text/plain",
+      "elapsed_ms": 878,
+      "error": "",
+      "final_url": "https://www.dock0.dev/robots.txt",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://dock0.dev/robots.txt"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><!--Z9J4UguNdRmTX_LZr4lLc--><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/f32d046892b8c43a.css?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/53d02eea1ad60916.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\"/><script src=\"/_next/static/chunks/8815cf1f4d86872d.js?dpl=dpl_CwKDi8WTYW",
+      "body_length_sampled": 14119,
+      "body_sha256_12": "876524918b74",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 155,
+      "error": "",
+      "final_url": "https://www.dock0.dev/llms.txt",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://dock0.dev/llms.txt"
+    },
+    {
+      "body_excerpt": "<?xml version=\"1.0\" encoding=\"UTF-8\"?> <urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"> <url> <loc>https://dock0.dev</loc> <lastmod>2026-04-07T09:17:06.279Z</lastmod> <changefreq>weekly</changefreq> <priority>1</priority> </url> <url> <loc>https://dock0.dev/about</loc> <lastmod>2026-04-07T09:17:06.279Z</lastmod> <changefreq>monthly</changefreq> <priority>0.8</priority> </url> <url> <loc>https://dock0.dev/terms</loc> <lastmod>2026-04-07T09:17:06.279Z</lastmod> <changefreq>monthly</cha",
+      "body_length_sampled": 703,
+      "body_sha256_12": "867b100bd3a6",
+      "collision_signals": [],
+      "content_type": "application/xml",
+      "elapsed_ms": 943,
+      "error": "",
+      "final_url": "https://www.dock0.dev/sitemap.xml",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 200,
+      "url": "https://dock0.dev/sitemap.xml"
+    },
+    {
+      "body_excerpt": "<!DOCTYPE html><!--Z9J4UguNdRmTX_LZr4lLc--><html lang=\"en\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/f32d046892b8c43a.css?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\" data-precedence=\"next\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/53d02eea1ad60916.js?dpl=dpl_CwKDi8WTYW5aqRuy9K2BdK2gFZWh\"/><script src=\"/_next/static/chunks/8815cf1f4d86872d.js?dpl=dpl_CwKDi8WTYW",
+      "body_length_sampled": 14119,
+      "body_sha256_12": "876524918b74",
+      "collision_signals": [],
+      "content_type": "text/html; charset=utf-8",
+      "elapsed_ms": 196,
+      "error": "",
+      "final_url": "https://www.dock0.dev/search?q=SynapseNetworkAI",
+      "has_submit_language": false,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "status_code": 404,
+      "url": "https://dock0.dev/search?q=SynapseNetworkAI"
+    }
+  ],
+  "decision": {
+    "chat_mcp_so_next_action": "Treat as ChatGPT-observed MCP search surface; current public checks do not expose a SynapseNetwork listing or submission API.",
+    "dock0_next_action": "Treat dock0 as competitor/control source host unless a public partnership or comparison path is identified; no SynapseNetwork listing was found in current public checks.",
+    "goal_complete": false,
+    "mcp_so_next_action": "Find an authenticated/public mcp.so listing correction path or operator contact; current unauthenticated fetches do not prove a live SynapseNetworkAI listing.",
+    "rerun_probe_after": "mcp.so/chat.mcp.so listing is live or owned docs add explicit source-host disambiguation targeting these observed hosts."
+  },
+  "generated_at": "2026-06-10T19:31:06.420744+00:00",
+  "host_summary": [
+    {
+      "collision_signals": [],
+      "host": "mcp.so",
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server"
+      ],
+      "status": "partial_or_query_echo_requires_review",
+      "status_codes": [
+        200,
+        200,
+        200,
+        404,
+        404,
+        404
+      ]
+    },
+    {
+      "collision_signals": [],
+      "host": "chat.mcp.so",
+      "matched_terms": [],
+      "status": "reachable_no_synapse_listing",
+      "status_codes": [
+        200,
+        404,
+        404
+      ]
+    },
+    {
+      "collision_signals": [],
+      "host": "dock0.dev",
+      "matched_terms": [],
+      "status": "reachable_no_synapse_listing",
+      "status_codes": [
+        200,
+        200,
+        404,
+        200,
+        404
+      ]
+    }
+  ],
+  "module_key": "ai_visibility_observed_source_host_audit",
+  "required_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "synapse-network-mcp-server",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt",
+    "https://mcp.synapse-network.ai/mcp",
+    "@synapse-network-ai/mcp-server"
+  ],
+  "run_group": "2026-06-11-current-mcp-directory-followup",
+  "source_probe_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-current-mcp-directory-followup-external-probes.jsonl",
+  "status": "source_host_actions_required",
+  "surface": "chatgpt_observed_mcpso_dock0",
+  "why_this_matters": "ChatGPT sampled chat.mcp.so, mcp.so, and dock0.dev for the exact SynapseNetwork MCP paid API query, so these hosts are high-signal feed or collision surfaces."
+}

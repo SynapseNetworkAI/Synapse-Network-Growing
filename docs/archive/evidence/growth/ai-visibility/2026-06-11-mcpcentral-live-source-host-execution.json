@@ -1,0 +1,45 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-mcpcentral-agentndx-mcpso-audit",
+  "surface": "mcpcentral",
+  "source_url": "https://mcpcentral.io/servers/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T18:51:27.304359+00:00",
+  "required_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "matched_terms": [
+    "SynapseNetworkAI",
+    "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+  ],
+  "missing_terms": [
+    "Synapse Network",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "content_sha256": "bf904ab51a1a220af4a12f588718f80cbc014ca0e75373b389f168809a01fae3",
+  "content_bytes": 68252,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcpcentral source host is missing required terms: Synapse Network, discover_services, invoke_and_pay, get_receipt.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-mcpcentral-agentndx-mcpso-audit-after-source-host --platforms chatgpt,claude,grok --execute"
+}

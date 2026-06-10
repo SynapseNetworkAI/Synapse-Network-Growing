@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
+    "chat.mcp.so": "chat_mcp_so",
+    "dock0.dev": "dock0_dev",
     "glama.ai": "glama",
     "glama_ai": "glama",
     "lobehub.com": "lobehub",

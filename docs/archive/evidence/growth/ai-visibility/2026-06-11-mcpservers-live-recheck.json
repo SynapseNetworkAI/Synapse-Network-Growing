@@ -1,0 +1,77 @@
+{
+  "module_key": "ai_visibility",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-glama-listing-title-refresh",
+  "generated_at": "2026-06-10T18:12:00Z",
+  "surface": "mcpservers_org",
+  "status": "live_verified",
+  "submission_id": 3193,
+  "live_checks": [
+    {
+      "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "http_status": 200,
+      "robots_meta": [],
+      "term_hits": {
+        "Synapse": true,
+        "Synapse Network": true,
+        "SynapseNetworkAI": true,
+        "Synapse-Network-MCP-Server": true,
+        "mcp.synapse-network.ai": true,
+        "discover_services": true,
+        "invoke_and_pay": true,
+        "get_receipt": true
+      }
+    },
+    {
+      "url": "https://mcpservers.org/?q=Synapse%20Network",
+      "http_status": 200,
+      "robots_meta": [],
+      "term_hits": {
+        "Synapse": false,
+        "Synapse Network": false,
+        "SynapseNetworkAI": false,
+        "Synapse-Network-MCP-Server": false,
+        "mcp.synapse-network.ai": false
+      }
+    },
+    {
+      "url": "https://mcpservers.org/search?q=Synapse%20Network",
+      "http_status": 200,
+      "robots_meta": [
+        "<meta name=\"robots\" content=\"noindex,follow\"/>"
+      ],
+      "term_hits": {
+        "Synapse": false,
+        "Synapse Network": false,
+        "SynapseNetworkAI": false,
+        "Synapse-Network-MCP-Server": false,
+        "mcp.synapse-network.ai": false
+      }
+    },
+    {
+      "url": "https://mcpservers.org/remote-mcp-servers",
+      "http_status": 200,
+      "robots_meta": [],
+      "term_hits": {
+        "Synapse": false,
+        "Synapse Network": false,
+        "SynapseNetworkAI": false,
+        "Synapse-Network-MCP-Server": false,
+        "mcp.synapse-network.ai": false
+      }
+    },
+    {
+      "url": "https://mcpservers.org/sitemaps/remote-mcp-servers.xml",
+      "http_status": 200,
+      "robots_meta": [],
+      "term_hits": {
+        "Synapse": false,
+        "Synapse Network": false,
+        "SynapseNetworkAI": false,
+        "Synapse-Network-MCP-Server": false,
+        "mcp.synapse-network.ai": false
+      }
+    }
+  ],
+  "conclusion": "mcpservers.org now exposes a public SynapseNetwork MCP Server detail page with the required Synapse terms, Remote MCP URL, GitHub repository, and MCP tool names. Site search and remote sitemap had not yet reflected the listing at the time of this recheck."
+}

@@ -1,0 +1,121 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "owned_docs_mirror_refresh_probe_summary",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-docs-mirror-owned-refresh",
+  "generated_at": "2026-06-10T19:18:21Z",
+  "status": "feed_validated_but_answer_engines_not_visible_yet",
+  "summary": "Canonical Synapse docs pages for paid MCP answer blocks are live, and the Synapse-Network-Docs public GitHub mirror PR is clean/mergeable. Feed validation passed, but the follow-up API probe still produced zero Synapse mentions/citations. ChatGPT continues to prefer incumbent source hosts and brand-collision hosts; Claude/Grok/Gemini remain provider-credit or quota bounded.",
+  "owned_docs_live_checks": [
+    {
+      "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "http_status": 200,
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments",
+        "agent402",
+        "MCPay",
+        "Cashfree",
+        "https://mcp.synapse-network.ai/mcp"
+      ]
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "http_status": 200,
+      "matched_terms": [
+        "Synapse vs Paid MCP Alternatives",
+        "x402",
+        "MCPay",
+        "agent402",
+        "Paddle MCP",
+        "Cashfree"
+      ]
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/brand-disambiguation",
+      "http_status": 200,
+      "matched_terms": [
+        "Synapse Brand Disambiguation",
+        "Azure Synapse",
+        "Sage Bionetworks Synapse",
+        "Synapse Protocol",
+        "mcp.synapse.org",
+        "python-docs.synapse.org"
+      ]
+    },
+    {
+      "url": "https://docs.synapse-network.ai/llms.txt",
+      "http_status": 200,
+      "matched_terms": [
+        "Synapse Remote MCP Server for Paid API Calls",
+        "Synapse vs Paid MCP Alternatives",
+        "Synapse Brand Disambiguation",
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments"
+      ]
+    }
+  ],
+  "public_docs_mirror": {
+    "repo": "SynapseNetworkAI/Synapse-Network-Docs",
+    "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-Docs/pull/7",
+    "merge_state": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "head_ref": "codex/ai-owned-mcp-docs-refresh",
+    "purpose": "Expose the canonical paid-MCP answer blocks through the public GitHub docs mirror and repo-level llms.txt source host."
+  },
+  "validation": {
+    "feed_validation_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-docs-mirror-owned-refresh-feed-validation.jsonl",
+    "feed_validation_status": "succeeded",
+    "external_probe_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-docs-mirror-owned-refresh-external-probes.jsonl",
+    "cycle_summary_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-docs-mirror-owned-refresh-cycle-summary.json",
+    "record_count": 12,
+    "completed_external_probe_count": 3,
+    "provider_failure_count": 9,
+    "external_mentioned_count": 0,
+    "external_cited_count": 0
+  },
+  "latest_chatgpt_findings": {
+    "status": "not_visible_yet",
+    "mentioned_count": 0,
+    "cited_count": 0,
+    "top_source_hosts": [
+      "docs.mcpay.tech",
+      "mcp.directory",
+      "agent402.dev",
+      "crowcrowcrow.com",
+      "developer.paddle.com",
+      "docs.opensearch.org",
+      "docs.wanepia.com",
+      "gmcp.dev"
+    ],
+    "top_competitors_or_collisions": [
+      "x402",
+      "mcpay",
+      "gapup",
+      "lobehub",
+      "mcpservers.org",
+      "stripe",
+      "latch",
+      "teleport",
+      "magpie",
+      "python-docs.synapse.org",
+      "synapse.org"
+    ]
+  },
+  "blockers": [
+    "Claude API probe failed for 3 query(s): credit balance is too low.",
+    "Gemini API probe failed for 3 query(s): quota exceeded.",
+    "Grok API probe failed for 3 query(s): monthly spending limit or credits exhausted."
+  ],
+  "decision": {
+    "counts_as_goal_complete": false,
+    "why_not_complete": "Feed validation passed and owned docs are live, but GPT/Claude/Grok/Gemini probe evidence still has zero official Synapse mentions or citations.",
+    "next_actions": [
+      "Prioritize mcp.directory review/follow-up because ChatGPT observed mcp.directory twice after the docs refresh.",
+      "Merge and let Synapse-Network-Docs PR #7 age as a public GitHub source host, then rerun unchanged probes.",
+      "Restore provider credits/quotas for Claude, Grok, and Gemini to avoid inconclusive provider-failure comparisons.",
+      "Keep brand disambiguation active because ChatGPT still surfaces python-docs.synapse.org and synapse.org for SynapseNetwork MCP comparison queries."
+    ]
+  }
+}

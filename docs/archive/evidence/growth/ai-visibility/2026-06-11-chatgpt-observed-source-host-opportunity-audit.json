@@ -1,0 +1,302 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "chatgpt_observed_source_host_opportunity_audit",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-chatgpt-observed-source-host-opportunity-audit",
+  "checked_at": "2026-06-10T19:05:07Z",
+  "status": "actionable_opportunities_found_not_external_citation",
+  "based_on": {
+    "cycle_summary_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-public-source-host-recheck-cycle-summary.json",
+    "external_probe_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-public-source-host-recheck-external-probes.jsonl",
+    "reason": "ChatGPT completed the paid-MCP discovery probes without mentioning or citing Synapse, but it exposed adjacent source hosts that answer engines already sample for this query cluster."
+  },
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "observed_chatgpt_source_hosts": [
+    "docs.mcpay.tech",
+    "agent402.dev",
+    "crowcrowcrow.com",
+    "developer.paddle.com",
+    "docs.wanepia.com",
+    "gmcp.dev",
+    "mcp.paddle.com",
+    "mcpgw.ai"
+  ],
+  "host_audits": [
+    {
+      "surface": "agent402_dev",
+      "source_url": "https://agent402.dev/",
+      "http_status": 200,
+      "content_sha256": "f31f2e615376da25e45a985696e1f6c5cf8d4bbf6a4f992629a1aaee8f2e5f40",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "high",
+      "matched_terms": [
+        "MCP",
+        "x402",
+        "paid",
+        "payment",
+        "Claude",
+        "llms.txt",
+        "server.json"
+      ],
+      "machine_readable_assets": [
+        {
+          "url": "https://agent402.dev/llms.txt",
+          "status": 200,
+          "note": "Concise LLM index naming canonical MCP card, server.json, MCP transport, x402 discovery, health, metrics, and sitemap."
+        },
+        {
+          "url": "https://agent402.dev/server.json",
+          "status": 200,
+          "note": "MCP Registry-compatible metadata with remote streamable-http endpoint, repository, homepage, documentation, npm package, and maintainer."
+        },
+        {
+          "url": "https://agent402.dev/.well-known/mcp.json",
+          "status": 200,
+          "note": "Canonical MCP server card."
+        },
+        {
+          "url": "https://agent402.dev/x402/discovery",
+          "status": 200,
+          "note": "Price and capability discovery for paid tools."
+        }
+      ],
+      "robots_summary": "Allows all and advertises sitemap; robots comments name /mcp, /.well-known/mcp.json, /server.json, and /x402/discovery.",
+      "opportunity_type": "benchmark_and_comparison_feed",
+      "recommended_action": "Use agent402 as the machine-readable benchmark for Synapse's own llms.txt, server.json, protected-resource metadata, and paid-tool discovery docs. Prepare a truthful Synapse-vs-agent402/x402 comparison feed after Synapse OAuth and paid-tool smoke evidence are live; do not submit outreach as a live citation.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "docs_mcpay_tech",
+      "source_url": "https://docs.mcpay.tech/",
+      "http_status": 200,
+      "content_sha256": "79c033d1ad79e3f4845d91f8c35793305fc2508421a5e947db11112b3cf5d3b1",
+      "observed_by_chatgpt_count": 2,
+      "relevance": "high",
+      "matched_terms": [
+        "MCP",
+        "x402",
+        "paid",
+        "payment",
+        "ChatGPT",
+        "Claude",
+        "partner",
+        "GitHub"
+      ],
+      "candidate_links": [
+        "https://docs.mcpay.tech/quickstart/integrate",
+        "https://docs.mcpay.tech/partners/vlayer",
+        "https://github.com/microchipgnu/mcpay",
+        "https://x.com/mcpaytech"
+      ],
+      "machine_readable_assets": [
+        {
+          "url": "https://docs.mcpay.tech/llms.txt",
+          "status": 404,
+          "note": "No plain llms.txt was available at fetch time."
+        }
+      ],
+      "robots_summary": "robots.txt path returned a Next.js 404 page, not a plain robots policy. The docs surface itself is crawlable and was already observed by ChatGPT.",
+      "opportunity_type": "partner_or_comparison_outreach_candidate",
+      "recommended_action": "Draft a respectful GitHub/partner outreach note only after Synapse publishes a clear owned comparison page for MCPay/x402 alternatives. Priority feed should be owned docs first, then optional partnership/interoperability outreach; this audit alone is not a listing or citation.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "developer_paddle_com",
+      "source_url": "https://developer.paddle.com/",
+      "http_status": 200,
+      "content_sha256": "d541d023594baa87883991fe2f7816bf5ca0e0361b5ad19c9345a78f2dc82712",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "high_authority_benchmark",
+      "matched_terms": [
+        "MCP",
+        "paid",
+        "payment",
+        "Claude",
+        "submit",
+        "GitHub",
+        "llms.txt"
+      ],
+      "machine_readable_assets": [
+        {
+          "url": "https://developer.paddle.com/llms.txt",
+          "status": 200,
+          "note": "LLM index explicitly links a full docs corpus and section-level text files."
+        },
+        {
+          "url": "https://developer.paddle.com/sitemap-llm.xml",
+          "status": 200,
+          "note": "Dedicated LLM sitemap with markdown URLs and fresh lastmod timestamps."
+        }
+      ],
+      "robots_summary": "Allows crawling and declares Content-Signal search=yes, ai-input=yes, ai-train=no.",
+      "opportunity_type": "owned_docs_structure_benchmark",
+      "recommended_action": "Mirror the useful pattern in Synapse docs: maintain /llms.txt, /llms-full.txt or section-level LLM text indexes, and an LLM sitemap for MCP, ChatGPT custom app OAuth, paid API calls, receipts, and provider monetization pages. Paddle is not an open directory target for Synapse.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "mcp_paddle_com",
+      "source_url": "https://mcp.paddle.com/",
+      "http_status": 200,
+      "content_sha256": "bc3aee2da34ead9c3b0600bf1f47dde76dfdf415de08f5a7bdc93816ec90891e",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "high_authority_benchmark",
+      "matched_terms": [
+        "MCP",
+        "paid",
+        "ChatGPT",
+        "Claude"
+      ],
+      "machine_readable_assets": [],
+      "robots_summary": "robots.txt returned 404 at fetch time.",
+      "opportunity_type": "product_page_benchmark",
+      "recommended_action": "Use as a benchmark for a focused Synapse Remote MCP product page: first viewport should name ChatGPT/Claude MCP setup, endpoint, auth mode, tool list, pricing/budget boundary, and human confirmation for paid calls.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "gmcp_dev",
+      "source_url": "https://gmcp.dev/",
+      "http_status": 200,
+      "content_sha256": "eaa5390d0ef04cb9f6c191b0beba405a6281113dcd8cbfa9a61cfe0c7bfc6d12",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "medium_high",
+      "matched_terms": [
+        "MCP",
+        "payment",
+        "Claude",
+        "GitHub"
+      ],
+      "candidate_links": [
+        "https://gmcp.dev/contact",
+        "https://github.com/generate-mcp",
+        "https://x.com/generate_mcp"
+      ],
+      "machine_readable_assets": [
+        {
+          "url": "https://gmcp.dev/contact",
+          "status": 200,
+          "note": "Contact page describes partnership/support intake."
+        },
+        {
+          "url": "https://gmcp.dev/sitemap-index.xml",
+          "status": 200,
+          "note": "Sitemap index exists."
+        }
+      ],
+      "robots_summary": "Allows generic crawling but Cloudflare managed rules disallow GPTBot, ClaudeBot, Google-Extended, and other training/AI crawlers. This reduces direct GPT/Claude citation value even though ChatGPT observed it through search.",
+      "opportunity_type": "partner_outreach_candidate_with_robot_risk",
+      "recommended_action": "Low-risk action is to draft a partner/integration note for gMCP contact or GitHub only if operator approves outreach. Because robots disallow GPTBot/ClaudeBot, do not prioritize this as a citation feed over owned docs and registry surfaces.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "mcpgw_ai",
+      "source_url": "https://mcpgw.ai/",
+      "http_status": 200,
+      "content_sha256": "a7e99868f3b6a483d07e65c1780362b4969639f97188695405db48f4d28a30b0",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "medium",
+      "matched_terms": [
+        "MCP",
+        "Claude"
+      ],
+      "machine_readable_assets": [
+        {
+          "url": "https://mcpgw.ai/sitemap.xml",
+          "status": 200,
+          "note": "RSS-style sitemap endpoint responded."
+        }
+      ],
+      "robots_summary": "robots.txt returned an AccessDenied XML response at fetch time.",
+      "opportunity_type": "weak_benchmark",
+      "recommended_action": "Treat as a competitor/source-host signal only. No obvious submit, docs, registry, or contact route was found in CLI-accessible content; keep monitoring but do not spend operator time before higher-signal surfaces.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "docs_wanepia_com",
+      "source_url": "https://docs.wanepia.com/",
+      "http_status": 200,
+      "content_sha256": "4735f44198c72eb8d1f41a71709a8ca6cac21e783fef71853f89a6728f41013e",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "low_medium",
+      "matched_terms": [
+        "MCP",
+        "GitHub"
+      ],
+      "robots_summary": "Allows crawling and links sitemap.",
+      "opportunity_type": "monitor_only",
+      "recommended_action": "No immediate Synapse feed action. It is likely a service-catalog/documentation example rather than a paid-MCP directory. Keep as a negative/control host in future source-host comparisons.",
+      "counts_as_live_synapse_source_host": false
+    },
+    {
+      "surface": "crowcrowcrow_com",
+      "source_url": "https://crowcrowcrow.com/",
+      "http_status": 200,
+      "content_sha256": "f31fa5e4fe2ad84146f69f175d4b51881ddba9183190231564387920a7a84fd7",
+      "observed_by_chatgpt_count": 1,
+      "relevance": "low",
+      "matched_terms": [
+        "MCP",
+        "paid",
+        "payment",
+        "submit",
+        "partner"
+      ],
+      "candidate_links": [
+        "https://crowcrowcrow.com/page/contact",
+        "https://twitter.com/3crowcrowcrow"
+      ],
+      "robots_summary": "Allows broad crawling and documents AI/search content-signal posture, but the business is cross-border imports rather than MCP infrastructure.",
+      "opportunity_type": "false_positive_or_low_relevance_control",
+      "recommended_action": "Do not pursue as Synapse MCP feed. Keep as a prompt-drift/control example showing that answer-engine source-host extraction can include unrelated payment/import pages.",
+      "counts_as_live_synapse_source_host": false
+    }
+  ],
+  "priority_actions": [
+    {
+      "priority": "P0",
+      "action": "Add or refresh owned Synapse docs to match the source-host patterns ChatGPT already sampled: a focused Remote MCP page, a ChatGPT custom MCP OAuth page, an LLM text index, and an LLM sitemap entry for MCP paid API calls.",
+      "why": "developer.paddle.com and agent402.dev show that ChatGPT samples concise machine-readable docs, llms.txt, server.json, and dedicated LLM sitemap assets for this query class.",
+      "requires_human_gate": false
+    },
+    {
+      "priority": "P0",
+      "action": "After owned docs are live, rerun the unchanged ChatGPT probes for the same two queries and compare mentioned/cited deltas against 2026-06-11-after-public-source-host-recheck.",
+      "why": "The current measured state is still not_visible_yet with zero Synapse mentions/citations.",
+      "requires_human_gate": false
+    },
+    {
+      "priority": "P1",
+      "action": "Prepare but do not send partner/comparison outreach for MCPay and gMCP; operator approval is required before any external outreach.",
+      "why": "They are adjacent surfaces observed by ChatGPT, but outreach is not a live citation and must stay human-gated.",
+      "requires_human_gate": true
+    },
+    {
+      "priority": "P1",
+      "action": "Create a truthful Synapse-vs-x402/MCPay/agent402 comparison feed only after Synapse OAuth and production paid-tool smoke evidence are live.",
+      "why": "Comparison pages are high-value answer blocks, but premature claims would weaken trust and violate fail-closed evidence discipline.",
+      "requires_human_gate": false
+    }
+  ],
+  "validation_boundary": {
+    "counts_as_goal_complete": false,
+    "counts_as_external_citation": false,
+    "counts_as_live_source_host_submission": false,
+    "why": "This artifact audits opportunities on source hosts ChatGPT already observed. It does not prove that Synapse is now mentioned, cited, listed, or indexed by GPT/Claude/Grok/Gemini.",
+    "next_probe_gate": "Rerun unchanged probes only after a new owned or third-party feed asset is live."
+  },
+  "commands_run": [
+    "curl -L -sS --max-time 20 -o /tmp/aihost.out -w '%{http_code}\\t%{url_effective}\\t%{content_type}\\t%{size_download}\\n' <observed-host-url>",
+    "curl -L -sS --max-time 12 <observed-host>/robots.txt",
+    "python3 stdlib HTML metadata extractor for titles, descriptions, candidate links, term matches, content sha256, and sample text",
+    "curl -L -sS --max-time 18 <machine-readable-asset-url>"
+  ],
+  "next_probe_command_after_feed_is_live": "source ~/.zshrc >/dev/null 2>&1 || true; python3 scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-owned-mcp-docs-refresh --platforms chatgpt,claude,grok,gemini --query \"MCP server for paid API calls\" --query \"ChatGPT MCP app for API payments\" --execute --output docs/archive/evidence/growth/ai-visibility/2026-06-11-after-owned-mcp-docs-refresh-external-probes.jsonl"
+}

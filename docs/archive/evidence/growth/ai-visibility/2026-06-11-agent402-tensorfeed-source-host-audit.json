@@ -1,0 +1,121 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "source_host_contact_audit",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-agent402-tensorfeed-source-host-audit",
+  "generated_at": "2026-06-10T18:31:00Z",
+  "status": "source_host_signal_submitted_operator_outreach_still_required",
+  "summary": "ChatGPT still cites paid-MCP and agent-payment source hosts that do not mention Synapse. This audit separates source hosts with a realistic contact/submission path from source hosts that need manual partner or GitHub outreach, and records the TensorFeed wantlist signal that was submitted after the initial audit.",
+  "hosts": [
+    {
+      "host": "agent402.dev",
+      "observed_in_probe": true,
+      "source_host_type": "adjacent_paid_mcp_gateway",
+      "root_url": "https://agent402.dev/",
+      "root_http_status": 200,
+      "title": "agent402.dev | MCP Gateway Documentation",
+      "contains_synapse": false,
+      "ai_crawler_surface": {
+        "robots_txt": "https://agent402.dev/robots.txt",
+        "robots_status": 200,
+        "robots_summary": "User-agent: * allows / and advertises sitemap.xml plus MCP endpoints.",
+        "sitemap": "https://agent402.dev/sitemap.xml",
+        "llms_txt": "https://agent402.dev/llms.txt",
+        "llms_status": 200
+      },
+      "machine_readable_endpoints": [
+        "https://agent402.dev/.well-known/mcp.json",
+        "https://agent402.dev/server.json",
+        "https://agent402.dev/x402/discovery",
+        "https://agent402.dev/meta.json",
+        "https://agent402.dev/pmf/scorecard",
+        "https://agent402.dev/health"
+      ],
+      "contact_or_submission_paths_checked": [
+        {
+          "url": "https://agent402.dev/contact",
+          "status": 404
+        },
+        {
+          "url": "https://agent402.dev/contact-us",
+          "status": 404
+        },
+        {
+          "url": "https://agent402.dev/submit",
+          "status": 404
+        },
+        {
+          "url": "https://agent402.dev/submit-news",
+          "status": 404
+        },
+        {
+          "url": "https://agent402.dev/docs",
+          "status": 404
+        }
+      ],
+      "execution_status": "no_public_submit_or_contact_path",
+      "recommended_action": "Do not attempt automated submission. Use this as a comparison/adjacent source host: publish or pitch a truthful Synapse vs agent402/x402 MCP payments comparison and look for a GitHub/X/manual partner contact path before claiming third-party evidence.",
+      "next_validation": "Only mark agent402 source-host progress after a public third-party page, issue, PR, or partner mention URL includes Synapse Network plus the Remote MCP endpoint or GitHub repository."
+    },
+    {
+      "host": "tensorfeed.ai",
+      "observed_in_probe": true,
+      "source_host_type": "ai_ecosystem_news_and_agent_data_hub",
+      "root_url": "https://tensorfeed.ai/",
+      "root_http_status": 200,
+      "title": "TensorFeed: Real-time AI news, model tracking, and ecosystem data",
+      "contains_synapse": false,
+      "ai_crawler_surface": {
+        "robots_txt": "https://tensorfeed.ai/robots.txt",
+        "robots_status": 200,
+        "robots_summary": "Allows GPTBot, ChatGPT-User, ClaudeBot, OAI-SearchBot, anthropic-ai, PerplexityBot, Google-Extended, and other AI crawlers.",
+        "sitemap": "https://tensorfeed.ai/sitemap.xml",
+        "llms_txt": "https://tensorfeed.ai/llms.txt",
+        "llms_status": 200
+      },
+      "contact_or_submission_paths_checked": [
+        {
+          "url": "https://tensorfeed.ai/contact",
+          "status": 200,
+          "paths": [
+            "feedback@tensorfeed.ai",
+            "support@tensorfeed.ai",
+            "press@tensorfeed.ai",
+            "contact@tensorfeed.ai",
+            "https://x.com/tensorfeed"
+          ]
+        },
+        {
+          "url": "https://tensorfeed.ai/developers",
+          "status": "linked_from_contact_page"
+        },
+        {
+          "url": "https://tensorfeed.ai/submit",
+          "status": 404
+        },
+        {
+          "url": "https://tensorfeed.ai/submit-news",
+          "status": 404
+        }
+      ],
+      "execution_status": "public_wantlist_signal_submitted_contact_path_available",
+      "source_host_signal_execution": {
+        "endpoint": "https://tensorfeed.ai/api/wantlist",
+        "submission_id": "tgfifu-p30rlvd1",
+        "submitted_at": "2026-06-10T18:38:18.350Z",
+        "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-tensorfeed-wantlist-submit-confirmation.json",
+        "indexed_entry_found": true,
+        "counts_as_external_citation": false
+      },
+      "recommended_action": "Keep the short, factual news/ecosystem submission email and X DM/reply draft ready for operator-approved outreach. The public wantlist signal is live, but it is not a TensorFeed article, dataset entry, or citation yet.",
+      "next_validation": "Record the sent email/thread URL only after operator approval. Success requires a public TensorFeed article/listing/source-host page, not merely a wantlist signal or email draft."
+    }
+  ],
+  "do_not_count_as_success": [
+    "A draft email that has not been sent.",
+    "A private contact page screenshot.",
+    "A competitor-owned page that does not mention Synapse.",
+    "A probe failure caused by provider quota or credit limits."
+  ],
+  "next_probe_command_after_public_evidence": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-agent402-tensorfeed-source-host --platforms chatgpt,claude,grok,gemini --query \"MCP server for paid API calls\" --query \"ChatGPT MCP app for API payments\" --execute --output docs/archive/evidence/growth/ai-visibility/2026-06-11-after-agent402-tensorfeed-source-host-external-probes.jsonl"
+}

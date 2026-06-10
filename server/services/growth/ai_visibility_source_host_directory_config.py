@@ -7,8 +7,10 @@ DIRECTORY_SUBMIT_URLS = {
     "alternativeto.net": "https://alternativeto.net/",
     "glama.ai": "https://glama.ai/mcp/servers",
     "lobehub.com": "https://lobehub.com/mcp",
+    "chat.mcp.so": "https://chat.mcp.so/submit",
     "mcp.directory": "https://mcp.directory/submit",
     "mcpfind.org": "https://mcpfind.org/submit",
+    "mcp.so": "https://mcp.so/submit",
     "mcpservers.org": "https://mcpservers.org/submit",
     "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
     "protodex.io": (
