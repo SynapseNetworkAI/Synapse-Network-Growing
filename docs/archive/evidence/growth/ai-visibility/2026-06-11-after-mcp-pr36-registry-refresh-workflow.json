@@ -1,0 +1,59 @@
+{
+  "module_key": "ai_visibility_source_host_metadata_refresh",
+  "generated_at": "2026-06-10T17:40:34Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-mcp-pr36-registry-refresh",
+  "status": "registry_metadata_refresh_succeeded",
+  "upstream_repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+  "upstream_pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/36",
+  "upstream_pr_state": "merged",
+  "merge_commit_sha": "b211f64422ce7c3f01ec5534672ca67657dcb04c",
+  "workflow": {
+    "name": "Publish MCP Server",
+    "run_id": 27294510155,
+    "run_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/actions/runs/27294510155",
+    "head_sha": "b211f64422ce7c3f01ec5534672ca67657dcb04c",
+    "status": "completed",
+    "conclusion": "success",
+    "publish_npm": false,
+    "expected_version": "0.1.8",
+    "completed_at": "2026-06-10T17:40:34Z"
+  },
+  "live_registry_validation": {
+    "source_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "version": "0.1.8",
+    "description": "Synapse Network MCP paid API calls via discover_services; not Synapse.org/Sage Bionetworks Synapse.",
+    "matched_terms": [
+      "0.1.8",
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt",
+      "https://mcp.synapse-network.ai/mcp"
+    ],
+    "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-mcp-pr36-registry-refresh-registry-live.json"
+  },
+  "glama_validation": {
+    "source_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "status": "missing_required_terms",
+    "matched_terms": [
+      "https://mcp.synapse-network.ai/mcp"
+    ],
+    "missing_terms": [
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt"
+    ],
+    "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-mcp-pr36-registry-refresh-glama-live.json"
+  },
+  "evidence_role": "metadata_refresh_live_registry_not_answer_engine_citation",
+  "not_counted_as": [
+    "answer_engine_mention",
+    "answer_engine_citation",
+    "glama_listing_complete"
+  ],
+  "next_required_steps": [
+    "Wait for or request Glama listing refresh so discover_services, invoke_and_pay, and get_receipt appear on the public Glama page.",
+    "Recheck mcp.directory public listing; current search still misses SynapseNetwork and the Remote MCP endpoint.",
+    "After live source-host evidence passes, rerun the unchanged ChatGPT, Claude, Grok, and Gemini probe matrix."
+  ]
+}
