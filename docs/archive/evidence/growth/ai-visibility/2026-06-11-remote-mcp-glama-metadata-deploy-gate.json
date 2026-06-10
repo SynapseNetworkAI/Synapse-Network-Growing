@@ -1,0 +1,84 @@
+{
+  "module_key": "ai_visibility",
+  "evidence_type": "remote_mcp_glama_metadata_deploy_gate",
+  "generated_at": "2026-06-10T22:47:25Z",
+  "status": "blocked_until_remote_mcp_prod_redeploy",
+  "summary": "The MCP repository main branch already contains full Glama connector metadata, but the live Remote MCP production endpoint still serves the older maintainer-only payload. Glama source-host metadata will stay incomplete until the Remote MCP production service is redeployed to a commit containing the full /.well-known/glama.json implementation.",
+  "live_endpoint": {
+    "url": "https://mcp.synapse-network.ai/.well-known/glama.json",
+    "observed_payload_summary": {
+      "$schema": "https://glama.ai/mcp/schemas/connector.json",
+      "maintainers": [
+        {
+          "email": "support@synapse-network.ai"
+        }
+      ],
+      "missing_required_fields": [
+        "name",
+        "description",
+        "serverUrl",
+        "repository",
+        "tools.discover_services",
+        "tools.invoke_and_pay",
+        "tools.get_receipt"
+      ]
+    },
+    "live_validation_command": "npm run test:e2e:remote:metadata",
+    "live_validation_result": {
+      "status": "failed",
+      "bounded_error": "Glama metadata must expose the Synapse connector name."
+    }
+  },
+  "target_repo_state": {
+    "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "local_path": "/private/tmp/mcp-glama-source-host-metadata-20260611",
+    "branch": "origin/main",
+    "commit_sha": "b15501db0de8f38909faa65e68e9ab6337b6b586",
+    "commit_summary": "Merge pull request #40 from SynapseNetworkAI/codex/mcp-registry-version-0-1-9",
+    "implementation_files": [
+      "src/http.ts",
+      "scripts/e2e/remote-metadata-live.mjs",
+      "server.json",
+      "docs/launch/directory-submission-metadata.json"
+    ],
+    "expected_glama_metadata_fields": [
+      "name=Synapse Network MCP Server",
+      "serverUrl=https://mcp.synapse-network.ai/mcp",
+      "repository=https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "tools=discover_services,invoke_and_pay,get_receipt",
+      "maintainers=support@synapse-network.ai"
+    ]
+  },
+  "local_validation": [
+    {
+      "command": "npm run ci:server-json && npm run ci:directory-metadata",
+      "status": "passed",
+      "evidence": "[server-json-check] passed; [directory-metadata-check] passed"
+    },
+    {
+      "command": "npm ci",
+      "status": "passed",
+      "evidence": "Installed temporary worktree dependencies; npm audit reported existing vulnerabilities but did not block metadata validation."
+    },
+    {
+      "command": "npm run test:e2e:remote:mock",
+      "status": "passed",
+      "evidence": "Remote MCP mock E2E passed for /mcp and /mcp/sse authenticated tool calls after build."
+    }
+  ],
+  "release_context": {
+    "existing_mcp_remote_gcloud_task_id": 277,
+    "existing_task_status": "deploying",
+    "existing_task_target_commit_sha": "6b82545a97a07d3f923124a81f6997411c067f0f",
+    "current_main_commit_sha": "b15501db0de8f38909faa65e68e9ab6337b6b586",
+    "release_gap": "Existing task 277 targets an older MCP commit. A fresh Remote MCP production deploy should target current main or a new MCP release ledger entry that includes the full Glama metadata implementation.",
+    "local_blocker": "gcloud auth print-access-token still fails with reauthentication_required in this non-interactive session."
+  },
+  "next_actions": [
+    "After local gcloud auth is refreshed, create or update the MCP release ledger so Remote MCP production deploy targets commit b15501db0de8f38909faa65e68e9ab6337b6b586 or newer.",
+    "Run the MCP Remote GCloud prod-only release runner through Growing/MCP release ledger rather than direct gcloud deploy.",
+    "Verify https://mcp.synapse-network.ai/.well-known/glama.json exposes name, serverUrl, repository, and all three tool names.",
+    "Rerun Glama source-host spot check after live metadata is refreshed.",
+    "Only rerun GPT/Claude/Grok/Gemini answer probes after both owned docs/www feed and Remote MCP Glama metadata are live."
+  ]
+}
