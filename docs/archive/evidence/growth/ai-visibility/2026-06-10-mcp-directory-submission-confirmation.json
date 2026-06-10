@@ -3,27 +3,29 @@
   "status": "submission_recorded",
   "evidence_type": "submission_confirmation",
   "feed_key": "mcp_paid_api_discovery",
-  "run_group": "2026-06-10-after-directory-submission",
+  "run_group": "2026-06-10-after-mcp-directory-submission-confirmed",
   "surface": "mcp_directory",
   "source_url": "https://mcp.directory/submit",
-  "checked_at": "2026-06-09T18:06:06.366302+00:00",
+  "checked_at": "2026-06-10T03:24:49.981327+00:00",
   "required_terms": [],
   "matched_terms": [],
   "missing_terms": [],
-  "content_sha256": "097e93015c326fd14a66bce98ecd8a8a1079c26a8e8e842450e2d4e7d00680cc",
-  "content_bytes": 256,
+  "content_sha256": "b5dff0de98134681977f0897a23c05641125bb58f1f679975431fcb6a2cebb63",
+  "content_bytes": 187,
   "target_platforms": [
     "chatgpt",
-    "claude"
+    "claude",
+    "gemini"
   ],
   "target_queries": [
+    "MCP server for paid API calls",
     "ChatGPT MCP app for API payments",
     "Synapse vs paid MCP alternatives"
   ],
   "evidence_role": "source_host_submission_confirmation_not_external_citation",
   "design_handoff_frame": "Directory Source-Host Submission Pack",
-  "submitted_payload_summary": "Submitted SynapseNetwork MCP Server to mcp.directory with GitHub repository, npm package, PyPI/package slug, short paid-API Remote MCP description, and support contact. The API returned 409: This repository has already been submitted. We'll review it soon.",
-  "screenshot_url": "docs/archive/evidence/growth/ai-visibility/2026-06-10-mcp-directory-submission-confirmation.png",
+  "submitted_payload_summary": "mcp.directory API returned 409: repository already submitted and pending review; submitted metadata includes GitHub repository, npm package, short description, and operator contact email.",
+  "screenshot_url": "docs/archive/evidence/growth/ai-visibility/2026-06-10-mcp-directory-submit-filled-dry-run.png",
   "validation_summary": "mcp_directory browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
-  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-directory-submission-after-source-host --platforms chatgpt,claude --execute"
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-mcp-directory-submission-confirmed-after-source-host --platforms chatgpt,claude,gemini --execute"
 }

@@ -1,0 +1,28 @@
+{
+  "module_key": "ai_visibility_source_host_submission",
+  "surface": "mcp_directory",
+  "source_url": "https://mcp.directory/submit",
+  "submit_url": "https://mcp.directory/api/submit-server",
+  "submitted_at": "2026-06-10T03:24:33.813851+00:00",
+  "status_code": 409,
+  "response_body": "{\"error\":\"This repository has already been submitted. We'll review it soon!\"}",
+  "error": "",
+  "submitted_payload_summary": "Submitted SynapseNetwork MCP Server with GitHub, npm package, Remote MCP endpoint in source docs, discover_services, invoke_and_pay, and get_receipt.",
+  "payload_keys": [
+    "description",
+    "email",
+    "githubUrl",
+    "npmPackage"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation"
+}
