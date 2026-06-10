@@ -4,6 +4,9 @@ import sys
 
 from scripts.growth import generate_ai_visibility_release_snapshot as snapshot_cli
 from server.services.growth import ai_visibility_release_snapshot as snapshot
+from server.services.growth.ai_visibility_remote_mcp_metadata import (
+    RemoteMcpPublicMetadataCheckOut,
+)
 
 
 def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
@@ -27,6 +30,7 @@ def test_release_snapshot_combines_live_gcloud_and_key_blockers(monkeypatch):
             "summary": "Reauthentication failed. Please run gcloud auth login.",
         },
     )
+    _mock_remote_mcp_metadata_ready(monkeypatch)
 
     payload = snapshot.build_snapshot(
         target_commit=snapshot.DEFAULT_TARGET_COMMIT,
@@ -79,6 +83,7 @@ def test_release_snapshot_does_not_keep_stale_live_blockers_when_feed_is_ready(
             "summary": "Reauthentication failed. Please run gcloud auth login.",
         },
     )
+    _mock_remote_mcp_metadata_ready(monkeypatch)
 
     payload = snapshot.build_snapshot(
         target_commit=snapshot.DEFAULT_TARGET_COMMIT,
@@ -96,6 +101,72 @@ def test_release_snapshot_does_not_keep_stale_live_blockers_when_feed_is_ready(
     assert (
         "gemini external probe key missing: GEMINI_API_KEY or GENIMI_API_KEY."
         in rendered
+    )
+
+
+def test_release_snapshot_blocks_stale_remote_mcp_metadata(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test-secret")
+    monkeypatch.setattr(
+        snapshot,
+        "ai_visibility_live_readiness",
+        lambda **_: ReadyReadiness(),
+    )
+    monkeypatch.setattr(
+        snapshot,
+        "_gcloud_project_check",
+        lambda project_id: {
+            "project_id": project_id,
+            "ok": True,
+            "status": "ok",
+            "summary": project_id,
+        },
+    )
+    monkeypatch.setattr(
+        snapshot,
+        "remote_mcp_public_metadata_check",
+        lambda: RemoteMcpPublicMetadataCheckOut(
+            url="https://mcp.synapse-network.ai/.well-known/glama.json",
+            ok=False,
+            status="stale_or_incomplete",
+            http_status=200,
+            summary="Remote MCP public metadata is missing required AI directory fields.",
+            missing_fields=[
+                "name",
+                "serverUrl",
+                "repository",
+                "tools.discover_services",
+                "tools.invoke_and_pay",
+                "tools.get_receipt",
+            ],
+            blocker=(
+                "Remote MCP public metadata gate failed (stale or incomplete): "
+                "https://mcp.synapse-network.ai/.well-known/glama.json missing "
+                "name, serverUrl, repository, tools.discover_services, "
+                "tools.invoke_and_pay, tools.get_receipt. Merge and deploy "
+                "Synapse-Network-MCP-Server metadata refresh, then run "
+                "npm run test:e2e:remote:metadata before rerunning AI visibility probes."
+            ),
+        ),
+    )
+
+    payload = snapshot.build_snapshot(
+        target_commit=snapshot.DEFAULT_TARGET_COMMIT,
+        actor="codex/test",
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-11-remote-metadata",
+    )
+
+    rendered = json.dumps(payload)
+    assert payload["status"] == "blocked"
+    assert payload["remote_mcp_public_metadata"]["status"] == "stale_or_incomplete"
+    assert "Remote MCP public metadata gate failed" in rendered
+    assert "tools.discover_services" in rendered
+    assert "npm run test:e2e:remote:metadata" in rendered
+    assert payload["next_actions"][0].startswith(
+        "Merge and deploy the Remote MCP metadata refresh"
     )
 
 
@@ -120,6 +191,7 @@ def test_release_snapshot_accepts_genimi_alias(monkeypatch):
             "summary": project_id,
         },
     )
+    _mock_remote_mcp_metadata_ready(monkeypatch)
 
     payload = snapshot.build_snapshot(
         target_commit=snapshot.DEFAULT_TARGET_COMMIT,
@@ -273,3 +345,18 @@ class ReadyReadiness:
                 }
             ],
         }
+
+
+def _mock_remote_mcp_metadata_ready(monkeypatch):
+    monkeypatch.setattr(
+        snapshot,
+        "remote_mcp_public_metadata_check",
+        lambda: RemoteMcpPublicMetadataCheckOut(
+            url="https://mcp.synapse-network.ai/.well-known/glama.json",
+            ok=True,
+            status="ready",
+            http_status=200,
+            missing_fields=[],
+            summary="Remote MCP public metadata has complete AI directory fields.",
+        ),
+    )
