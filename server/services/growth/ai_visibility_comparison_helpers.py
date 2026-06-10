@@ -25,6 +25,7 @@ from server.services.growth.ai_visibility_probe_failures import (
     is_external_api_key_setup_blocker,
 )
 from server.services.growth.ai_visibility_source_host_ranking import (
+    source_host_action_targets,
     source_hosts_for_actions,
 )
 from server.services.growth.ai_visibility_text import unique_strings
@@ -93,6 +94,7 @@ def _comparison_out(
         missing_platforms=_missing_platforms(external_platforms),
         top_competitors=aggregate["top_competitors"],
         source_hosts=aggregate["source_hosts"],
+        source_host_actions=aggregate["source_host_actions"],
         known_collision_competitors=known_collision_competitors,
         official_cited_urls=official_cited_urls,
         next_actions=_comparison_next_actions(
@@ -163,6 +165,7 @@ def _comparison_row_aggregate(rows: list[GrowthAIVisibilityCheckRow]) -> dict:
     return {
         "top_competitors": [item for item, _count in competitors.most_common(5)],
         "source_hosts": source_hosts_for_actions(source_hosts),
+        "source_host_actions": source_host_action_targets(source_hosts),
         "next_actions": next_actions[:5],
         "evidence_urls": evidence_urls[:5],
         "latest_run_at": latest_run_at,
@@ -233,6 +236,7 @@ def _feed_report(
         missing_platforms=comparison.missing_platforms,
         known_collision_competitors=comparison.known_collision_competitors,
         source_hosts=comparison.source_hosts,
+        source_host_actions=comparison.source_host_actions,
         official_cited_urls=comparison.official_cited_urls,
         mentioned_count=comparison.mentioned_count,
         cited_count=comparison.cited_count,

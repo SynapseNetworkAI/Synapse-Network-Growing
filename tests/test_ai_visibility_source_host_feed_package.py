@@ -339,7 +339,8 @@ def test_ai_visibility_source_host_live_spot_check_detects_candidate(
         return (
             200,
             "Directory result for Synapse Network MCP Server at "
-            "https://mcp.synapse-network.ai/mcp",
+            "https://mcp.synapse-network.ai/mcp for "
+            "SynapseNetworkAI/Synapse-Network-MCP-Server",
         )
 
     result = ai_visibility_source_host_live_spot_check(
@@ -621,15 +622,68 @@ def test_ai_visibility_source_host_live_spot_check_detects_glama_listing_identit
             "<title>Synapse Network MCP MCP Servers | Glama</title>"
             '<a href="/mcp/connectors/io.github.SynapseNetworkAI/'
             'synapse-network-mcp-server">'
-            "SynapseNetwork MCP Server for paid API calls</a>",
+            "SynapseNetwork MCP Server for paid API calls "
+            "https://mcp.synapse-network.ai/mcp</a>",
         ),
     )
 
     assert result.status == "candidate_found_needs_live_listing_evidence"
     assert result.items[0].status == "candidate_found"
     assert "synapsenetwork" in result.items[0].matched_terms
+    assert "mcp.synapse-network.ai" in result.items[0].matched_terms
     assert "synapse-network-mcp-server" in result.items[0].matched_terms
     assert "--evidence-mode live " in result.commands["record_live_listing"]
+
+
+def test_ai_visibility_source_host_live_spot_check_marks_incomplete_directory_metadata():
+    from server.schemas_growth import (
+        GrowthAIVisibilitySourceHostExecutionChecklistOut,
+        GrowthAIVisibilitySourceHostExecutionItemOut,
+    )
+    from server.services.growth.ai_visibility_source_host_offline_live import (
+        source_host_live_spot_check_from_checklist_model,
+    )
+
+    checklist = GrowthAIVisibilitySourceHostExecutionChecklistOut(
+        generated_at=datetime.now(timezone.utc),
+        feed_key="mcp_paid_api_discovery",
+        status="ready_for_operator_execution",
+        items=[
+            GrowthAIVisibilitySourceHostExecutionItemOut(
+                key="glama",
+                host="glama.ai",
+                draft_type="directory_submission",
+                execution_status="pending_submission",
+                target_url="https://glama.ai/mcp/servers",
+                action_required="Submit listing.",
+                live_listing_search_urls=[
+                    "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
+                ],
+                validation_command="curl -fsS https://glama.ai/mcp/servers",
+                re_probe_command="python scripts/growth/probe.py",
+                completion_gate="Live listing evidence recorded.",
+            )
+        ],
+    )
+
+    result = source_host_live_spot_check_from_checklist_model(
+        checklist,
+        execute=True,
+        fetcher=lambda _url: (
+            200,
+            "<title>Synapse Network MCP MCP Servers | Glama</title>"
+            '<a href="/mcp/connectors/io.github.SynapseNetworkAI/'
+            'synapse-network-mcp-server">'
+            "SynapseNetwork MCP Server for paid API calls</a>",
+        ),
+    )
+
+    assert result.status == "candidate_incomplete_needs_metadata_refresh"
+    assert result.items[0].status == "candidate_incomplete"
+    assert "synapsenetwork" in result.items[0].matched_terms
+    assert "synapse-network-mcp-server" in result.items[0].matched_terms
+    assert "mcp.synapse-network.ai" in result.items[0].missing_terms
+    assert "Refresh directory metadata" in result.items[0].next_action
 
 
 def test_ai_visibility_source_host_live_spot_check_ignores_search_query_echo():

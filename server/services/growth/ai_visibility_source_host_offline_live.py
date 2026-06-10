@@ -86,10 +86,8 @@ def source_host_live_spot_check_from_checklist_model(
     blockers = list(checklist.blockers)
     if not items:
         blockers.append("No source-host live listing search URLs are available.")
-    if (
-        execute
-        and items
-        and not any(item.status == "candidate_found" for item in items)
+    if execute and items and not any(
+        item.status in {"candidate_found", "candidate_incomplete"} for item in items
     ):
         blockers.append(
             "No Synapse source-host listing candidate was found in search URLs."
@@ -156,15 +154,24 @@ def _check_search_url(
             ),
         )
     matched, missing = _term_matches(body)
-    candidate_found = _has_candidate_match(matched) and not _is_query_echo_only(
+    search_echo_only = _is_query_echo_only(
         search_url=search_url,
         body=body,
         matched=matched,
     )
+    candidate_found = _has_complete_candidate_match(matched) and not search_echo_only
+    candidate_incomplete = (
+        not candidate_found
+        and _has_incomplete_candidate_match(matched)
+        and not search_echo_only
+    )
+    status = "candidate_found" if candidate_found else "not_found"
+    if candidate_incomplete:
+        status = "candidate_incomplete"
     return GrowthAIVisibilitySourceHostLiveSpotCheckItemOut(
         host=host,
         search_url=search_url,
-        status="candidate_found" if candidate_found else "not_found",
+        status=status,
         http_status=http_status,
         matched_terms=matched,
         missing_terms=missing,
@@ -172,7 +179,12 @@ def _check_search_url(
         next_action=(
             "Record live-listing evidence."
             if candidate_found
-            else "Submit or wait for the directory listing, then rerun this spot check."
+            else (
+                "Refresh directory metadata so the search result includes the Remote MCP "
+                "endpoint, npm package, or tool names; then rerun this spot check."
+                if candidate_incomplete
+                else "Submit or wait for the directory listing, then rerun this spot check."
+            )
         ),
     )
 
@@ -202,7 +214,15 @@ def _term_matches(body: str) -> tuple[list[str], list[str]]:
     )
 
 
-def _has_candidate_match(matched: list[str]) -> bool:
+def _has_complete_candidate_match(matched: list[str]) -> bool:
+    matched_set = set(matched)
+    has_brand = bool(matched_set.intersection(BRAND_TERMS))
+    has_payload = bool(matched_set.intersection(PAYLOAD_TERMS))
+    has_listing_identity = bool(matched_set.intersection(LISTING_IDENTITY_TERMS))
+    return has_brand and has_payload and has_listing_identity
+
+
+def _has_incomplete_candidate_match(matched: list[str]) -> bool:
     matched_set = set(matched)
     has_brand = bool(matched_set.intersection(BRAND_TERMS))
     has_payload = bool(matched_set.intersection(PAYLOAD_TERMS))
@@ -265,6 +285,8 @@ def _overall_status(
         return "ready_to_execute"
     if any(item.status == "candidate_found" for item in items):
         return "candidate_found_needs_live_listing_evidence"
+    if any(item.status == "candidate_incomplete" for item in items):
+        return "candidate_incomplete_needs_metadata_refresh"
     if any(item.status in {"fetch_failed", "fetch_blocked"} for item in items):
         return "partial_fetch_failure"
     return "no_candidate_found"

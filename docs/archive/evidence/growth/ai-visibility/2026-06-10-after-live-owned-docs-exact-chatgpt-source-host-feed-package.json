@@ -1,0 +1,634 @@
+{
+  "module_key": "ai_visibility",
+  "package_type": "source_host_feed",
+  "generated_at": "2026-06-10T13:26:46.792612Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-live-owned-docs-exact-chatgpt",
+  "status": "ready_for_operator_feed",
+  "source_hosts": [
+    "mcp.directory",
+    "mcpservers.org",
+    "mcpfind.org",
+    "pulsemcp.com",
+    "mcp.so",
+    "ubos.tech",
+    "mysynap.com",
+    "synapbus.dev",
+    "docs.synapse-network.ai",
+    "registry.modelcontextprotocol.io",
+    "github.com",
+    "smithery.ai",
+    "glama.ai",
+    "x.com",
+    "docs.synapse-network.ai"
+  ],
+  "drafts": [
+    {
+      "host": "mcp.directory",
+      "priority": 1,
+      "draft_type": "directory_submission",
+      "status": "review_pending_live_recheck",
+      "target_url": "https://mcp.directory/submit",
+      "submit_url": "https://mcp.directory/submit",
+      "title": "Synapse Network MCP Server",
+      "summary": "Submit SynapseNetwork MCP Server to MCP Directory with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.",
+      "body_markdown": "# Synapse Network MCP Server\n\nSubmit SynapseNetwork MCP Server to MCP Directory with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.\n\n- Remote MCP endpoint: https://mcp.synapse-network.ai/mcp\n- Tools: discover_services, invoke_and_pay, get_receipt\n- GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\n- npm: @synapse-network-ai/mcp-server\n- Docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://mcp.directory/submit",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "pypi_package": "",
+        "form_fields": [
+          "GitHub Repository URL",
+          "NPM package",
+          "PyPI package",
+          "Short description",
+          "Email"
+        ],
+        "source_host_audit_status": "review_pending_live_recheck"
+      },
+      "validation_command": "Record MCP Directory browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the form.",
+        "CLI probes can receive site-level blocks; verify through browser/form confirmation or a public listing URL."
+      ]
+    },
+    {
+      "host": "mcpservers.org",
+      "priority": 2,
+      "draft_type": "directory_submission",
+      "status": "already_live",
+      "target_url": "https://mcpservers.org/submit",
+      "submit_url": "https://mcpservers.org/submit",
+      "title": "Synapse Network MCP Server",
+      "summary": "Submit SynapseNetwork MCP Server to MCPServers with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.",
+      "body_markdown": "# Synapse Network MCP Server\n\nSubmit SynapseNetwork MCP Server to MCPServers with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.\n\n- Remote MCP endpoint: https://mcp.synapse-network.ai/mcp\n- Tools: discover_services, invoke_and_pay, get_receipt\n- GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\n- npm: @synapse-network-ai/mcp-server\n- Docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://mcpservers.org/submit",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "link": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "category": "finance",
+        "category_label": "Finance",
+        "plan": "free",
+        "form_fields": [
+          "name",
+          "description",
+          "url",
+          "category",
+          "email",
+          "plan"
+        ],
+        "submission_method": "Submit the free MCPServers form at https://mcpservers.org/submit; use category=finance and include the Remote MCP endpoint plus tool names in the description when the form has no dedicated fields.",
+        "premium_listing": false,
+        "source_host_audit_status": "already_live"
+      },
+      "validation_command": "Record MCPServers browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the form.",
+        "CLI probes can receive site-level blocks; verify through browser/form confirmation or a public listing URL."
+      ]
+    },
+    {
+      "host": "mcpfind.org",
+      "priority": 3,
+      "draft_type": "directory_submission",
+      "status": "ready_to_submit",
+      "target_url": "https://mcpfind.org/submit",
+      "submit_url": "https://mcpfind.org/submit",
+      "title": "Synapse Network MCP Server",
+      "summary": "Submit SynapseNetwork MCP Server to MCPFind with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.",
+      "body_markdown": "# Synapse Network MCP Server\n\nSubmit SynapseNetwork MCP Server to MCPFind with the hosted Remote MCP endpoint, GitHub repository, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.\n\n- Remote MCP endpoint: https://mcp.synapse-network.ai/mcp\n- Tools: discover_services, invoke_and_pay, get_receipt\n- GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\n- npm: @synapse-network-ai/mcp-server\n- Docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://mcpfind.org/submit",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "submission_method": "Submit the open-source MCPFind server form at https://mcpfind.org/submit; include the GitHub repository, npm package, hosted Remote MCP endpoint, and tool names.",
+        "listing_type": "Remote MCP server directory listing",
+        "category": "payments",
+        "tags": [
+          "Remote MCP",
+          "AI agent payments",
+          "paid API discovery",
+          "USDC settlement",
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "form_fields": [
+          "Server name",
+          "Description",
+          "GitHub repository URL",
+          "npm package",
+          "Remote MCP endpoint",
+          "Docs URL",
+          "Contact email"
+        ],
+        "browser_submission_required": true,
+        "source_host_audit_status": "ready_to_submit"
+      },
+      "validation_command": "Record MCPFind browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the form.",
+        "CLI probes can receive site-level blocks; verify through browser/form confirmation or a public listing URL."
+      ]
+    },
+    {
+      "host": "pulsemcp.com",
+      "priority": 4,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "already_live",
+      "target_url": "https://pulsemcp.com/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for pulsemcp.com",
+      "summary": "Verify the PulseMCP SynapseNetwork listing and refresh upstream server.json or MCP Registry metadata if the Remote MCP endpoint, npm package, tools, or auth boundary drift.",
+      "body_markdown": "# Synapse Network source-host opportunity for pulsemcp.com\n\nVerify the PulseMCP SynapseNetwork listing and refresh upstream server.json or MCP Registry metadata if the Remote MCP endpoint, npm package, tools, or auth boundary drift.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://pulsemcp.com/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "already_live"
+      },
+      "validation_command": "Record the PulseMCP public listing URL and matched canonical terms; do not count source-host intent as external citation evidence.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "mcp.so",
+      "priority": 5,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://mcp.so/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for mcp.so",
+      "summary": "Inspect mcp.so and refresh or request the SynapseNetwork MCP Server listing with exact identifiers: SynapseNetworkAI/Synapse-Network-MCP-Server, io.github.SynapseNetworkAI/synapse-network-mcp-server, https://mcp.synapse-network.ai/mcp, and the discover_services / invoke_and_pay / get_receipt tool loop. If the host already contains an unrelated Synapse MCP listing, record that as collision evidence and prioritize owned README/docs disambiguation.",
+      "body_markdown": "# Synapse Network source-host opportunity for mcp.so\n\nInspect mcp.so and refresh or request the SynapseNetwork MCP Server listing with exact identifiers: SynapseNetworkAI/Synapse-Network-MCP-Server, io.github.SynapseNetworkAI/synapse-network-mcp-server, https://mcp.synapse-network.ai/mcp, and the discover_services / invoke_and_pay / get_receipt tool loop. If the host already contains an unrelated Synapse MCP listing, record that as collision evidence and prioritize owned README/docs disambiguation.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://mcp.so/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "Record the mcp.so public listing URL, correction request, or collision evidence; rerun exact SynapseNetworkAI identifier probes after it changes.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "ubos.tech",
+      "priority": 6,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://ubos.tech/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for ubos.tech",
+      "summary": "Inspect the UBOS Synapse MCP page and record whether it describes Synapse.org/Sage Bionetworks rather than Synapse Network. If it is not editable, strengthen official docs, GitHub README, and MCP Registry disambiguation with the exact SynapseNetworkAI repository, Remote MCP URL, npm package, and paid API tool loop.",
+      "body_markdown": "# Synapse Network source-host opportunity for ubos.tech\n\nInspect the UBOS Synapse MCP page and record whether it describes Synapse.org/Sage Bionetworks rather than Synapse Network. If it is not editable, strengthen official docs, GitHub README, and MCP Registry disambiguation with the exact SynapseNetworkAI repository, Remote MCP URL, npm package, and paid API tool loop.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://ubos.tech/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "Record UBOS collision evidence or a correction URL, then rerun exact identifier probes.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "mysynap.com",
+      "priority": 7,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://mysynap.com/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for mysynap.com",
+      "summary": "Record mysynap.com as a non-Synapse-Network collision source. Keep owned copy clear that Synapse Network at synapse-network.ai is the agent-payment and Remote MCP product, not mysynap.com or another similarly named Synapse project.",
+      "body_markdown": "# Synapse Network source-host opportunity for mysynap.com\n\nRecord mysynap.com as a non-Synapse-Network collision source. Keep owned copy clear that Synapse Network at synapse-network.ai is the agent-payment and Remote MCP product, not mysynap.com or another similarly named Synapse project.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://mysynap.com/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "Record the mysynap.com collision evidence and confirm official source hosts carry the disambiguation block.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "synapbus.dev",
+      "priority": 8,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://synapbus.dev/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for synapbus.dev",
+      "summary": "Record SynapBus as a collision source for exact SynapseNetwork MCP queries. Strengthen official docs and README with exact product identity, Remote MCP endpoint, repository, npm package, and paid API tool loop.",
+      "body_markdown": "# Synapse Network source-host opportunity for synapbus.dev\n\nRecord SynapBus as a collision source for exact SynapseNetwork MCP queries. Strengthen official docs and README with exact product identity, Remote MCP endpoint, repository, npm package, and paid API tool loop.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://synapbus.dev/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "Record SynapBus collision evidence and rerun exact identifier probes after owned disambiguation refresh.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "docs.synapse-network.ai",
+      "priority": 9,
+      "draft_type": "owned_brand_disambiguation_refresh",
+      "status": "ready_to_publish_on_owned_channels",
+      "target_url": "https://docs.synapse-network.ai/",
+      "submit_url": "",
+      "title": "Synapse Network MCP brand disambiguation block",
+      "summary": "Refresh official Synapse Network MCP source hosts with an explicit disambiguation block: Synapse Network at synapse-network.ai is the agent-payment and Remote MCP product, not Synapse.org/Sage Bionetworks biomedical data infrastructure. Repeat the exact identifiers SynapseNetworkAI/Synapse-Network-MCP-Server, io.github.SynapseNetworkAI/synapse-network-mcp-server, and https://mcp.synapse-network.ai/mcp.",
+      "body_markdown": "# Synapse Network MCP brand disambiguation block\n\nRefresh official Synapse Network MCP source hosts with an explicit disambiguation block: Synapse Network at synapse-network.ai is the agent-payment and Remote MCP product, not Synapse.org/Sage Bionetworks biomedical data infrastructure. Repeat the exact identifiers SynapseNetworkAI/Synapse-Network-MCP-Server, io.github.SynapseNetworkAI/synapse-network-mcp-server, and https://mcp.synapse-network.ai/mcp.\n\nUse these exact identity strings in public source hosts:\n\n1. SynapseNetwork MCP Server\n2. SynapseNetworkAI/Synapse-Network-MCP-Server\n3. io.github.SynapseNetworkAI/synapse-network-mcp-server\n4. Hosted Remote MCP URL: https://mcp.synapse-network.ai/mcp\n\nOwned publication targets:\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nGitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "source_reference_url": "https://docs.synapse-network.ai/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "ready_to_publish_on_owned_channels"
+      },
+      "validation_command": "Verify official docs, GitHub README, and MCP Registry metadata carry the disambiguation block, then rerun exact identifier probes.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "registry.modelcontextprotocol.io",
+      "priority": 10,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "already_live",
+      "target_url": "https://registry.modelcontextprotocol.io/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for registry.modelcontextprotocol.io",
+      "summary": "Verify the Synapse Remote MCP listing names Synapse Network as the MCP server for paid API calls, AgentPay, USDC settlement, and discover_services/invoke_and_pay/get_receipt tools.",
+      "body_markdown": "# Synapse Network source-host opportunity for registry.modelcontextprotocol.io\n\nVerify the Synapse Remote MCP listing names Synapse Network as the MCP server for paid API calls, AgentPay, USDC settlement, and discover_services/invoke_and_pay/get_receipt tools.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://registry.modelcontextprotocol.io/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "already_live"
+      },
+      "validation_command": "mcp-publisher publish && curl 'https://registry.modelcontextprotocol.io/v0.1/servers?search=synapse'",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "github.com",
+      "priority": 11,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://github.com/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for github.com",
+      "summary": "Add a compact answer block to the MCP server README: what Synapse Network is, hosted MCP endpoint, supported tools, BYOK/OAuth auth, and why it differs from Stripe, RapidAPI, and x402.",
+      "body_markdown": "# Synapse Network source-host opportunity for github.com\n\nAdd a compact answer block to the MCP server README: what Synapse Network is, hosted MCP endpoint, supported tools, BYOK/OAuth auth, and why it differs from Stripe, RapidAPI, and x402.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://github.com/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "git grep -n 'MCP server for paid API calls' README.md server.json",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "smithery.ai",
+      "priority": 12,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://smithery.ai/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for smithery.ai",
+      "summary": "Submit or refresh Smithery metadata with the hosted MCP endpoint, npm stdio package, paid API monetization category, and tool names.",
+      "body_markdown": "# Synapse Network source-host opportunity for smithery.ai\n\nSubmit or refresh Smithery metadata with the hosted MCP endpoint, npm stdio package, paid API monetization category, and tool names.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://smithery.ai/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "smithery inspect @synapse-network-ai/mcp-server",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "glama.ai",
+      "priority": 13,
+      "draft_type": "directory_submission",
+      "status": "already_live",
+      "target_url": "https://glama.ai/mcp/servers",
+      "submit_url": "https://glama.ai/mcp/servers",
+      "title": "Synapse Network MCP Server",
+      "summary": "Submit or refresh Glama listing copy for SynapseNetwork MCP Server with AgentPay, API monetization, and hosted Remote MCP URL.",
+      "body_markdown": "# Synapse Network MCP Server\n\nSubmit or refresh Glama listing copy for SynapseNetwork MCP Server with AgentPay, API monetization, and hosted Remote MCP URL.\n\n- Remote MCP endpoint: https://mcp.synapse-network.ai/mcp\n- Tools: discover_services, invoke_and_pay, get_receipt\n- GitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\n- npm: @synapse-network-ai/mcp-server\n- Docs: https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "source_reference_url": "https://glama.ai/mcp/servers",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "submission_method": "Submit GitHub repository for Glama indexing.",
+        "listing_type": "open-source MCP server",
+        "indexed_metadata": [
+          "tools",
+          "schemas",
+          "annotations",
+          "Remote MCP endpoint"
+        ],
+        "acceptance_terms": [
+          "MCP server for paid API calls",
+          "Remote MCP",
+          "AgentPay",
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "browser_submission_required": true,
+        "source_host_audit_status": "already_live"
+      },
+      "validation_command": "curl -fsS 'https://glama.ai/search?q=Synapse%20Network%20MCP'",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the form.",
+        "CLI probes can receive site-level blocks; verify through browser/form confirmation or a public listing URL."
+      ]
+    },
+    {
+      "host": "x.com",
+      "priority": 14,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://x.com/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for x.com",
+      "summary": "Draft a human-approved X thread comparing Synapse with Stripe, RapidAPI, and x402 for agent-paid API calls; link docs, GitHub, and the Remote MCP endpoint.",
+      "body_markdown": "# Synapse Network source-host opportunity for x.com\n\nDraft a human-approved X thread comparing Synapse with Stripe, RapidAPI, and x402 for agent-paid API calls; link docs, GitHub, and the Remote MCP endpoint.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://x.com/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "Record the published X URL as source-host evidence after human approval.",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    },
+    {
+      "host": "docs.synapse-network.ai",
+      "priority": 15,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "status": "needs_operator_review",
+      "target_url": "https://docs.synapse-network.ai/",
+      "submit_url": "",
+      "title": "Synapse Network source-host opportunity for docs.synapse-network.ai",
+      "summary": "Refresh Synapse docs and directory copy with disambiguation: Synapse Network at synapse-network.ai is not Azure Synapse Analytics, Project Synapse, Sage Bionetworks Synapse, or mcpsynapse.dev.",
+      "body_markdown": "# Synapse Network source-host opportunity for docs.synapse-network.ai\n\nRefresh Synapse docs and directory copy with disambiguation: Synapse Network at synapse-network.ai is not Azure Synapse Analytics, Project Synapse, Sage Bionetworks Synapse, or mcpsynapse.dev.\n\nOfficial source: https://www.synapse-network.ai/\nMCP docs: https://docs.synapse-network.ai/mcp/paid-api-calls\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+      "source_reference_url": "https://docs.synapse-network.ai/",
+      "submission_payload": {
+        "server_name": "Synapse Network MCP Server",
+        "short_description": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+        "website_url": "https://www.synapse-network.ai/",
+        "github_repository_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "npm_package": "@synapse-network-ai/mcp-server",
+        "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+        "tools": [
+          "discover_services",
+          "invoke_and_pay",
+          "get_receipt"
+        ],
+        "docs": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "contact_email": "support@synapse-network.ai",
+        "stitch_figma_frame": "Directory Source-Host Submission Pack",
+        "evidence_status": "pending_submission_not_external_citation",
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
+      },
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -i 'Azure Synapse'",
+      "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt --execute",
+      "operator_notes": [
+        "Review the source host and choose a truthful public mention path."
+      ]
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "export_package": "python scripts/growth/generate_ai_visibility_source_host_feed_package.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt",
+    "after_feed_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-10-after-live-owned-docs-exact-chatgpt\""
+  }
+}

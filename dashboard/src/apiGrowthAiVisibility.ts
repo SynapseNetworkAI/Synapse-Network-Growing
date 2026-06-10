@@ -1,4 +1,4 @@
-import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from './apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage, GrowthAIVisibilitySourceHostLiveSpotCheck } from './apiGrowthAiVisibilityPlanTypes'
 
 export type * from './apiGrowthAiVisibilityPlanTypes'
 
@@ -24,6 +24,16 @@ export interface GrowthAIVisibilityCheck {
   created_at: string | null
   updated_at: string | null
 }
+
+export interface GrowthAIVisibilitySourceHostAction {
+  host: string
+  surface: string
+  observed_count: number
+  priority: string
+  draft_type: string
+  rationale: string
+}
+
 export interface GrowthAIVisibilityComparison {
   feed_key: string
   run_group: string
@@ -45,6 +55,7 @@ export interface GrowthAIVisibilityComparison {
   missing_platforms: string[]
   top_competitors: string[]
   source_hosts?: string[]
+  source_host_actions?: GrowthAIVisibilitySourceHostAction[]
   known_collision_competitors?: string[]
   official_cited_urls?: string[]
   next_actions: string[]
@@ -61,6 +72,7 @@ export interface GrowthAIVisibilityFeedReport {
   missing_platforms: string[]
   known_collision_competitors?: string[]
   source_hosts?: string[]
+  source_host_actions?: GrowthAIVisibilitySourceHostAction[]
   official_cited_urls?: string[]
   mentioned_count: number
   cited_count: number
@@ -281,6 +293,7 @@ export interface GrowthAIVisibilityFeedScore {
   cited_count: number
   known_collision_competitors?: string[]
   official_cited_urls?: string[]
+  source_host_actions?: GrowthAIVisibilitySourceHostAction[]
   mentioned_delta: number
   cited_delta: number
   blockers: string[]
@@ -472,11 +485,12 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilitySourceHostFeedPackage>('/growth/ai-visibility/source-host-feed-package'),
     getGrowthAIVisibilitySourceHostExecutionChecklist: () =>
       request<GrowthAIVisibilitySourceHostExecutionChecklist>('/growth/ai-visibility/source-host-execution-checklist'),
+    getGrowthAIVisibilitySourceHostLiveSpotCheck: () =>
+      request<GrowthAIVisibilitySourceHostLiveSpotCheck>('/growth/ai-visibility/source-host-live-spot-check'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }
 }
-
 function query(params?: Record<string, unknown>) {
   const search = new URLSearchParams()
   Object.entries(params || {}).forEach(([key, value]) => {

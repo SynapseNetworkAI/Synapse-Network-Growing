@@ -1,0 +1,65 @@
+{
+  "module_key": "ai_visibility_source_host_metadata_refresh",
+  "generated_at": "2026-06-10T17:37:54Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-mcp-pr36-server-json-tool-metadata",
+  "status": "metadata_refresh_prepared_not_live",
+  "source_host": "glama.ai",
+  "target_gap": "Glama public listing matched SynapseNetwork, mcp.synapse-network.ai, and Synapse-Network-MCP-Server, but missed discover_services.",
+  "upstream_repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+  "upstream_pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/36",
+  "upstream_pr_state": "open_clean_mergeable",
+  "upstream_head_sha": "53fdf5b71d602569038501497fa12d08f52ccf13",
+  "raw_branch_server_json_url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/codex/ai-visibility-source-host-metadata/server.json",
+  "raw_branch_validation": {
+    "description": "Synapse Network MCP paid API calls via discover_services; not Synapse.org/Sage Bionetworks Synapse.",
+    "description_length": 99,
+    "contains": {
+      "discover_services": true,
+      "invoke_and_pay": true,
+      "get_receipt": true,
+      "https://mcp.synapse-network.ai/mcp": true
+    },
+    "publisher_metadata_tools": [
+      "discover_services",
+      "invoke_and_pay",
+      "get_receipt"
+    ]
+  },
+  "validation": {
+    "mcp_repo_commands": [
+      {
+        "cmd": "npm run ci:server-json",
+        "status": "passed"
+      },
+      {
+        "cmd": "npm run ci:directory-metadata",
+        "status": "passed"
+      },
+      {
+        "cmd": "npm run release:readiness",
+        "status": "passed",
+        "summary": "typecheck, 26 Vitest tests, build, mock E2E, source quality, quality budget, server.json check, directory metadata check, CLI smoke, and npm pack dry-run passed"
+      }
+    ],
+    "github_mergeability": {
+      "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/36",
+      "mergeable": "MERGEABLE",
+      "merge_state_status": "CLEAN"
+    }
+  },
+  "evidence_role": "upstream_metadata_refresh_preparation_not_external_citation",
+  "not_counted_as": [
+    "live_glama_listing_refresh",
+    "official_mcp_registry_publish",
+    "answer_engine_mention",
+    "answer_engine_citation"
+  ],
+  "next_required_steps": [
+    "Merge Synapse-Network-MCP-Server PR #36.",
+    "Run the MCP Registry metadata refresh workflow with publish_npm=false so server.json 0.1.8 becomes live.",
+    "Rerun Glama live recheck for discover_services, invoke_and_pay, get_receipt, and the Remote MCP endpoint.",
+    "Only after live source-host evidence passes, rerun the unchanged ChatGPT, Claude, Grok, and Gemini probe matrix."
+  ],
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-mcp-pr36-registry-refresh --platforms chatgpt,claude,grok,gemini --execute"
+}

@@ -7,13 +7,21 @@ from urllib.parse import urlparse
 SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
+    "glama.ai": "glama",
+    "glama_ai": "glama",
     "lobehub.com": "lobehub",
     "mcp.directory": "mcp_directory",
     "mcpfind.org": "mcpfind",
     "mcp-marketplace.io": "mcp_marketplace",
+    "mcp.so": "mcp_so",
     "mcpservers.org": "mcpservers",
+    "mysynap.com": "mysynap_com",
     "protodex.io": "protodex",
     "pulsemcp.com": "pulsemcp",
+    "smithery.ai": "smithery",
+    "smithery_ai": "smithery",
+    "synapbus.dev": "synapbus_dev",
+    "ubos.tech": "ubos_tech",
 }
 
 

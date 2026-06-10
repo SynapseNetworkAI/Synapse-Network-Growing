@@ -166,6 +166,42 @@ def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Pa
     assert "exact identifier probes" in first["validation_command"]
 
 
+def test_diagnosis_promotes_exact_query_collision_source_hosts(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="SynapseNetworkAI/Synapse-Network-MCP-Server",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": [
+                            "mcp.so",
+                            "ubos.tech",
+                            "mysynap.com",
+                            "synapbus.dev",
+                        ],
+                    },
+                )
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    by_surface = {item["surface"]: item for item in recommendations}
+    assert by_surface["mcp_so"]["draft_type"] == "mcp_directory_listing"
+    assert by_surface["ubos_tech"]["draft_type"] == (
+        "brand_collision_source_host_review"
+    )
+    assert by_surface["mysynap_com"]["priority"] == "p0"
+    assert by_surface["synapbus_dev"]["priority"] == "p0"
+    assert "exact SynapseNetwork MCP" in by_surface["mcp_so"]["rationale"]
+    assert "collision evidence" in by_surface["ubos_tech"]["validation_command"]
+
+
 def test_diagnosis_cli_writes_json_and_recommendations_jsonl(tmp_path: Path):
     probe_path = write_probe_jsonl(
         tmp_path,

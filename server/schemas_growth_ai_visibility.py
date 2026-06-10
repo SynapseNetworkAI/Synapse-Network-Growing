@@ -60,6 +60,9 @@ class GrowthAIVisibilityComparisonOut(BaseModel):
     missing_platforms: list[str] = Field(default_factory=list)
     top_competitors: list[str] = Field(default_factory=list)
     source_hosts: list[str] = Field(default_factory=list)
+    source_host_actions: list[GrowthAIVisibilitySourceHostActionOut] = Field(
+        default_factory=list
+    )
     known_collision_competitors: list[str] = Field(default_factory=list)
     official_cited_urls: list[str] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
@@ -82,6 +85,9 @@ class GrowthAIVisibilityFeedReportOut(BaseModel):
     missing_platforms: list[str] = Field(default_factory=list)
     known_collision_competitors: list[str] = Field(default_factory=list)
     source_hosts: list[str] = Field(default_factory=list)
+    source_host_actions: list[GrowthAIVisibilitySourceHostActionOut] = Field(
+        default_factory=list
+    )
     official_cited_urls: list[str] = Field(default_factory=list)
     mentioned_count: int = 0
     cited_count: int = 0
@@ -419,6 +425,9 @@ class GrowthAIVisibilityFeedScoreOut(BaseModel):
     cited_count: int = 0
     known_collision_competitors: list[str] = Field(default_factory=list)
     official_cited_urls: list[str] = Field(default_factory=list)
+    source_host_actions: list[GrowthAIVisibilitySourceHostActionOut] = Field(
+        default_factory=list
+    )
     mentioned_delta: int = 0
     cited_delta: int = 0
     blockers: list[str] = Field(default_factory=list)

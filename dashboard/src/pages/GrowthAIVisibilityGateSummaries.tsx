@@ -1,6 +1,6 @@
 import { StateBadge } from '../components/workbench'
 import type { GrowthAIVisibilityExternalProbeGate, GrowthAIVisibilityFeedCycle, GrowthAIVisibilityFeedScorecard, GrowthAIVisibilityGoalAudit, GrowthAIVisibilityLiveReadiness, GrowthAIVisibilityNextCycle, GrowthAIVisibilityOptimizationBrief, GrowthAIVisibilityWeeklyReport } from '../api'
-import { CommandBlock, EvidenceList, Info, signed } from './GrowthAIVisibilityPanelParts'
+import { CommandBlock, EvidenceList, Info, SourceHostActionList, signed } from './GrowthAIVisibilityPanelParts'
 
 export function LiveReadinessSummary({ readiness }: Readonly<{ readiness: GrowthAIVisibilityLiveReadiness | null }>) {
   if (!readiness) return null
@@ -290,6 +290,7 @@ export function FeedScorecardSummary({ scorecard }: Readonly<{ scorecard: Growth
             <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] px-3 py-2 text-sm leading-5 text-[color:var(--ops-text-muted)]">
               {item.recommended_action}
             </div>
+            <SourceHostActionList actions={item.source_host_actions || []} />
           </div>
         ))}
       </div>

@@ -9,6 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from server.config import PROJECT_ROOT
+from server.services.growth.ai_visibility_source_host_audit_events import (
+    SurfaceEvent,
+    append_live_surface_event,
+    append_review_pending_surface_event,
+    _surface_statuses,
+    normalized_datetime,
+    record_payload_surface_event,
+)
 from server.services.growth.ai_visibility_source_host_surfaces import (
     source_host_surface,
 )
@@ -28,7 +36,9 @@ class SourceHostAuditFacts:
     submitted_surfaces: list[str] = field(default_factory=list)
     submission_blockers: list[str] = field(default_factory=list)
     review_pending_surfaces: list[str] = field(default_factory=list)
+    metadata_refresh_surfaces: list[str] = field(default_factory=list)
     live_surfaces: list[str] = field(default_factory=list)
+    surface_statuses: dict[str, str] = field(default_factory=dict)
     evidence_files: list[str] = field(default_factory=list)
     checklist_generated_at: datetime | None = None
 
@@ -52,7 +62,9 @@ def source_host_audit_facts(
     submitted: list[str] = []
     blockers: list[str] = []
     review_pending: list[str] = []
+    metadata_refresh: list[str] = []
     live: list[str] = []
+    surface_events: dict[str, SurfaceEvent] = {}
     evidence_files: list[str] = []
     latest_checklist = _latest_checklist_payload(root)
 
@@ -79,6 +91,15 @@ def source_host_audit_facts(
                 blockers=blockers,
                 review_pending=review_pending,
                 live=live,
+                surface_events=surface_events,
+                evidence_files=evidence_files,
+                path=path,
+            )
+        if payload.get("check_type") == "source_host_live_spot_check":
+            _collect_live_spot_check_evidence(
+                payload,
+                metadata_refresh=metadata_refresh,
+                surface_events=surface_events,
                 evidence_files=evidence_files,
                 path=path,
             )
@@ -91,7 +112,9 @@ def source_host_audit_facts(
         submitted_surfaces=unique_strings(submitted),
         submission_blockers=unique_strings(blockers),
         review_pending_surfaces=unique_strings(review_pending),
+        metadata_refresh_surfaces=unique_strings(metadata_refresh),
         live_surfaces=unique_strings(live),
+        surface_statuses=_surface_statuses(surface_events),
         evidence_files=unique_strings(evidence_files),
         checklist_generated_at=_generated_at(payload) if latest_checklist else None,
     )
@@ -121,7 +144,11 @@ def merge_source_host_audit_facts(
         review_pending_surfaces=unique_strings(
             first.review_pending_surfaces + second.review_pending_surfaces
         ),
+        metadata_refresh_surfaces=unique_strings(
+            first.metadata_refresh_surfaces + second.metadata_refresh_surfaces
+        ),
         live_surfaces=unique_strings(first.live_surfaces + second.live_surfaces),
+        surface_statuses=_merged_surface_statuses(first, second),
         evidence_files=unique_strings(first.evidence_files + second.evidence_files),
         checklist_generated_at=newest.checklist_generated_at,
     )
@@ -222,6 +249,7 @@ def _collect_execution_evidence(
     blockers: list[str],
     review_pending: list[str],
     live: list[str],
+    surface_events: dict[str, SurfaceEvent],
     evidence_files: list[str],
     path: Path,
 ) -> None:
@@ -231,13 +259,55 @@ def _collect_execution_evidence(
     if payload.get("status") == "submission_recorded":
         submitted.append(surface)
         if _submission_is_review_pending(payload):
-            review_pending.append(surface)
+            append_review_pending_surface_event(
+                review_pending,
+                surface_events,
+                surface,
+                payload,
+                path,
+            )
         evidence_files.append(_relative_evidence_path(path))
     if payload.get("status") == "submission_blocked":
         blockers.append(_submission_blocker_text(payload, surface))
         evidence_files.append(_relative_evidence_path(path))
     if payload.get("status") == "live_verified":
-        live.append(surface)
+        append_live_surface_event(
+            live,
+            surface_events,
+            surface,
+            payload,
+            path,
+        )
+        evidence_files.append(_relative_evidence_path(path))
+
+
+def _collect_live_spot_check_evidence(
+    payload: dict[str, Any],
+    *,
+    metadata_refresh: list[str],
+    surface_events: dict[str, SurfaceEvent],
+    evidence_files: list[str],
+    path: Path,
+) -> None:
+    matched = False
+    for item in payload.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "candidate_incomplete":
+            continue
+        host = _item_host(item)
+        if not host:
+            continue
+        matched = True
+        metadata_refresh.append(host)
+        record_payload_surface_event(
+            surface_events,
+            host,
+            "metadata_refresh_required",
+            payload,
+            path,
+        )
+    if matched:
         evidence_files.append(_relative_evidence_path(path))
 
 
@@ -266,6 +336,17 @@ def _submission_is_review_pending(payload: dict[str, Any]) -> bool:
         "publish it within",
     )
     return any(marker in evidence_text for marker in review_markers)
+
+
+def _merged_surface_statuses(
+    first: SourceHostAuditFacts,
+    second: SourceHostAuditFacts,
+) -> dict[str, str]:
+    statuses: dict[str, str] = {}
+    for source in (first.surface_statuses, second.surface_statuses):
+        for surface, status in source.items():
+            statuses[surface] = status
+    return statuses
 
 
 def _host_surface(value: str) -> str:
@@ -300,9 +381,7 @@ def _generated_at(payload: dict[str, Any]) -> datetime:
     if not value:
         return datetime.min.replace(tzinfo=UTC)
     try:
-        return _normalized_datetime(
-            datetime.fromisoformat(value.replace("Z", "+00:00"))
-        )
+        return normalized_datetime(datetime.fromisoformat(value.replace("Z", "+00:00")))
     except ValueError:
         return datetime.min.replace(tzinfo=UTC)
 
@@ -321,11 +400,3 @@ def _newest_checklist_facts(
         tzinfo=UTC
     )
     return first if first_generated_at >= second_generated_at else second
-
-
-def _normalized_datetime(value: Any) -> datetime:
-    if not isinstance(value, datetime):
-        return datetime.min.replace(tzinfo=UTC)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)

@@ -156,6 +156,93 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "do not count source-host intent as external citation evidence."
         ),
     },
+    "mcp.so": {
+        "surface": "mcp_so",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "mcp.so appeared in exact SynapseNetwork MCP answer sources, so "
+            "Synapse needs either a corrected public listing or a recorded "
+            "review path that uses the exact SynapseNetworkAI identifiers."
+        ),
+        "brief": (
+            "Inspect mcp.so and refresh or request the SynapseNetwork MCP Server "
+            "listing with exact identifiers: SynapseNetworkAI/Synapse-Network-MCP-Server, "
+            "io.github.SynapseNetworkAI/synapse-network-mcp-server, "
+            "https://mcp.synapse-network.ai/mcp, and the "
+            "discover_services / invoke_and_pay / get_receipt tool loop. If the "
+            "host already contains an unrelated Synapse MCP listing, record that "
+            "as collision evidence and prioritize owned README/docs disambiguation."
+        ),
+        "validation": (
+            "Record the mcp.so public listing URL, correction request, or collision "
+            "evidence; rerun exact SynapseNetworkAI identifier probes after it changes."
+        ),
+    },
+    "ubos.tech": {
+        "surface": "ubos_tech",
+        "draft_type": "brand_collision_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "UBOS appeared in exact SynapseNetwork MCP answers with unrelated "
+            "Synapse MCP content, so it needs collision review before more feed "
+            "cycles can be trusted."
+        ),
+        "brief": (
+            "Inspect the UBOS Synapse MCP page and record whether it describes "
+            "Synapse.org/Sage Bionetworks rather than Synapse Network. If it is "
+            "not editable, strengthen official docs, GitHub README, and MCP "
+            "Registry disambiguation with the exact SynapseNetworkAI repository, "
+            "Remote MCP URL, npm package, and paid API tool loop."
+        ),
+        "validation": (
+            "Record UBOS collision evidence or a correction URL, then rerun exact "
+            "identifier probes."
+        ),
+    },
+    "mysynap.com": {
+        "surface": "mysynap_com",
+        "draft_type": "brand_collision_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "mysynap.com appeared in exact SynapseNetwork MCP source hosts, so "
+            "Synapse needs explicit brand-collision handling for this domain."
+        ),
+        "brief": (
+            "Record mysynap.com as a non-Synapse-Network collision source. Keep "
+            "owned copy clear that Synapse Network at synapse-network.ai is the "
+            "agent-payment and Remote MCP product, not mysynap.com or another "
+            "similarly named Synapse project."
+        ),
+        "validation": (
+            "Record the mysynap.com collision evidence and confirm official "
+            "source hosts carry the disambiguation block."
+        ),
+    },
+    "synapbus.dev": {
+        "surface": "synapbus_dev",
+        "draft_type": "brand_collision_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "SynapBus appeared in exact SynapseNetwork MCP source hosts, so it "
+            "should be treated as a brand-collision source until official "
+            "Synapse Network sources outrank it."
+        ),
+        "brief": (
+            "Record SynapBus as a collision source for exact SynapseNetwork MCP "
+            "queries. Strengthen official docs and README with exact product "
+            "identity, Remote MCP endpoint, repository, npm package, and paid API "
+            "tool loop."
+        ),
+        "validation": (
+            "Record SynapBus collision evidence and rerun exact identifier probes "
+            "after owned disambiguation refresh."
+        ),
+    },
     "python-docs.synapse.org": {
         "surface": "docs_disambiguation_links",
         "draft_type": "brand_disambiguation_answer_block",

@@ -29,7 +29,11 @@ def load_optional_dotenv_path(path_value: str | None) -> bool:
 
 def parse_env_line(raw: str) -> tuple[str, str] | None:
     line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
+    if not line or line.startswith("#"):
+        return None
+    if line.startswith("export "):
+        line = line.removeprefix("export ").strip()
+    if "=" not in line:
         return None
     key, _, value = line.partition("=")
     return key.strip(), unquote_env_value(value)

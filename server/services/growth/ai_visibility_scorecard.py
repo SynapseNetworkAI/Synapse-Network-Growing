@@ -101,6 +101,7 @@ def _score_item(*, cycle, comparison) -> GrowthAIVisibilityFeedScoreOut:
         cited_count=metrics["cited_count"],
         known_collision_competitors=metrics["known_collision_competitors"],
         official_cited_urls=metrics["official_cited_urls"],
+        source_host_actions=comparison.source_host_actions if comparison else [],
         mentioned_delta=comparison.mentioned_delta if comparison else 0,
         cited_delta=comparison.cited_delta if comparison else 0,
         blockers=cycle.blockers,

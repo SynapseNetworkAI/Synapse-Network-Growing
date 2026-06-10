@@ -1,0 +1,138 @@
+{
+  "module_key": "ai_visibility_owned_source_audit",
+  "generated_at": "2026-06-10T13:27:27.603615+00:00",
+  "status": "ready",
+  "run_group": "2026-06-10-after-live-owned-docs-exact-chatgpt",
+  "urls": [
+    {
+      "url": "https://www.synapse-network.ai/",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 15068,
+      "matched_terms": [],
+      "error": ""
+    },
+    {
+      "url": "https://www.synapse-network.ai/robots.txt",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 1322,
+      "matched_terms": [
+        "ChatGPT",
+        "Claude"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://www.synapse-network.ai/llms.txt",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 9546,
+      "matched_terms": [
+        "SynapseNetwork MCP",
+        "Synapse Network MCP",
+        "paid API",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "mcp.synapse-network.ai/mcp",
+        "ChatGPT"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://docs.synapse-network.ai/robots.txt",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 421,
+      "matched_terms": [
+        "ChatGPT",
+        "Claude"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://docs.synapse-network.ai/llms.txt",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 15590,
+      "matched_terms": [
+        "SynapseNetwork MCP",
+        "Synapse Network MCP",
+        "paid API",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "mcp.synapse-network.ai/mcp",
+        "ChatGPT",
+        "Claude"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 177346,
+      "matched_terms": [
+        "SynapseNetwork MCP",
+        "Synapse Network MCP",
+        "paid API",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "mcp.synapse-network.ai/mcp",
+        "ChatGPT",
+        "Claude",
+        "Grok"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 133383,
+      "matched_terms": [
+        "SynapseNetwork MCP",
+        "paid API",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "mcp.synapse-network.ai/mcp",
+        "ChatGPT",
+        "Claude",
+        "Grok"
+      ],
+      "error": ""
+    },
+    {
+      "url": "https://docs.synapse-network.ai/ai-agent-payments",
+      "status": "ok",
+      "http_status": 200,
+      "bytes": 127193,
+      "matched_terms": [
+        "paid API",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "mcp.synapse-network.ai/mcp",
+        "ChatGPT",
+        "Claude"
+      ],
+      "error": ""
+    }
+  ],
+  "required_terms": [
+    "SynapseNetwork MCP",
+    "Synapse Network MCP",
+    "paid API",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt",
+    "mcp.synapse-network.ai/mcp",
+    "ChatGPT",
+    "Claude",
+    "Grok"
+  ]
+}

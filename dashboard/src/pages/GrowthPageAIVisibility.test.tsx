@@ -32,6 +32,7 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/presence-plan')) return json(presencePlan())
     if (url.includes('/growth/ai-visibility/source-host-feed-package')) return json(sourceHostFeedPackage())
     if (url.includes('/growth/ai-visibility/source-host-execution-checklist')) return json(sourceHostExecutionChecklist())
+    if (url.includes('/growth/ai-visibility/source-host-live-spot-check')) return json(sourceHostLiveSpotCheck())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -89,8 +90,18 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText(/Record submission confirmation with --surface mcpservers_org/)).toBeInTheDocument()
     expect(screen.getByText(/Live search: https:\/\/mcpservers\.org\/\?q=Synapse%20Network/)).toBeInTheDocument()
     expect(screen.getByText(/Live gate: Open the search URLs/)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-source-host-live-spot-check')).toBeInTheDocument()
+    expect(screen.getByText('Source-host live spot-check')).toBeInTheDocument()
+    expect(screen.getByText('candidate_incomplete_needs_metadata_refresh')).toBeInTheDocument()
+    expect(screen.getByText(/1 metadata refresh/)).toBeInTheDocument()
+    expect(screen.getByText(/Refresh directory metadata so the search result includes the Remote MCP endpoint/)).toBeInTheDocument()
+    expect(screen.getByText(/Record: python scripts\/growth\/record_ai_visibility_source_host_execution.py --evidence-mode live/)).toBeInTheDocument()
     expect(screen.getAllByText('mcpservers.org').length).toBeGreaterThan(0)
     expect(screen.getByText('directory_listing')).toBeInTheDocument()
+    expect(screen.getAllByText('Source-host action targets').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/mcp_directory_listing/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/mcpservers/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/MCPServers appeared in answer-engine source hosts/).length).toBeGreaterThan(0)
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
     expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
@@ -185,7 +196,23 @@ function feedScorecard() {
     recommended_feed_key: 'mcp_paid_api_discovery',
     ranking_basis: 'Impact score rewards feed readiness.',
     total: 1,
-    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', citation_quality_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, known_collision_competitors: [], official_cited_urls: [], mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
+    items: [{
+      ...feedCycles().items[0],
+      rank: 1,
+      impact_score: 0,
+      comparison_status: 'needs_external_probe',
+      citation_quality_status: 'needs_external_probe',
+      target_platforms: ['chatgpt'],
+      covered_platforms: [],
+      external_checks_count: 0,
+      local_validation_count: 0,
+      known_collision_competitors: [],
+      official_cited_urls: [],
+      source_host_actions: [sourceHostAction()],
+      mentioned_delta: 0,
+      cited_delta: 0,
+      recommended_action: 'Resolve feed blockers.',
+    }],
   }
 }
 
@@ -338,6 +365,45 @@ function sourceHostFeedPackage() {
   }
 }
 
+function sourceHostLiveSpotCheck() {
+  return {
+    module_key: 'ai_visibility',
+    check_type: 'source_host_live_spot_check',
+    generated_at: '2026-06-10T00:00:00Z',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-10-after-owned-source-live',
+    execute: true,
+    status: 'candidate_incomplete_needs_metadata_refresh',
+    items: [
+      {
+        host: 'mcpservers.org',
+        search_url: 'https://mcpservers.org/?q=Synapse%20Network',
+        status: 'not_found',
+        http_status: 200,
+        matched_terms: [],
+        missing_terms: ['synapse network', 'mcp.synapse-network.ai', '@synapse-network-ai/mcp-server'],
+        evidence_excerpt: '',
+        next_action: 'Submit or wait for the directory listing, then rerun this spot check.',
+      },
+      {
+        host: 'glama.ai',
+        search_url: 'https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP',
+        status: 'candidate_incomplete',
+        http_status: 200,
+        matched_terms: ['synapse network', 'synapse-network-mcp-server'],
+        missing_terms: ['mcp.synapse-network.ai', '@synapse-network-ai/mcp-server', 'discover_services'],
+        evidence_excerpt: '',
+        next_action: 'Refresh directory metadata so the search result includes the Remote MCP endpoint, npm package, or tool names; then rerun this spot check.',
+      },
+    ],
+    blockers: [],
+    commands: {
+      execute: 'python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --execute',
+      record_live_listing: 'python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live --surface <surface> --source-url <public-listing-url>',
+    },
+  }
+}
+
 function docsBlueprint() {
   return { category: 'AI Agent Payments', canonical_domain: 'https://www.synapse-network.ai/', target_repo: 'Synapse-Network', implementation_root: 'services/docs-front/content/docs/ai-agent-payments', pages: [{ slug: 'index', title: 'AI Agent Payments', canonical_url: 'https://docs.synapse-network.ai/ai-agent-payments', meta_description: 'Agent payments.', target_queries: ['AI agent payment API'], definition_block: 'Synapse Network is an agent payment layer.', fact_table: [], page_sections: ['Definition'], faq: [], schema_types: ['TechArticle'], stitch_notes: [], figma_components: [], mdx_skeleton: '# AI Agent Payments', validation_commands: [] }], shared_components: ['DefinitionBlock'], publishing_checklist: ['Implement MDX pages.'] }
 }
@@ -425,9 +491,20 @@ function goalAudit() {
 }
 
 function comparison() {
-  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
+  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], source_hosts: ['mcpservers.org'], source_host_actions: [sourceHostAction()], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
 }
 
 function check() {
   return { id: 1, query: 'MCP paid API', platform: 'www_live_validation', answer_summary: 'Feed blocked.', synapse_mentioned: false, synapse_cited: false, cited_urls: [], competitor_mentions: [], missing_facts: ['Docs page must be live.'], next_action: 'Publish docs.', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', result_rank: 0, evidence_url: '', metadata: {}, run_at: null, created_at: null, updated_at: null }
+}
+
+function sourceHostAction() {
+  return {
+    host: 'mcpservers.org',
+    surface: 'mcpservers',
+    observed_count: 2,
+    priority: 'p0',
+    draft_type: 'mcp_directory_listing',
+    rationale: 'MCPServers appeared in answer-engine source hosts for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing.',
+  }
 }

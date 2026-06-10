@@ -1,0 +1,292 @@
+{
+  "module_key": "ai_visibility",
+  "status": "partial_external_probe",
+  "generated_at": "2026-06-10T13:23:51.190649+00:00",
+  "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt.jsonl",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-live-owned-docs-exact-chatgpt",
+  "feed_keys": [
+    "mcp_paid_api_discovery"
+  ],
+  "run_groups": [
+    "2026-06-10-after-live-owned-docs-exact-chatgpt"
+  ],
+  "record_count": 3,
+  "local_validation_count": 0,
+  "external_probe_count": 3,
+  "completed_external_probe_count": 3,
+  "provider_failure_count": 0,
+  "api_probe_blocker_count": 0,
+  "external_mentioned_count": 0,
+  "external_cited_count": 0,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "covered_platforms": [
+    "chatgpt"
+  ],
+  "missing_platforms": [
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "blockers": [
+    "Missing external platform probes: claude, grok, gemini."
+  ],
+  "feed_improvements": [],
+  "platform_results": [
+    {
+      "platform": "chatgpt",
+      "status": "not_visible_yet",
+      "probe_count": 3,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [
+        {
+          "value": "mcp.so",
+          "count": 3
+        },
+        {
+          "value": "mcpservers.org",
+          "count": 3
+        },
+        {
+          "value": "python-docs.synapse.org",
+          "count": 3
+        },
+        {
+          "value": "mysynap.com",
+          "count": 2
+        },
+        {
+          "value": "playbooks.com",
+          "count": 2
+        },
+        {
+          "value": "pulsemcp.com",
+          "count": 2
+        },
+        {
+          "value": "synapbus.dev",
+          "count": 2
+        },
+        {
+          "value": "github.com",
+          "count": 2
+        }
+      ],
+      "top_competitors": [
+        {
+          "value": "mcpservers.org",
+          "count": 3
+        },
+        {
+          "value": "python-docs.synapse.org",
+          "count": 3
+        },
+        {
+          "value": "synapse.org",
+          "count": 3
+        },
+        {
+          "value": "getdrio.com",
+          "count": 1
+        },
+        {
+          "value": "mcp.synapse.org",
+          "count": 1
+        }
+      ],
+      "next_action": "Feed or refresh source hosts observed by chatgpt: mcp.so, mcpservers.org, python-docs.synapse.org."
+    },
+    {
+      "platform": "claude",
+      "status": "missing_probe",
+      "probe_count": 0,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [],
+      "top_competitors": [],
+      "next_action": "Run the unchanged claude probe matrix."
+    },
+    {
+      "platform": "grok",
+      "status": "missing_probe",
+      "probe_count": 0,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [],
+      "top_competitors": [],
+      "next_action": "Run the unchanged grok probe matrix."
+    },
+    {
+      "platform": "gemini",
+      "status": "missing_probe",
+      "probe_count": 0,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [],
+      "top_competitors": [],
+      "next_action": "Run the unchanged gemini probe matrix."
+    }
+  ],
+  "top_source_hosts": [
+    {
+      "value": "mcp.so",
+      "count": 3,
+      "surface": "mcp_so"
+    },
+    {
+      "value": "mcpservers.org",
+      "count": 3,
+      "surface": "mcpservers"
+    },
+    {
+      "value": "python-docs.synapse.org",
+      "count": 3,
+      "surface": "python_docs_synapse_org"
+    },
+    {
+      "value": "mysynap.com",
+      "count": 2,
+      "surface": "mysynap_com"
+    },
+    {
+      "value": "playbooks.com",
+      "count": 2,
+      "surface": "playbooks_com"
+    },
+    {
+      "value": "pulsemcp.com",
+      "count": 2,
+      "surface": "pulsemcp"
+    },
+    {
+      "value": "synapbus.dev",
+      "count": 2,
+      "surface": "synapbus_dev"
+    },
+    {
+      "value": "github.com",
+      "count": 2,
+      "surface": "github_com"
+    },
+    {
+      "value": "ubos.tech",
+      "count": 2,
+      "surface": "ubos_tech"
+    },
+    {
+      "value": "mcp.directory",
+      "count": 1,
+      "surface": "mcp_directory"
+    },
+    {
+      "value": "mcpfind.org",
+      "count": 1,
+      "surface": "mcpfind"
+    },
+    {
+      "value": "mcpserver.design",
+      "count": 1,
+      "surface": "mcpserver_design"
+    }
+  ],
+  "top_competitors": [
+    {
+      "value": "mcpservers.org",
+      "count": 3
+    },
+    {
+      "value": "python-docs.synapse.org",
+      "count": 3
+    },
+    {
+      "value": "synapse.org",
+      "count": 3
+    },
+    {
+      "value": "getdrio.com",
+      "count": 1
+    },
+    {
+      "value": "mcp.synapse.org",
+      "count": 1
+    }
+  ],
+  "next_actions": [
+    "Deploy/refresh feed assets and rerun the same API probe.",
+    "Complete missing external probes for claude, grok, gemini."
+  ],
+  "platform_strategies": [
+    {
+      "platform": "claude",
+      "feed_focus": "Remote connector compatibility and docs citation.",
+      "preferred_surfaces": [
+        "docs",
+        "github",
+        "glama",
+        "www_llms"
+      ],
+      "probe_queries": [
+        "Claude MCP connector for paid API calls",
+        "MCP server that lets agents pay for APIs"
+      ],
+      "success_signal": "Claude web search mentions Synapse and cites docs, GitHub, or a directory listing.",
+      "fallback_action": "Add Claude connector setup block and directory evidence, then rerun Claude web search."
+    },
+    {
+      "platform": "grok",
+      "feed_focus": "Public web plus X-facing MCP discovery language.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "x_profile",
+        "smithery",
+        "glama"
+      ],
+      "probe_queries": [
+        "MCP server for paid API calls",
+        "AI agents paying for APIs with MCP"
+      ],
+      "success_signal": "Grok search returns Synapse or the Remote MCP endpoint among cited/source results.",
+      "fallback_action": "Publish social/distribution copy linking the docs page, then rerun Grok web/X search."
+    },
+    {
+      "platform": "gemini",
+      "feed_focus": "Google-grounded MCP and agent-payment discovery.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "github",
+        "mcp_registry"
+      ],
+      "probe_queries": [
+        "Gemini MCP server for paid API calls",
+        "AI agents pay for API calls with MCP"
+      ],
+      "success_signal": "Gemini mentions Synapse and cites www, docs, GitHub, or MCP Registry.",
+      "fallback_action": "Refresh Google-indexable docs, sitemap, and llms.txt terms, then rerun Gemini search."
+    }
+  ],
+  "comparison": {
+    "previous_source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-pr147-mergeability-external-probes.jsonl",
+    "previous_external_probe_count": 3,
+    "previous_mentioned_count": 0,
+    "previous_cited_count": 0,
+    "mentioned_delta": 0,
+    "cited_delta": 0,
+    "comparison_status": "flat"
+  },
+  "commands": {
+    "feed_validation": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt --output docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt-feed-validation.jsonl",
+    "manual_probe_template": "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt.jsonl",
+    "api_readiness": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt --platforms chatgpt,claude,grok,gemini",
+    "public_web_search_import": "python scripts/growth/import_ai_visibility_public_search_snapshot.py docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt-public-web-search-snapshot.json --output docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt-public-web-search.jsonl",
+    "record_evidence": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-10-after-live-owned-docs-exact-chatgpt.jsonl --apply",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-10-after-live-owned-docs-exact-chatgpt\" | python -m json.tool"
+  }
+}

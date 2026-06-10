@@ -44,8 +44,12 @@ SURFACE_HOSTS = {
     "lobehub": "lobehub.com",
     "mcpservers": "mcpservers.org",
     "mcp_marketplace": "mcp-marketplace.io",
+    "mcp_so": "mcp.so",
     "protodex": "protodex.io",
     "pulsemcp": "pulsemcp.com",
+    "mysynap_com": "mysynap.com",
+    "synapbus_dev": "synapbus.dev",
+    "ubos_tech": "ubos.tech",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }
@@ -154,12 +158,18 @@ def _audit_status_override(
     if not audit_facts:
         return status
     surface = source_host_surface(host)
+    surface_statuses = getattr(audit_facts, "surface_statuses", {})
+    if isinstance(surface_statuses, dict) and surface in surface_statuses:
+        return str(surface_statuses[surface])
     if surface in {source_host_surface(item) for item in audit_facts.live_surfaces}:
         return "already_live"
     if surface in {
         source_host_surface(item) for item in audit_facts.review_pending_surfaces
     }:
         return "review_pending_live_recheck"
+    metadata_refresh_surfaces = getattr(audit_facts, "metadata_refresh_surfaces", [])
+    if surface in {source_host_surface(item) for item in metadata_refresh_surfaces}:
+        return "metadata_refresh_required"
     return status
 
 

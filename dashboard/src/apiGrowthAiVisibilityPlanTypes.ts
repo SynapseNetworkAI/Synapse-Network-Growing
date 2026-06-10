@@ -205,3 +205,25 @@ export interface GrowthAIVisibilitySourceHostExecutionChecklist {
   blockers: string[]
   commands: Record<string, string>
 }
+export interface GrowthAIVisibilitySourceHostLiveSpotCheckItem {
+  host: string
+  search_url: string
+  status: string
+  http_status: number
+  matched_terms: string[]
+  missing_terms: string[]
+  evidence_excerpt: string
+  next_action: string
+}
+export interface GrowthAIVisibilitySourceHostLiveSpotCheck {
+  module_key: string
+  check_type: string
+  generated_at: string
+  feed_key: string
+  run_group: string
+  execute: boolean
+  status: string
+  items: GrowthAIVisibilitySourceHostLiveSpotCheckItem[]
+  blockers: string[]
+  commands: Record<string, string>
+}
