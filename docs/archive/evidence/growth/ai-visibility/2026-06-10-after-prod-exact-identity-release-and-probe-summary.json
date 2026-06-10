@@ -1,0 +1,167 @@
+{
+  "generated_at": "2026-06-10T07:57:00Z",
+  "status": "prod_feed_live_probe_not_yet_citing",
+  "source_release": {
+    "repo": "SynapseNetworkAI/Synapse-Network",
+    "source_pr": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/228",
+    "merge_commit_sha": "436f159d7fdb076aec528c711bde85c0a1a95735",
+    "merged_at": "2026-06-10T07:01:20Z"
+  },
+  "growing_release_tasks": {
+    "staging": [
+      {
+        "service_key": "docs-front",
+        "release_task_id": 273,
+        "deployment_record_id": 276,
+        "status": "completed",
+        "deployment_status": "succeeded",
+        "health_status": "passed",
+        "cloud_run_revision": "synapse-staging-docs-front-00037-wdj",
+        "image_digest": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/docs-front@sha256:c1c316df132a136ff40faefd2c674417d0bc6ab85acfeeec1c5ea101aed90348"
+      },
+      {
+        "service_key": "user-front",
+        "release_task_id": 274,
+        "deployment_record_id": 277,
+        "status": "completed",
+        "deployment_status": "succeeded",
+        "health_status": "passed",
+        "cloud_run_revision": "synapse-staging-user-front-00049-xj2",
+        "image_digest": "us-central1-docker.pkg.dev/fabled-archive-494108-k5/synapse-staging/user-front@sha256:f335bdcaf2b325d581e59927ef85abe6fe9193a68ad0aad8be345e9ab14eaf73"
+      }
+    ],
+    "production": [
+      {
+        "service_key": "docs-front",
+        "release_task_id": 275,
+        "deployment_record_id": 278,
+        "status": "completed",
+        "deployment_status": "succeeded",
+        "health_status": "passed",
+        "cloud_run_revision": "synapse-prod-docs-front-00026-hzb",
+        "image_digest": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/docs-front@sha256:d41832eb2b16cbbd582c3bcf6277f03f881cf96e15e65d47fe1e379dc5fbd59b"
+      },
+      {
+        "service_key": "user-front",
+        "release_task_id": 276,
+        "deployment_record_id": 279,
+        "status": "completed",
+        "deployment_status": "succeeded",
+        "health_status": "passed",
+        "cloud_run_revision": "synapse-prod-user-front-00036-vc2",
+        "image_digest": "us-central1-docker.pkg.dev/synapse-network-prod/synapse-prod/user-front@sha256:0125fb405de65db7855a095930c71ac505070b1e8d7ba2b2efb40965e47b7236"
+      }
+    ]
+  },
+  "live_feed_validation": {
+    "staging": [
+      {
+        "url": "https://staging.synapse-network.ai/llms.txt",
+        "status": 200,
+        "required_terms_present": true
+      },
+      {
+        "url": "https://staging.synapse-network.ai/llms-full.txt",
+        "status": 200,
+        "required_terms_present": true
+      },
+      {
+        "url": "https://docs-staging.synapse-network.ai/llms.txt",
+        "status": 200,
+        "required_terms_present": true
+      }
+    ],
+    "production": [
+      {
+        "url": "https://www.synapse-network.ai/llms.txt",
+        "status": 200,
+        "required_terms_present": true
+      },
+      {
+        "url": "https://www.synapse-network.ai/llms-full.txt",
+        "status": 200,
+        "required_terms_present": true
+      },
+      {
+        "url": "https://docs.synapse-network.ai/llms.txt",
+        "status": 200,
+        "required_terms_present": true
+      }
+    ],
+    "required_terms": [
+      "Synapse Network is the SynapseNetworkAI product",
+      "Synapse Network with a space is the same SynapseNetworkAI product",
+      "Question: What is Synapse Network MCP?",
+      "Spaced-name correction",
+      "https://mcp.synapse-network.ai/mcp",
+      "python-docs.synapse.org",
+      "synapse.network"
+    ]
+  },
+  "api_probe_outputs": [
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-prod-exact-identity-api-probe.jsonl",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-prod-exact-query-api-probe.jsonl"
+  ],
+  "api_probe_summary": {
+    "category_queries": {
+      "run_group": "2026-06-10-after-prod-exact-identity",
+      "rows": 12,
+      "chatgpt": {
+        "rows": 3,
+        "synapse_mentioned": 0,
+        "synapse_cited": 0
+      },
+      "gemini": {
+        "rows": 3,
+        "synapse_mentioned": 0,
+        "synapse_cited": 0
+      },
+      "claude": {
+        "rows": 3,
+        "blocked": "Anthropic API credit balance too low"
+      },
+      "grok": {
+        "rows": 3,
+        "blocked": "xAI credits or monthly spending limit exhausted"
+      }
+    },
+    "exact_queries": {
+      "run_group": "2026-06-10-after-prod-exact-query",
+      "rows": 4,
+      "chatgpt": {
+        "rows": 2,
+        "synapse_mentioned": 0,
+        "synapse_cited": 0,
+        "observed_collision_sources": [
+          "python-docs.synapse.org",
+          "mysynap.com"
+        ]
+      },
+      "gemini": {
+        "rows": 2,
+        "blocked": "Gemini 2.5 Flash temporary high demand 503"
+      }
+    }
+  },
+  "public_search_spot_check": {
+    "status": "official_and_directory_sources_indexed_but_answer_engines_not_yet_using_them",
+    "queries": [
+      "\"Synapse Network MCP\" \"paid API calls\"",
+      "\"Synapse Network\" \"mcp.synapse-network.ai\"",
+      "\"SynapseNetworkAI\" \"Synapse Network MCP\""
+    ],
+    "observed_indexed_sources": [
+      "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "https://registry.modelcontextprotocol.io/",
+      "https://www.pulsemcp.com/servers/synapse-network/serverjson",
+      "https://remote-mcp-servers.com/servers"
+    ]
+  },
+  "next_action": {
+    "status": "continue_optimization",
+    "reason": "Production feeds are live, and public search has indexed official/directory sources, but ChatGPT still chooses collision sources for exact Synapse Network MCP queries and category queries still omit Synapse.",
+    "recommended_feed": "increase third-party source authority and exact disambiguation on indexed directory pages; prioritize mcpservers.org, Glama unhealthy status fix, official MCP Registry detail freshness, PulseMCP, remote-mcp-servers, GitHub README, npm README, and docs brand-disambiguation cross-links.",
+    "recommended_probe": "rerun exact-query probes after crawler/index freshness; rerun Claude after Anthropic credits are available, Grok after xAI spending limit is raised, and Gemini after 503 demand recovers."
+  }
+}
