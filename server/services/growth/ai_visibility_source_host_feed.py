@@ -80,6 +80,8 @@ def _draft_from_action(action) -> GrowthAIVisibilitySourceHostDraftOut:
         return _directory_draft(action)
     if action.action_type == "comparison_presence":
         return _comparison_draft(action)
+    if action.action_type == "agent_payment_source_context":
+        return _agent_payment_context_draft(action)
     if action.action_type == "brand_disambiguation":
         return _brand_disambiguation_draft(action)
     return _contextual_draft(action)
@@ -219,6 +221,63 @@ def _brand_disambiguation_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 f"- Comparison: {COMPARISON_DOCS}",
                 f"- GitHub: {payload.get('github_repository_url', '')}",
                 "- Official MCP Registry metadata",
+            ]
+        ),
+        source_reference_url=action.source_reference_url,
+        submission_payload=payload,
+        validation_command=action.validation_command,
+        probe_followup=action.probe_followup,
+        operator_notes=action.operator_notes,
+    )
+
+
+def _agent_payment_context_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
+    payload = action.submission_payload
+    source_terms = _payload_list(payload, "source_host_terms")
+    target_queries = _payload_list(payload, "answer_engine_queries")
+    answer_block = str(payload.get("answer_engine_source_block") or "")
+    title = f"Synapse Network agent-payment context for {action.host}"
+    return GrowthAIVisibilitySourceHostDraftOut(
+        host=action.host,
+        priority=action.priority,
+        draft_type="owned_agent_payment_context_refresh",
+        status="ready_to_publish_on_owned_channels",
+        target_url=COMPARISON_DOCS,
+        title=title,
+        summary=(
+            "Refresh owned docs, llms.txt, or comparison copy so this adjacent "
+            "agent-payment source host helps answer engines classify Synapse "
+            "without being treated as a Synapse citation."
+        ),
+        body_markdown="\n".join(
+            [
+                f"# {title}",
+                "",
+                "## Answer-engine source block",
+                "",
+                answer_block
+                or (
+                    "Synapse Network maps agent-payment and monetized-MCP context "
+                    "to a concrete Remote MCP runtime with Agent Credentials, "
+                    "bounded USDC spend, provider settlement, and receipts."
+                ),
+                "",
+                "## Target queries",
+                "",
+                *[f"- {query}" for query in target_queries],
+                "",
+                "## Adjacent source-host terms to include",
+                "",
+                *[f"- {term}" for term in source_terms],
+                "",
+                "Boundary:",
+                "",
+                "- This is owned context refresh, not third-party submission.",
+                "- Do not count it as live listing evidence.",
+                "- Do not count it as GPT/Claude citation evidence.",
+                "",
+                f"Official docs: {OFFICIAL_DOCS}",
+                f"Comparison docs: {COMPARISON_DOCS}",
             ]
         ),
         source_reference_url=action.source_reference_url,

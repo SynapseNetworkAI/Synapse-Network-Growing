@@ -258,6 +258,8 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     assert item_by_host["lobehub.com"]["live_listing_search_urls"][0] == (
         "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
     )
+
+
     assert item_by_host["lobehub.com"]["latest_live_evidence_status"] == (
         "live_verified"
     )
@@ -310,6 +312,64 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         and item["status"] == "pending_execute"
         for item in spot_payload["items"]
     )
+
+
+def test_ai_visibility_source_host_feed_package_handles_agent_payment_context(
+    synced_client,
+):
+    response = synced_client.post(
+        "/api/growth/ai-visibility/checks",
+        json={
+            "query": "agents paying for APIs",
+            "platform": "chatgpt",
+            "answer_summary": "ChatGPT cited Moesif MCP monetization guidance.",
+            "synapse_mentioned": False,
+            "synapse_cited": False,
+            "metadata": {"source_hosts": ["moesif.com"]},
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-11-agent-payment-context-package",
+        },
+    )
+    assert response.status_code == 201
+
+    package = synced_client.get(
+        "/api/growth/ai-visibility/source-host-feed-package"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-11-agent-payment-context-package"
+    )
+
+    assert package.status_code == 200
+    payload = package.json()
+    draft = payload["drafts"][0]
+    assert draft["host"] == "moesif.com"
+    assert draft["draft_type"] == "owned_agent_payment_context_refresh"
+    assert draft["status"] == "ready_to_publish_on_owned_channels"
+    assert "not third-party submission" in draft["body_markdown"]
+    assert "Do not count it as GPT/Claude citation evidence" in draft[
+        "body_markdown"
+    ]
+    assert draft["submission_payload"]["evidence_status"] == (
+        "source_host_context_not_external_citation"
+    )
+
+    checklist = synced_client.get(
+        "/api/growth/ai-visibility/source-host-execution-checklist"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-11-agent-payment-context-package"
+    )
+
+    assert checklist.status_code == 200
+    item = checklist.json()["items"][0]
+    assert item["host"] == "moesif.com"
+    assert item["draft_type"] == "owned_agent_payment_context_refresh"
+    assert item["execution_status"] == "pending_owned_publish"
+    assert item["submission_fields"] == []
+    assert item["required_evidence"] == [
+        "published_url",
+        "git_commit_or_pr",
+        "live_curl_validation",
+    ]
+    assert "owned docs or llms surfaces" in item["action_required"]
 
 
 def test_ai_visibility_source_host_live_spot_check_detects_candidate(

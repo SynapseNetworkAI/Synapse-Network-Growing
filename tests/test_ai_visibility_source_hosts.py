@@ -276,3 +276,81 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     )
     assert "chatgpt,claude,grok,gemini" in payload["next_probe_command"]
     assert payload["validation_commands"]
+
+
+def test_ai_visibility_presence_plan_maps_agent_payment_context_hosts(
+    synced_client,
+):
+    for host in (
+        "moesif.com",
+        "nevermined.ai",
+        "cloud.google.com",
+        "developers.googleblog.com",
+        "corporate.visa.com",
+        "docs.agentpay.me",
+    ):
+        response = synced_client.post(
+            "/api/growth/ai-visibility/checks",
+            json={
+                "query": "agents paying for APIs",
+                "platform": "chatgpt",
+                "answer_summary": f"ChatGPT cited {host}.",
+                "synapse_mentioned": False,
+                "synapse_cited": False,
+                "metadata": {"source_hosts": [host]},
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-11-agent-payment-context-hosts",
+            },
+        )
+        assert response.status_code == 201
+
+    plan = synced_client.get(
+        "/api/growth/ai-visibility/presence-plan"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-11-agent-payment-context-hosts"
+    )
+
+    assert plan.status_code == 200
+    payload = plan.json()
+    action_by_host = {item["host"]: item for item in payload["actions"]}
+
+    for host in (
+        "moesif.com",
+        "nevermined.ai",
+        "cloud.google.com",
+        "developers.googleblog.com",
+        "corporate.visa.com",
+        "docs.agentpay.me",
+    ):
+        action = action_by_host[host]
+        assert action["action_type"] == "agent_payment_source_context"
+        assert action["ownership"] == "not_directly_editable"
+        assert action["submission_payload"]["evidence_status"] == (
+            "source_host_context_not_external_citation"
+        )
+        assert "MCP server for paid API calls" in action["submission_payload"][
+            "answer_engine_queries"
+        ]
+        assert "bounded USDC spend" in action["submission_payload"][
+            "answer_engine_source_block"
+        ]
+        assert "Do not submit to or claim ownership" in action["operator_notes"][0]
+
+    assert "Moesif" in action_by_host["moesif.com"]["submission_payload"][
+        "source_host_terms"
+    ]
+    assert "Nevermined" in action_by_host["nevermined.ai"]["submission_payload"][
+        "source_host_terms"
+    ]
+    assert "Google AP2" in action_by_host["cloud.google.com"][
+        "submission_payload"
+    ]["source_host_terms"]
+    assert "Universal Commerce Protocol" in action_by_host[
+        "developers.googleblog.com"
+    ]["submission_payload"]["source_host_terms"]
+    assert "Visa MCP" in action_by_host["corporate.visa.com"][
+        "submission_payload"
+    ]["source_host_terms"]
+    assert "AgentPay" in action_by_host["docs.agentpay.me"][
+        "submission_payload"
+    ]["source_host_terms"]

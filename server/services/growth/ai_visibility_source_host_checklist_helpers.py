@@ -217,6 +217,9 @@ def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
     actions = {
         "directory_submission": "Submit the directory form using the non-secret payload.",
         "owned_comparison_refresh": "Publish the comparison draft on owned docs or GitHub surfaces.",
+        "owned_agent_payment_context_refresh": (
+            "Publish the agent-payment context block on owned docs or llms surfaces."
+        ),
         "contextual_partner_or_guest_pitch": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
     }
     return actions.get(
@@ -442,7 +445,10 @@ def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]
         ]
     if draft.draft_type == "directory_submission":
         return ["submission_url_or_receipt", "submitted_payload_summary", "screenshot"]
-    if draft.draft_type == "owned_comparison_refresh":
+    if draft.draft_type in {
+        "owned_agent_payment_context_refresh",
+        "owned_comparison_refresh",
+    }:
         return ["published_url", "git_commit_or_pr", "live_curl_validation"]
     return ["review_notes", "target_contact_or_surface", "decision_or_published_url"]
 
