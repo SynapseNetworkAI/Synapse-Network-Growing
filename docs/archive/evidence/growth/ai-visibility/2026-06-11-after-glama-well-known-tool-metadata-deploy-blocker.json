@@ -1,0 +1,51 @@
+{
+  "module_key": "ai_visibility_source_host_metadata_refresh",
+  "generated_at": "2026-06-10T17:51:20Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-glama-well-known-tool-metadata-merge",
+  "status": "prod_deploy_blocked_by_gcloud_reauth",
+  "source_host": "glama.ai",
+  "target_gap": "Glama public listing and live .well-known/glama.json still do not expose discover_services, invoke_and_pay, or get_receipt.",
+  "upstream_repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+  "upstream_pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/37",
+  "upstream_pr_state": "merged",
+  "merge_commit_sha": "f22788d9cdec58a9f3d13eff05a7add856586631",
+  "code_change_summary": "Expanded /.well-known/glama.json from maintainer-only metadata to include connector name, Remote MCP URL, GitHub repository, and tools discover_services, invoke_and_pay, get_receipt.",
+  "validation": {
+    "mcp_repo_commands": [
+      {"cmd": "npm run typecheck", "status": "passed"},
+      {"cmd": "npm run build", "status": "passed"},
+      {"cmd": "npm run test:e2e:remote:mock", "status": "passed"},
+      {"cmd": "npm run release:readiness", "status": "passed", "summary": "typecheck, 26 Vitest tests, build, mock E2E, source quality, quality budget, server.json check, directory metadata check, CLI smoke, and npm pack dry-run passed"}
+    ],
+    "github_mergeability": {
+      "pr_url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/37",
+      "merge_commit_sha": "f22788d9cdec58a9f3d13eff05a7add856586631"
+    }
+  },
+  "live_prod_validation_before_deploy": {
+    "source_url": "https://mcp.synapse-network.ai/.well-known/glama.json",
+    "status": "old_metadata_still_live",
+    "matched_terms": [],
+    "missing_terms": ["discover_services", "invoke_and_pay", "get_receipt", "serverUrl"],
+    "observed_payload_summary": "Live production endpoint still returns only schema and maintainer email."
+  },
+  "deploy_blocker": {
+    "type": "operator_reauth_required",
+    "command": "gcloud run services describe synapse-prod-mcp-server --project=synapse-network-prod --region=us-central1 --format=json",
+    "error_summary": "gcloud auth token refresh failed: Reauthentication failed; cannot prompt during non-interactive execution.",
+    "safe_next_step": "Operator must run gcloud auth login or trigger the Growing MCP Remote GCloud release bridge from an authenticated environment, then deploy Synapse-Network-MCP-Server main commit f22788d."
+  },
+  "evidence_role": "code_merged_and_validated_but_prod_source_host_metadata_not_deployed",
+  "not_counted_as": [
+    "live_glama_listing_refresh",
+    "answer_engine_mention",
+    "answer_engine_citation"
+  ],
+  "next_required_steps": [
+    "Deploy Synapse-Network-MCP-Server main commit f22788d to production Remote MCP.",
+    "Verify https://mcp.synapse-network.ai/.well-known/glama.json includes discover_services, invoke_and_pay, get_receipt, and serverUrl.",
+    "Wait for or request Glama listing refresh, then recheck https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server.",
+    "Only after live Glama/source-host evidence passes, rerun the unchanged ChatGPT, Claude, Grok, and Gemini probe matrix."
+  ]
+}
