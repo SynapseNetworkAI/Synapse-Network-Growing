@@ -1,0 +1,65 @@
+{
+  "module_key": "ai_visibility",
+  "evidence_type": "mcp_registry_publish",
+  "generated_at": "2026-06-11T05:57:30+08:00",
+  "repository": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+  "registry": {
+    "name": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "version": "0.1.9",
+    "package_version": "0.1.5",
+    "is_latest": true,
+    "updated_at": "2026-06-10T21:57:13.358832Z",
+    "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+    "title": "Synapse Network MCP Server for paid API calls",
+    "answer_engine_metadata": {
+      "npm_package": "@synapse-network-ai/mcp-server",
+      "positioning": "Remote MCP and stdio server for paid API discovery, bounded paid invocation, and receipts.",
+      "remote_mcp_endpoint": "https://mcp.synapse-network.ai/mcp",
+      "tools": [
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "name_collisions": [
+        "Synapse.org",
+        "Sage Bionetworks Synapse",
+        "python-docs.synapse.org",
+        "mysynap.com",
+        "Synapse Layer",
+        "io.github.SynapseLayer/synapse-layer",
+        "getdrio.com",
+        "https://mcp.synapse.sh/mcp"
+      ]
+    }
+  },
+  "workflow": {
+    "run_id": 27308963289,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/actions/runs/27308963289",
+    "head_sha": "b15501db0de8f38909faa65e68e9ab6337b6b586",
+    "conclusion": "success",
+    "publish_npm": false,
+    "expected_version": "0.1.9"
+  },
+  "repair_history": {
+    "duplicate_version_run_id": 27308847957,
+    "duplicate_version_error": "invalid version: cannot publish duplicate version",
+    "version_bump_pr": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/40",
+    "version_bump_merge_commit": "b15501db0de8f38909faa65e68e9ab6337b6b586"
+  },
+  "remaining_blockers": [
+    {
+      "surface": "remote_mcp_cloud_run_public_metadata",
+      "status": "blocked_by_gcloud_reauth",
+      "details": "https://mcp.synapse-network.ai/.well-known/glama.json still returns only schema and maintainer metadata until Cloud Run is redeployed from MCP main.",
+      "required_action": "Run gcloud auth login for cliff@synapse-network.ai, deploy Synapse-Network-MCP-Server main with npm run deploy:gcloud:remote, then run npm run test:e2e:remote:metadata."
+    }
+  ],
+  "validation": [
+    "MCP PR #39 merged at 1dcce2682e43d1e1ca6a4642f7598618c3b57001.",
+    "MCP PR #40 merged at b15501db0de8f38909faa65e68e9ab6337b6b586.",
+    "publish-mcp.yml run 27308963289 completed successfully.",
+    "Official MCP Registry search API reports version 0.1.9 with isLatest=true.",
+    "Live https://mcp.synapse-network.ai/readyz returns status=ready.",
+    "Live https://mcp.synapse-network.ai/.well-known/glama.json is still stale and remains a deploy blocker."
+  ]
+}
