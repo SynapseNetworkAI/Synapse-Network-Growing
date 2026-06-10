@@ -1,0 +1,27 @@
+{
+  "status": "source_host_refresh_pr_ready",
+  "surface": "glama_ai",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-registry-017-glama-claim",
+  "source_host_gap": "Glama listing is live but missing spaced Synapse Network MCP Server title in public listing evidence.",
+  "action": "Added Remote MCP /.well-known/glama.json connector metadata endpoint so Glama can verify/claim the connector domain.",
+  "mcp_repo_pr": {
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/34",
+    "branch": "codex/add-glama-well-known-verification",
+    "merge_state": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "commit": "c3a43a5"
+  },
+  "validation": [
+    "npm run release:readiness",
+    "npm run test:e2e:remote:mock"
+  ],
+  "no_secret_boundary": "Endpoint returns only public schema and support@synapse-network.ai maintainer metadata; no tokens, agent keys, or API keys are included.",
+  "next_steps": [
+    "Merge PR #34.",
+    "Deploy Remote MCP prod through Growing MCP release bridge.",
+    "Verify https://mcp.synapse-network.ai/.well-known/glama.json returns 200 JSON.",
+    "Claim/refresh Glama listing and rerun ChatGPT/Claude probes."
+  ],
+  "recorded_at": "2026-06-10T08:34:45.527490+00:00"
+}

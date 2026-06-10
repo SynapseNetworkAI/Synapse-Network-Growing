@@ -2,7 +2,7 @@
 """Generate manual answer-engine probe templates for AI visibility checks.
 
 The template is intentionally blank evidence: operators run ChatGPT, Claude,
-Grok, or another answer engine, then fill the generated rows before applying
+Grok, Gemini, or another answer engine, then fill the generated rows before applying
 them with scripts/growth/record_ai_visibility_probe.py.
 """
 
@@ -35,6 +35,9 @@ from server.services.growth.ai_visibility_plan import (  # noqa: E402
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
 KNOWN_COLLISION_DOMAINS = [
+    "python-docs.synapse.org",
+    "mcp.synapse.org",
+    "synapse.org",
     "synapseproto.com",
     "synapsenetwork.xyz",
     "synapse.network",

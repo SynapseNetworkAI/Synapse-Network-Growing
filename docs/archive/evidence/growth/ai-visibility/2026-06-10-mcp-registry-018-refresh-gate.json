@@ -1,0 +1,72 @@
+{
+  "recorded_at": "2026-06-10T10:20:33Z",
+  "module_key": "ai_visibility",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-mcp-registry-018-refresh-gate",
+  "status": "waiting_for_mcp_metadata_pr_merge",
+  "purpose": "Keep the AI visibility loop honest before the next GPT/Claude/Grok/Gemini probe cycle. The MCP source-host metadata update exists as a mergeable PR, but the live official MCP Registry has not yet refreshed to the new metadata version.",
+  "mcp_metadata_pr": {
+    "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "number": 36,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/36",
+    "head_ref": "codex/ai-visibility-source-host-metadata",
+    "head_sha": "5bcc0c106bce4b4fc02cc914fbd4c68a0b53e0ca",
+    "base_ref": "main",
+    "state": "OPEN",
+    "merge_state_status": "CLEAN",
+    "mergeable": "MERGEABLE",
+    "merged_at": null
+  },
+  "proposed_metadata_refresh": {
+    "server_json_metadata_version": "0.1.8",
+    "npm_package_version": "0.1.5",
+    "publish_mode": "metadata_only",
+    "github_workflow": "Publish MCP Server",
+    "workflow_inputs": {
+      "expected_version": "0.1.5",
+      "publish_npm": "false"
+    },
+    "reason": "The registry hosts source metadata while npm hosts the package artifact. PR #36 updates source-host, directory, and answer-engine metadata without changing the npm package artifact."
+  },
+  "live_registry_before_refresh": {
+    "source": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "latest_metadata_version": "0.1.7",
+    "latest_package_version": "0.1.5",
+    "latest_description": "Synapse Network MCP for paid API calls; not Synapse.org or Sage Bionetworks Synapse.",
+    "latest_updated_at": "2026-06-10T08:19:15.460082Z"
+  },
+  "public_remote_mcp": {
+    "readyz": {
+      "url": "https://mcp.synapse-network.ai/readyz",
+      "http_status": 200,
+      "body_summary": {
+        "status": "ready",
+        "gatewayStatus": 404
+      }
+    },
+    "glama_well_known": {
+      "url": "https://mcp.synapse-network.ai/.well-known/glama.json",
+      "http_status": 200,
+      "body_summary": {
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "maintainers": [
+          {
+            "email": "support@synapse-network.ai"
+          }
+        ]
+      }
+    }
+  },
+  "next_required_actions": [
+    "Human merge PR #36; agents do not auto-merge release/source-host PRs.",
+    "After merge, run GitHub Actions workflow Publish MCP Server with publish_npm=false and expected_version=0.1.5.",
+    "Verify official MCP Registry latest metadata advances to 0.1.8 while package artifact remains 0.1.5.",
+    "Rerun mcp_paid_api_discovery feed validation.",
+    "Rerun the same GPT/Claude/Grok/Gemini probes and compare against 2026-06-10-after-glama-well-known-prod."
+  ],
+  "do_not_count_as_success_yet": [
+    "PR #36 being mergeable is source-host intent, not live Registry evidence.",
+    "Glama well-known 200 proves maintainer verification metadata is reachable, not that GPT or Claude cites Synapse.",
+    "The active objective still requires downstream GPT and Claude search/probe evidence that mentions or cites official Synapse sources."
+  ]
+}

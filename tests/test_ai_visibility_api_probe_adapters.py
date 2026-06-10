@@ -48,6 +48,27 @@ def test_api_probe_gemini_alias_key_and_text_extraction(monkeypatch):
     assert answer["request_id"] == "gemini-response-1"
 
 
+def test_answer_payload_rejects_synapse_org_source_host_collision():
+    payload = adapters.answer_payload(
+        platform="chatgpt",
+        model="gpt-test",
+        text=(
+            "SynapseNetwork's MCP server supports dataset searches and entity "
+            "metadata inspection."
+        ),
+        urls=[
+            "https://python-docs.synapse.org/mcp/",
+            "https://mcp.synapse.org/",
+        ],
+        request_id="req-1",
+    )
+
+    assert payload["synapse_mentioned"] is False
+    assert payload["synapse_cited"] is False
+    assert "python-docs.synapse.org" in payload["competitor_mentions"]
+    assert "mcp.synapse.org" in payload["competitor_mentions"]
+
+
 def test_api_probe_default_models_use_current_provider_ids():
     assert adapters.DEFAULT_MODELS["claude"] == "claude-sonnet-4-6"
     assert adapters.DEFAULT_MODELS["gemini"] == "gemini-2.5-flash"

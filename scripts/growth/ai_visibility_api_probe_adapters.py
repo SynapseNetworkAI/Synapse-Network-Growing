@@ -11,6 +11,8 @@ import urllib.request
 from typing import Any
 
 from scripts.growth.generate_ai_visibility_probe_template import KNOWN_COLLISION_DOMAINS
+from scripts.growth.ai_visibility_api_probe_scoring import is_official_synapse_mention
+from server.services.growth.ai_visibility_official_sources import is_official_citation_url
 
 OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses"
 ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
@@ -243,7 +245,13 @@ def extract_gemini_text(data: dict[str, Any]) -> str:
 
 
 def extract_urls(value: Any) -> list[str]:
-    return sorted({url for url in _extract_urls(value) if url.startswith("http")})
+    return sorted(
+        {
+            normalized
+            for url in _extract_urls(value)
+            if (normalized := normalize_extracted_url(url)).startswith("http")
+        }
+    )
 
 
 def _extract_urls(value: Any) -> list[str]:
@@ -262,6 +270,12 @@ def _extract_urls(value: Any) -> list[str]:
             for match in re.findall(r"https?://[^\s)\]}>\"']+", value)
         )
     return urls
+
+
+def normalize_extracted_url(url: str) -> str:
+    candidate = url.strip().strip("<>")
+    candidate = re.sub(r"(?:\.\*\*\[\[\d+|\*\*\[\[\d+|\[\[\d+)$", "", candidate)
+    return candidate.rstrip("`*.,;)]")
 
 
 def source_hosts(urls: list[str]) -> list[str]:
@@ -287,7 +301,7 @@ def answer_payload(
         raise RuntimeError(f"{platform} API returned no answer text")
     lowered = text.lower()
     cited_synapse_urls = [url for url in urls if is_synapse_url(url)]
-    mentioned = "synapse network" in lowered or "synapsenetwork" in lowered
+    mentioned = is_official_synapse_mention(lowered, cited_synapse_urls)
     competitors = competitor_mentions(text, urls)
     return {
         "summary": text[:1200],
@@ -296,7 +310,11 @@ def answer_payload(
         "cited_urls": cited_synapse_urls,
         "source_urls": urls,
         "competitor_mentions": competitors,
-        "missing_facts": [] if mentioned else ["Synapse Network was not mentioned."],
+        "missing_facts": (
+            []
+            if mentioned
+            else ["Official SynapseNetworkAI source or identity was not mentioned."]
+        ),
         "next_action": (
             "Compare against previous run group and keep feeding cited surfaces."
             if mentioned
@@ -310,16 +328,7 @@ def answer_payload(
 
 
 def is_synapse_url(url: str) -> bool:
-    return any(
-        host in url
-        for host in (
-            "www.synapse-network.ai",
-            "docs.synapse-network.ai",
-            "github.com/SynapseNetworkAI",
-            "mcp.synapse-network.ai",
-            "registry.modelcontextprotocol.io",
-        )
-    )
+    return is_official_citation_url(normalize_extracted_url(url))
 
 
 def competitor_mentions(text: str, urls: list[str]) -> list[str]:
@@ -329,9 +338,17 @@ def competitor_mentions(text: str, urls: list[str]) -> list[str]:
         if re.search(rf"\b{re.escape(label)}\b", haystack):
             competitors.append(label)
     for domain in KNOWN_COLLISION_DOMAINS:
-        if domain.lower() in haystack:
+        if collision_domain_mentioned(domain, haystack):
             competitors.append(domain)
     return competitors
+
+
+def collision_domain_mentioned(domain: str, haystack: str) -> bool:
+    lowered_domain = domain.lower()
+    if "/" in lowered_domain:
+        return lowered_domain in haystack
+    escaped = re.escape(lowered_domain)
+    return bool(re.search(rf"(?<![a-z0-9-]){escaped}(?![a-z0-9-])", haystack))
 
 
 def redact_secrets(value: str) -> str:

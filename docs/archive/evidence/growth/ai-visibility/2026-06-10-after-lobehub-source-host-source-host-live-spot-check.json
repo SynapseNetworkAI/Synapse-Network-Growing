@@ -1,0 +1,150 @@
+{
+  "module_key": "ai_visibility",
+  "check_type": "source_host_live_spot_check",
+  "generated_at": "2026-06-10T10:54:53.422635Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-lobehub-source-host",
+  "execute": true,
+  "status": "candidate_found_needs_live_listing_evidence",
+  "items": [
+    {
+      "host": "mcp.directory",
+      "search_url": "https://mcp.directory/?q=Synapse%20Network",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "evidence_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/5c285b27cdda1fe8-s.p.a62025f2.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" typ",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "mcp.directory",
+      "search_url": "https://mcp.directory/?q=SynapseNetwork%20MCP%20Server",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "evidence_excerpt": "<!DOCTYPE html><html lang=\"en\" class=\"dark\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" href=\"/_next/static/media/5c285b27cdda1fe8-s.p.a62025f2.woff2\" as=\"font\" crossorigin=\"\" type=\"font/woff2\"/><link rel=\"preload\" href=\"/_next/static/media/70bc3e132a0a741e-s.p.15008bfb.woff2\" as=\"font\" crossorigin=\"\" typ",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "mcpservers.org",
+      "search_url": "https://mcpservers.org/?q=Synapse%20Network",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "evidence_excerpt": "--- description: A collection of servers for the Model Context Protocol title: Awesome MCP Servers image: https://mcpservers.org/api/og --- [✨New: Slim Tools](https://slim.tools/?utm%5Fsource=mcpservers) # Awesome MCP Servers A collection of servers for the Model Context Protocol [Featured](https://mcpservers.org/)[All](https://mcpservers.org/all)[Official 🌟](https://mcpservers",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "mcpservers.org",
+      "search_url": "https://mcpservers.org/?q=SynapseNetwork%20MCP%20Server",
+      "status": "not_found",
+      "http_status": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapsenetwork mcp server",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "evidence_excerpt": "--- description: A collection of servers for the Model Context Protocol title: Awesome MCP Servers image: https://mcpservers.org/api/og --- [✨New: Slim Tools](https://slim.tools/?utm%5Fsource=mcpservers) # Awesome MCP Servers A collection of servers for the Model Context Protocol [Featured](https://mcpservers.org/)[All](https://mcpservers.org/all)[Official 🌟](https://mcpservers",
+      "next_action": "Submit or wait for the directory listing, then rerun this spot check."
+    },
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
+      "status": "candidate_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapsenetwork mcp server"
+      ],
+      "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>Synapse Network MCP MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=Synapse+Network+MCP\" rel=\"canonical\"/><meta content=\"Synapse Network MCP MCP Servers\" property=\"og:titl",
+      "next_action": "Record live-listing evidence."
+    },
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
+      "status": "candidate_found",
+      "http_status": 200,
+      "matched_terms": [
+        "synapsenetwork",
+        "synapsenetwork mcp server"
+      ],
+      "missing_terms": [
+        "synapse network",
+        "mcp.synapse-network.ai",
+        "github.com/synapsenetworkai/synapse-network-mcp-server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ],
+      "evidence_excerpt": "load\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>SynapseNetwork MCP Server MCP Servers | Glama</title><meta content=\"Everything MCP – servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=SynapseNetwork+MCP+Server\" rel=\"canonical\"/><meta content=\"SynapseNetwork MCP Server MCP Servers\"",
+      "next_action": "Record live-listing evidence."
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "execute": "python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --checklist-file docs/archive/evidence/growth/ai-visibility/2026-06-10-after-lobehub-source-host-source-host-execution-checklist.json --execute",
+    "record_live_listing": "python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live --surface <surface> --source-url <public-listing-url>"
+  }
+}

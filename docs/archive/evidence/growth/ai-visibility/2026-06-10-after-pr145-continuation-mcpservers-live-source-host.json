@@ -1,0 +1,42 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-pr145-continuation",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T06:48:58.190215+00:00",
+  "required_terms": [
+    "SynapseNetwork MCP Server",
+    "Remote MCP for paid API discovery",
+    "https://mcp.synapse-network.ai/mcp",
+    "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"
+  ],
+  "matched_terms": [
+    "SynapseNetwork MCP Server",
+    "Remote MCP for paid API discovery",
+    "https://mcp.synapse-network.ai/mcp",
+    "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"
+  ],
+  "missing_terms": [],
+  "content_sha256": "a25bba63495f8d4550410b48ae3a4c1f99c82d9f199037b0a11ee110b2dee26a",
+  "content_bytes": 85847,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "SynapseNetwork MCP vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcpservers source host is live and matched 4 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-pr145-continuation-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

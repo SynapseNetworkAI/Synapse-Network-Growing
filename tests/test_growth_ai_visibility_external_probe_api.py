@@ -401,3 +401,4 @@ def test_ai_visibility_goal_audit_requires_latest_feed_platforms(synced_client):
     )
     assert "claude" in external["blocker"]
     assert "grok" in external["blocker"]
+    assert "gemini" in external["blocker"]

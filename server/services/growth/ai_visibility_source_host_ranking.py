@@ -8,6 +8,7 @@ from server.services.growth.ai_visibility_text import unique_strings
 
 SOURCE_HOST_ACTION_RESERVE = {
     "glama.ai",
+    "lobehub.com",
     "mcpservers.org",
     "protodex.io",
     "pulsemcp.com",
@@ -16,10 +17,15 @@ SOURCE_HOST_ACTION_RESERVE = {
 
 
 def source_hosts_for_actions(source_hosts: Counter[str]) -> list[str]:
-    ranked = [item for item, _count in source_hosts.most_common(8)]
     reserve = [
         item
         for item in sorted(SOURCE_HOST_ACTION_RESERVE)
-        if item in source_hosts and item not in ranked
+        if item in source_hosts
     ]
+    ranked_limit = max(0, 10 - len(reserve))
+    ranked = [
+        item
+        for item, _count in source_hosts.most_common()
+        if item not in reserve
+    ][:ranked_limit]
     return unique_strings(ranked + reserve)[:10]

@@ -192,6 +192,69 @@ def test_source_host_audit_tracks_review_pending_without_counting_live(
     assert "after public listing evidence is live" in live.next_action
 
 
+def test_source_host_audit_reports_completed_hosts_while_staying_fail_closed(
+    tmp_path: Path,
+):
+    _write_json(
+        tmp_path / "source-host-checklist.json",
+        {
+            "module_key": "ai_visibility",
+            "checklist_type": "source_host_feed_execution",
+            "items": [
+                _checklist_item("mcp.directory", priority=1),
+                _checklist_item("alternativeto.net", priority=2),
+            ],
+        },
+    )
+    _write_json(
+        tmp_path / "mcp-directory-submission.json",
+        {
+            "module_key": "ai_visibility_source_host_execution",
+            "evidence_type": "submission_confirmation",
+            "status": "submission_recorded",
+            "surface": "mcp_directory",
+            "submitted_payload_summary": (
+                "This repository has already been submitted. We'll review it soon."
+            ),
+        },
+    )
+    _write_json(
+        tmp_path / "protodex-live.json",
+        {
+            "module_key": "ai_visibility_source_host_execution",
+            "status": "live_verified",
+            "surface": "protodex",
+        },
+    )
+    _write_json(
+        tmp_path / "pulsemcp-live.json",
+        {
+            "module_key": "ai_visibility_source_host_execution",
+            "status": "live_verified",
+            "surface": "pulsemcp",
+        },
+    )
+
+    facts = source_host_audit_facts(evidence_dir=tmp_path)
+    submission = _source_host_submission_requirement(facts)
+    live = _source_host_live_requirement(facts)
+
+    assert submission.status == "blocked"
+    assert (
+        submission.evidence
+        == "Submitted or live surfaces: mcp_directory, protodex, pulsemcp."
+    )
+    assert "alternativeto.net" in submission.blocker
+    assert live.status == "blocked"
+    assert live.evidence == "Live source-host listings verified: protodex, pulsemcp."
+    assert "Review pending after submission: mcp_directory" in live.blocker
+    assert "Already live source-hosts: protodex, pulsemcp" in live.blocker
+    assert "do not repeat completed hosts" in live.blocker
+    assert "Submit or record remaining directory evidence for: alternativeto.net" in (
+        live.next_action
+    )
+
+
 def test_source_host_audit_prefers_generated_at_over_filename_order(tmp_path: Path):
     _write_json(
         tmp_path
@@ -273,6 +336,13 @@ def test_source_host_surface_uses_precise_directory_keys():
     assert source_host_surface("mcpfind.org") == "mcpfind"
     assert source_host_surface("https://mcpfind.org/submit") == "mcpfind"
     assert source_host_surface("mcp-marketplace.io") == "mcp_marketplace"
+    assert source_host_surface("lobehub.com") == "lobehub"
+    assert (
+        source_host_surface(
+            "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+        )
+        == "lobehub"
+    )
     assert source_host_surface("protodex.io") == "protodex"
     assert source_host_surface("https://protodex.io/submit.html") == "protodex"
     assert source_host_surface("pulsemcp.com") == "pulsemcp"

@@ -1,0 +1,43 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-registry-017-source-host-direct",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T08:27:53.418129+00:00",
+  "required_terms": [
+    "Synapse Network MCP Server",
+    "mcp.synapse-network.ai/mcp",
+    "SynapseNetworkAI",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "matched_terms": [
+    "Synapse Network MCP Server",
+    "mcp.synapse-network.ai/mcp",
+    "SynapseNetworkAI",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "missing_terms": [],
+  "content_sha256": "2cfce9d9178de60a38572e38c552685c7529ac5715b16d4661a423705db9a5a0",
+  "content_bytes": 85847,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "What is Synapse Network MCP?",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcpservers source host is live and matched 6 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+}

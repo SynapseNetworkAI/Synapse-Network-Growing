@@ -72,7 +72,7 @@ def _cycle_for_package(package, comparison, validation: dict | None):
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok,gemini"
+        f"--platforms {','.join(AI_VISIBILITY_TARGET_PLATFORMS)}"
     )
     return GrowthAIVisibilityFeedCycleOut(
         feed_key=feed_key,

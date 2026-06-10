@@ -79,6 +79,26 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "do not count source-host intent as external citation evidence."
         ),
     },
+    "lobehub.com": {
+        "surface": "lobehub",
+        "draft_type": "mcp_directory_listing",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "gemini"],
+        "rationale": (
+            "LobeHub appeared in ChatGPT source hosts for paid-MCP discovery "
+            "queries, so Synapse needs a fresh LobeHub MCP marketplace listing "
+            "with hosted Remote MCP and official metadata."
+        ),
+        "brief": (
+            "Verify or refresh the SynapseNetwork MCP Server listing on LobeHub "
+            "with the hosted Remote MCP endpoint, GitHub repository, npm package, "
+            "docs URL, and discover_services / invoke_and_pay / get_receipt tool loop."
+        ),
+        "validation": (
+            "Record the LobeHub public listing URL and matched canonical terms; "
+            "do not count source-host intent as external citation evidence."
+        ),
+    },
     "mcpfind.org": {
         "surface": "mcpfind",
         "draft_type": "mcp_directory_listing",

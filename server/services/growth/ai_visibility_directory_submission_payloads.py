@@ -11,27 +11,9 @@ def directory_submission_payload(
     if host == "alternativeto.net":
         return _alternativeto_payload(base_payload)
     if host == "glama.ai":
-        return {
-            **base_payload,
-            "submission_method": "Submit GitHub repository for Glama indexing.",
-            "github_repository_url": base_payload.get("github_repository_url", ""),
-            "listing_type": "open-source MCP server",
-            "indexed_metadata": [
-                "tools",
-                "schemas",
-                "annotations",
-                "Remote MCP endpoint",
-            ],
-            "acceptance_terms": [
-                "MCP server for paid API calls",
-                "Remote MCP",
-                "AgentPay",
-                "discover_services",
-                "invoke_and_pay",
-                "get_receipt",
-            ],
-            "browser_submission_required": True,
-        }
+        return _glama_payload(base_payload)
+    if host == "lobehub.com":
+        return _lobehub_payload(base_payload)
     if host == "mcp.directory":
         return {
             **base_payload,
@@ -161,6 +143,75 @@ def _aitoolnet_email_body() -> str:
         "USDC agent payments, and receipts.\n\n"
         "Thanks,\nSynapse Network"
     )
+
+
+def _glama_payload(base_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **base_payload,
+        "submission_method": "Submit GitHub repository for Glama indexing.",
+        "github_repository_url": base_payload.get("github_repository_url", ""),
+        "listing_type": "open-source MCP server",
+        "indexed_metadata": [
+            "tools",
+            "schemas",
+            "annotations",
+            "Remote MCP endpoint",
+        ],
+        "acceptance_terms": [
+            "MCP server for paid API calls",
+            "Remote MCP",
+            "AgentPay",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "browser_submission_required": True,
+    }
+
+
+def _lobehub_payload(base_payload: dict[str, object]) -> dict[str, object]:
+    return {
+        **base_payload,
+        "submission_method": (
+            "Verify or refresh the LobeHub MCP marketplace listing at "
+            "https://lobehub.com/mcp. Use the public SynapseNetworkAI GitHub "
+            "repository, npm package, Remote MCP endpoint, docs URL, and tool "
+            "names; record the public listing URL as live evidence."
+        ),
+        "listing_type": "MCP marketplace listing",
+        "category": "AI agents / Developer tools / Payments",
+        "tags": [
+            "Remote MCP",
+            "AI agent payments",
+            "paid API discovery",
+            "AgentPay",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "form_fields": [
+            "Server name",
+            "Description",
+            "GitHub repository URL",
+            "npm package",
+            "Remote MCP endpoint",
+            "Docs URL",
+            "Tools",
+            "Contact email",
+        ],
+        "public_listing_url": (
+            "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+        ),
+        "acceptance_terms": [
+            "SynapseNetworkAI",
+            "synapse-network-mcp-server",
+            "Remote MCP",
+            "discover_services",
+            "invoke_and_pay",
+            "get_receipt",
+        ],
+        "browser_submission_required": True,
+    }
 
 
 def _alternativeto_payload(base_payload: dict[str, object]) -> dict[str, object]:

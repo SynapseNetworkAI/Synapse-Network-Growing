@@ -172,9 +172,16 @@ def run_mcp_release_readiness(
     db: Session, release_id: int, body: McpServerReleaseActionRequest
 ) -> McpServerReleaseOut:
     row = _require_release(db, release_id)
-    if clean(row.status) in MCP_TERMINAL_STATUSES:
+    if clean(row.status) in MCP_TERMINAL_STATUSES and not _can_retry_readiness(row):
         raise ValueError("Terminal MCP server releases cannot run readiness.")
     return _move_to_runner_state(db, row, "readiness_running", "run_readiness", body)
+
+
+def _can_retry_readiness(row: McpServerReleaseRow) -> bool:
+    if clean(row.status) != "failed":
+        return False
+    metadata = _json_load(row.metadata_json)
+    return clean(metadata.get("last_failed_runner_state")) == "readiness_running"
 
 
 def publish_mcp_npm_release(

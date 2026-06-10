@@ -1,0 +1,43 @@
+{
+  "module_key": "ai_visibility_source_feed_execution",
+  "status": "source_pr_ready_not_live",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-llms-exact-identity-pr228",
+  "surface": "owned_www_and_docs_llms",
+  "target_repo": "SynapseNetworkAI/Synapse-Network",
+  "target_branch": "codex/ai-visibility-llms-exact-identity",
+  "target_commit_sha": "f1302fa38d50827ab2ef88208033d43908c7648c",
+  "pull_request_url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/228",
+  "merge_state_status": "CLEAN",
+  "mergeable": "MERGEABLE",
+  "source_files": [
+    "services/user-front/public/llms.txt",
+    "services/user-front/public/llms-full.txt",
+    "services/docs-front/src/app/llms.txt/route.ts",
+    "scripts/ci/seo_public_assets_check.mjs",
+    "scripts/ci/ai_visibility_feed_asset_assertions.mjs"
+  ],
+  "submitted_payload_summary": "Added exact spaced-name identity blocks for Synapse Network, SynapseNetworkAI, Synapse Network MCP, Remote MCP endpoint, discover_services, invoke_and_pay, get_receipt, and negative collision domains including synapse.org, python-docs.synapse.org, synapse.network, Synapse Protocol, Azure Synapse, and Sage Bionetworks Synapse.",
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "Synapse Network MCP",
+    "Synapse Network paid API calls",
+    "Synapse Network agent payments",
+    "SynapseNetwork MCP vs paid MCP alternatives"
+  ],
+  "validation_commands": [
+    "node scripts/ci/seo_public_assets_check.mjs",
+    "node scripts/ci/ai_visibility_assets_check.mjs",
+    "node scripts/ci/ai_visibility_feed_asset_assertions.mjs",
+    "git push pre-push fast gate including user-front TypeScript noEmit and production build"
+  ],
+  "validation_result": "passed",
+  "live_status": "not_live_until_pr_merge_and_deploy",
+  "next_action": "Merge and deploy Synapse-Network PR #228, verify production www/docs llms.txt include the exact spaced-name identity text, then rerun unchanged ChatGPT/Claude/Grok/Gemini probes.",
+  "secret_values_recorded": false
+}

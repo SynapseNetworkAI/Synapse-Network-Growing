@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-06-10T08:24:13.079529+00:00",
+  "status": "registry_017_live_probe_not_yet_citing",
+  "mcp_registry": {
+    "published_version": "0.1.7",
+    "title": "Synapse Network MCP Server for paid API calls",
+    "description": "Synapse Network MCP for paid API calls; not Synapse.org or Sage Bionetworks Synapse.",
+    "published_at": "2026-06-10T08:19:15.460082Z"
+  },
+  "probe_files": [
+    "2026-06-10-after-mcp-registry-017-api-probe.jsonl",
+    "2026-06-10-after-mcp-registry-017-mcp-feed-api-probe.jsonl"
+  ],
+  "summary_by_file": {
+    "2026-06-10-after-mcp-registry-017-api-probe.jsonl": {
+      "row_count": 12,
+      "counts": {
+        "not_mentioned": 4,
+        "provider_failed": 8
+      },
+      "by_platform": {
+        "chatgpt": {
+          "not_mentioned": 3
+        },
+        "claude": {
+          "provider_failed": 3
+        },
+        "grok": {
+          "provider_failed": 3
+        },
+        "gemini": {
+          "provider_failed": 2,
+          "not_mentioned": 1
+        }
+      },
+      "top_source_hosts": [
+        "docs.omni.dev",
+        "docs.synapse.sh",
+        "mysynap.com",
+        "playbooks.com",
+        "python-docs.synapse.org",
+        "docs.mcpay.tech",
+        "coinmarketcap.com",
+        "mcpnow.io",
+        "mcpsynapse.dev",
+        "synaps3.ai",
+        "synapse.network",
+        "conare.ai"
+      ],
+      "top_collisions": [
+        "python-docs.synapse.org",
+        "synapse.org",
+        "x402",
+        "mcpay",
+        "synapse.network",
+        "dock0",
+        "stripe",
+        "teleport",
+        "magpie"
+      ]
+    },
+    "2026-06-10-after-mcp-registry-017-mcp-feed-api-probe.jsonl": {
+      "row_count": 12,
+      "counts": {
+        "not_mentioned": 4,
+        "provider_failed": 8
+      },
+      "by_platform": {
+        "chatgpt": {
+          "not_mentioned": 3
+        },
+        "claude": {
+          "provider_failed": 3
+        },
+        "grok": {
+          "provider_failed": 3
+        },
+        "gemini": {
+          "provider_failed": 2,
+          "not_mentioned": 1
+        }
+      },
+      "top_source_hosts": [
+        "docs.omni.dev",
+        "docs.synapse.sh",
+        "mysynap.com",
+        "playbooks.com",
+        "python-docs.synapse.org",
+        "docs.mcpay.tech",
+        "coinmarketcap.com",
+        "mcpnow.io",
+        "mcpsynapse.dev",
+        "synaps3.ai",
+        "synapse.network",
+        "conare.ai"
+      ],
+      "top_collisions": [
+        "python-docs.synapse.org",
+        "synapse.org",
+        "x402",
+        "mcpay",
+        "stripe",
+        "synapse.network",
+        "dock0",
+        "latch",
+        "teleport",
+        "magpie"
+      ]
+    }
+  },
+  "observations": [
+    "Official MCP Registry now exposes version 0.1.7 as latest, but API answer probes have not yet cited SynapseNetworkAI.",
+    "ChatGPT exact Synapse Network MCP queries still collide with python-docs.synapse.org, docs.synapse.sh, synapse.network, mysynap.com, and adjacent MCP/payment competitors.",
+    "Claude API probes are blocked by low Anthropic credit balance; Grok probes are blocked by xAI credits/monthly limit; Gemini is partially blocked by 503 high demand."
+  ],
+  "next_feed_actions": [
+    "Refresh or submit source-host listings already appearing in ChatGPT source sets: mcp.directory, GitHub marketplace/repo snippets, MCPay-adjacent comparisons, Latch/Magpie/Teleport comparison pages.",
+    "Push the spaced identity into third-party MCP directories that still show SynapseNetwork title or stale 0.1.5/0.1.6 metadata, especially Glama, PulseMCP, mcpservers.org, LobeHub, and remote-mcp-servers.com.",
+    "After third-party listing refresh, rerun exact queries: What is Synapse Network MCP?, Synapse Network MCP paid API calls, ChatGPT MCP app for API payments."
+  ]
+}

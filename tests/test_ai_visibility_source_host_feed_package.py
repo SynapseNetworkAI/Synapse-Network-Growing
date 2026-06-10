@@ -10,6 +10,7 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         "alternativeto.net",
         "mcp.directory",
         "glama.ai",
+        "lobehub.com",
         "aws.amazon.com",
         "python-docs.synapse.org",
     ):
@@ -100,6 +101,16 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
         ]
     )
     assert "Synapse Network MCP Server" in draft_by_host["mcpservers.org"]["title"]
+    assert draft_by_host["lobehub.com"]["draft_type"] == "directory_submission"
+    assert draft_by_host["lobehub.com"]["status"] == "ready_to_submit"
+    assert draft_by_host["lobehub.com"]["target_url"] == "https://lobehub.com/mcp"
+    assert (
+        draft_by_host["lobehub.com"]["submission_payload"]["public_listing_url"]
+        == "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+    )
+    assert "LobeHub MCP marketplace" in (
+        draft_by_host["lobehub.com"]["submission_payload"]["submission_method"]
+    )
     assert draft_by_host["aws.amazon.com"]["draft_type"] == (
         "contextual_partner_or_guest_pitch"
     )
@@ -241,6 +252,17 @@ def test_ai_visibility_source_host_feed_package_api_uses_presence_actions(
     )
     assert item_by_host["glama.ai"]["live_listing_search_urls"][0] == (
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP"
+    )
+    assert item_by_host["lobehub.com"]["execution_status"] == "pending_submission"
+    assert item_by_host["lobehub.com"]["target_url"] == "https://lobehub.com/mcp"
+    assert item_by_host["lobehub.com"]["live_listing_search_urls"][0] == (
+        "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+    )
+    assert item_by_host["lobehub.com"]["latest_live_evidence_status"] == (
+        "live_verified"
+    )
+    assert item_by_host["lobehub.com"]["latest_live_evidence_url"] == (
+        "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
     )
     assert (
         item_by_host["alternativeto.net"]["execution_status"]
@@ -408,6 +430,7 @@ def test_ai_visibility_source_host_checklist_keeps_reserved_mcp_directories(
                     "docs.opensearch.org",
                     "anythingmcp.com",
                     "glama.ai",
+                    "lobehub.com",
                     "mcpservers.org",
                 ]
             },
@@ -425,7 +448,10 @@ def test_ai_visibility_source_host_checklist_keeps_reserved_mcp_directories(
     item_by_host = {item.host: item for item in checklist.items}
     assert item_by_host["glama.ai"].draft_type == "directory_submission"
     assert item_by_host["glama.ai"].target_url == "https://glama.ai/mcp/servers"
-    assert item_by_host["glama.ai"].priority == 9
+    assert item_by_host["glama.ai"].priority == 8
+    assert item_by_host["lobehub.com"].draft_type == "directory_submission"
+    assert item_by_host["lobehub.com"].target_url == "https://lobehub.com/mcp"
+    assert item_by_host["lobehub.com"].priority == 9
     assert item_by_host["mcpservers.org"].draft_type == "directory_submission"
     assert item_by_host["mcpservers.org"].target_url == "https://mcpservers.org/submit"
     assert item_by_host["mcpservers.org"].priority == 10
@@ -714,9 +740,11 @@ def test_ai_visibility_source_host_live_spot_check_fetch_url_handles_http(
         def read(self, _limit: int):
             return b"Synapse Network MCP result"
 
-    monkeypatch.setattr(
-        svc.urllib.request, "urlopen", lambda *_args, **_kwargs: FakeResponse()
-    )
+    def fake_urlopen(request, **_kwargs):
+        assert request.headers["Accept"].startswith("text/markdown")
+        return FakeResponse()
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", fake_urlopen)
     assert svc._fetch_url("https://example.com/search") == (
         200,
         "Synapse Network MCP result",

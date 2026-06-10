@@ -6,7 +6,7 @@ from scripts.growth.generate_ai_visibility_probe_template import (
 from scripts.growth.import_ai_visibility_public_search_snapshot import (
     records_from_snapshot,
 )
-from server.services.growth.ai_visibility_comparison_helpers import (
+from server.services.growth.ai_visibility_collision_policy import (
     KNOWN_BRAND_COLLISION_COMPETITORS,
 )
 from server.services.growth.ai_visibility_plan import (

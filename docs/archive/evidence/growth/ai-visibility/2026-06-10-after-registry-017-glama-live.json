@@ -1,0 +1,37 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-registry-017-source-host-direct",
+  "surface": "glama_ai",
+  "source_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T08:27:54.069370+00:00",
+  "required_terms": [
+    "Synapse Network MCP Server",
+    "SynapseNetworkAI",
+    "paid API calls"
+  ],
+  "matched_terms": [
+    "SynapseNetworkAI",
+    "paid API calls"
+  ],
+  "missing_terms": [
+    "Synapse Network MCP Server"
+  ],
+  "content_sha256": "59ca8709194f13abfffd6bd88cee7e77f124fc9093fef0a90bf56d9080023bda",
+  "content_bytes": 39431,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "What is Synapse Network MCP?"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "glama_ai source host is missing required terms: Synapse Network MCP Server.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+}
