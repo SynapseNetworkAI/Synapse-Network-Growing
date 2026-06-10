@@ -1,0 +1,65 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "source_host_detail_recheck",
+  "run_group": "2026-06-11-after-registry-0-1-9-detail-recheck",
+  "results": [
+    {
+      "surface": "mcpservers",
+      "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "http_status": 200,
+      "status": "live_verified",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+      ],
+      "missing_terms": [],
+      "content_sha256": "2d4560fce82423666c28133adbe49768bcad252393fff625234398f518a1bc45",
+      "content_bytes": 85847
+    },
+    {
+      "surface": "glama",
+      "url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "http_status": 200,
+      "status": "candidate_incomplete",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+      ],
+      "missing_terms": [
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "content_sha256": "8a95e24ebeea3908f672b6ddbd8d7b21124a8a9444ecfa2f898084143177c245",
+      "content_bytes": 39474
+    },
+    {
+      "surface": "mcp_so",
+      "url": "https://mcp.so/server/synapse-network-mcp-server",
+      "http_status": 200,
+      "status": "not_found",
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server",
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+      ],
+      "content_sha256": "89b34c0490892b7d764798b5592cd97b12ddf310f6aec48fc36a9a26b27abd87",
+      "content_bytes": 70611
+    }
+  ]
+}
