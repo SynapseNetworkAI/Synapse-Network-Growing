@@ -202,6 +202,58 @@ def test_diagnosis_promotes_exact_query_collision_source_hosts(tmp_path: Path):
     assert "collision evidence" in by_surface["ubos_tech"]["validation_command"]
 
 
+def test_diagnosis_keeps_new_observed_source_hosts_actionable(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="How can AI agents pay for APIs?",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": [
+                            "apiosk.com",
+                            "synapsenetwork.xyz",
+                            "apnews.com",
+                        ],
+                    },
+                ),
+                probe_row(
+                    platform="chatgpt",
+                    query="How can API providers earn from AI agents?",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": ["apiosk.com", "apnews.com"],
+                    },
+                ),
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    by_surface = {item["surface"]: item for item in recommendations}
+    assert by_surface["apiosk_com"]["draft_type"] == (
+        "api_monetization_source_host_review"
+    )
+    assert by_surface["apiosk_com"]["priority"] == "p0"
+    assert by_surface["apiosk_com"]["target_queries"] == [
+        "How can AI agents pay for APIs?",
+        "How can API providers earn from AI agents?",
+    ]
+    assert by_surface["synapsenetwork_xyz"]["draft_type"] == (
+        "brand_collision_source_host_review"
+    )
+    assert "non-official Synapse collision" in by_surface["synapsenetwork_xyz"][
+        "content_brief"
+    ]
+    assert by_surface["apnews.com"]["draft_type"] == "observed_source_host_review"
+    assert by_surface["apnews.com"]["priority"] == "p0"
+    assert "no dedicated playbook" in by_surface["apnews.com"]["rationale"]
+
+
 def test_diagnosis_cli_writes_json_and_recommendations_jsonl(tmp_path: Path):
     probe_path = write_probe_jsonl(
         tmp_path,

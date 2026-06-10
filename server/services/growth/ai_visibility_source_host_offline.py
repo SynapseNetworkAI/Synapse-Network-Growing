@@ -35,6 +35,7 @@ OFFICIAL_NPM_PACKAGE = "@synapse-network-ai/mcp-server"
 SURFACE_HOSTS = {
     "aitoolnet": "aitoolnet.com",
     "alternativeto": "alternativeto.net",
+    "apiosk_com": "apiosk.com",
     "chat_mcp_so": "chat.mcp.so",
     "dock0_dev": "dock0.dev",
     "mcp_directory": "mcp.directory",
@@ -51,6 +52,7 @@ SURFACE_HOSTS = {
     "pulsemcp": "pulsemcp.com",
     "mysynap_com": "mysynap.com",
     "synapbus_dev": "synapbus.dev",
+    "synapsenetwork_xyz": "synapsenetwork.xyz",
     "ubos_tech": "ubos.tech",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
+    "apiosk.com": "apiosk_com",
     "chat.mcp.so": "chat_mcp_so",
     "dock0.dev": "dock0_dev",
     "glama.ai": "glama",
@@ -23,6 +24,7 @@ SOURCE_HOST_SURFACES = {
     "smithery.ai": "smithery",
     "smithery_ai": "smithery",
     "synapbus.dev": "synapbus_dev",
+    "synapsenetwork.xyz": "synapsenetwork_xyz",
     "ubos.tech": "ubos_tech",
 }
 

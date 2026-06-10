@@ -47,6 +47,30 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "CLI probes may receive site-level 403."
         ),
     },
+    "apiosk.com": {
+        "surface": "apiosk_com",
+        "draft_type": "api_monetization_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "grok", "gemini"],
+        "rationale": (
+            "Apiosk appeared in ChatGPT source hosts for AI-agent payment and "
+            "API-provider monetization queries, so Synapse needs a targeted "
+            "comparison or truthful listing path for this answer-engine route."
+        ),
+        "brief": (
+            "Audit Apiosk as an API monetization source host and refresh owned "
+            "comparison copy that explains Synapse Network for AI-agent paid API "
+            "calls, Remote MCP discovery, scoped credentials, receipts, and USDC "
+            "settlement. If Apiosk has a listing, partner, or correction path, "
+            "record the browser/form evidence before treating it as submitted."
+        ),
+        "validation": (
+            "Record Apiosk public audit evidence plus either a listing/correction "
+            "submission confirmation or the owned comparison refresh URL; rerun "
+            "the unchanged payment/API-provider probes after the source-host "
+            "change is live."
+        ),
+    },
     "chat.mcp.so": {
         "surface": "chat_mcp_so",
         "draft_type": "mcp_search_surface_review",
@@ -250,6 +274,30 @@ OBSERVED_SOURCE_HOST_ACTIONS = {
             "identifier probes."
         ),
     },
+    "synapsenetwork.xyz": {
+        "surface": "synapsenetwork_xyz",
+        "draft_type": "brand_collision_source_host_review",
+        "priority": "p0",
+        "platforms": ["chatgpt", "claude", "grok", "gemini"],
+        "rationale": (
+            "synapsenetwork.xyz appeared in ChatGPT source hosts for Synapse "
+            "Network AI-agent queries, so it must be treated as a collision "
+            "source until official SynapseNetworkAI surfaces outrank it."
+        ),
+        "brief": (
+            "Record synapsenetwork.xyz as a non-official Synapse collision and "
+            "refresh official docs, homepage copy, GitHub README, MCP Registry, "
+            "and directory metadata with exact identity strings: "
+            "SynapseNetworkAI/Synapse-Network-MCP-Server, "
+            "io.github.SynapseNetworkAI/synapse-network-mcp-server, "
+            "https://mcp.synapse-network.ai/mcp, and the agent-payment tool loop."
+        ),
+        "validation": (
+            "Record synapsenetwork.xyz collision evidence and verify official "
+            "source hosts carry the disambiguation block before rerunning exact "
+            "Synapse Network AI-agent probes."
+        ),
+    },
     "mysynap.com": {
         "surface": "mysynap_com",
         "draft_type": "brand_collision_source_host_review",
@@ -327,10 +375,12 @@ def observed_source_host_recommendations(
 ) -> list[SourceHostExecution]:
     recommendations = []
     observed = observed_hosts_by_surface(external_records).hosts_by_surface
+    handled_hosts: set[str] = set()
     for host, config in OBSERVED_SOURCE_HOST_ACTIONS.items():
         queries = observed.get(host)
         if not queries:
             continue
+        handled_hosts.add(host)
         recommendations.append(
             SourceHostExecution(
                 surface=config["surface"],
@@ -343,6 +393,37 @@ def observed_source_host_recommendations(
                 rationale=config["rationale"],
                 content_brief=config["brief"],
                 validation_command=config["validation"],
+                next_probe_command=rerun,
+            )
+        )
+    for host, queries in observed.items():
+        if host in handled_hosts:
+            continue
+        recommendations.append(
+            SourceHostExecution(
+                surface=host,
+                draft_type="observed_source_host_review",
+                priority="p0" if len(queries) >= 2 else "p1",
+                target_platforms=TARGET_PLATFORMS,
+                target_queries=queries[:8],
+                rationale=(
+                    f"{host} appeared in answer-engine source hosts but has no "
+                    "dedicated playbook yet, so it needs a fail-closed review "
+                    "before the next unchanged probe."
+                ),
+                content_brief=(
+                    f"Audit {host} as an observed answer-engine source host. "
+                    "Decide whether Synapse needs a truthful listing, correction "
+                    "request, partner/source mention, owned comparison refresh, "
+                    "or explicit collision record. Do not mark this as a "
+                    "citation win without public listing evidence that matches "
+                    "official SynapseNetworkAI identifiers."
+                ),
+                validation_command=(
+                    f"Record {host} audit evidence, source-host submission or "
+                    "collision decision, and any live public URL before rerunning "
+                    "the unchanged GPT/Claude/Grok/Gemini probes."
+                ),
                 next_probe_command=rerun,
             )
         )
