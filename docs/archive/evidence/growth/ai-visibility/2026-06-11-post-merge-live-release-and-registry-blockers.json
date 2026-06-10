@@ -1,0 +1,105 @@
+{
+  "run_id": "2026-06-11-post-merge-live-release-and-registry-blockers",
+  "recorded_at": "2026-06-11T04:45:00+08:00",
+  "status": "blocked_until_gcloud_reauth_and_registry_login",
+  "objective": "Advance the AI visibility loop after mysynap.com owned-feed and MCP Registry metadata PRs merged.",
+  "merged_inputs": [
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network",
+      "pull_request": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/229",
+      "merge_commit": "7e32577d25ce2766cbe543cfc5ada15deaeb389d",
+      "merged_at": "2026-06-10T20:18:03Z",
+      "purpose": "Adds mysynap.com domain-level disambiguation to docs-front, docs llms route, www llms feeds, paid MCP docs, registry copy, and feed assertions."
+    },
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "pull_request": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/38",
+      "merge_commit": "41c84ff0896238c513c9a99bbe275c2edd84a134",
+      "merged_at": "2026-06-10T20:18:04Z",
+      "purpose": "Adds server.json publisher-provided answerEngine.nameCollisions metadata including mysynap.com."
+    },
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-Growing",
+      "pull_request": "https://github.com/SynapseNetworkAI/Synapse-Network-Growing/pull/151",
+      "merge_commit": "3c16d30469c37d16dbd5e58e349257823fb253ae",
+      "merged_at": "2026-06-10T20:18:03Z",
+      "purpose": "Records source-host probes, collision audits, and mysynap owned-feed refresh evidence."
+    }
+  ],
+  "live_surface_checks": [
+    {
+      "label": "docs_brand_disambiguation",
+      "url": "https://docs.synapse-network.ai/mcp/brand-disambiguation",
+      "status": 200,
+      "contains_mysynap_domain": false,
+      "contains_mysynap_brand": true,
+      "result": "not_live"
+    },
+    {
+      "label": "docs_llms",
+      "url": "https://docs.synapse-network.ai/llms.txt",
+      "status": 200,
+      "contains_mysynap_domain": false,
+      "contains_mysynap_brand": true,
+      "result": "not_live"
+    },
+    {
+      "label": "www_llms",
+      "url": "https://www.synapse-network.ai/llms.txt",
+      "status": 200,
+      "contains_mysynap_domain": false,
+      "contains_mysynap_brand": true,
+      "result": "not_live"
+    },
+    {
+      "label": "official_mcp_registry_search",
+      "url": "https://registry.modelcontextprotocol.io/v0/servers?search=synapse-network-mcp-server",
+      "status": 200,
+      "contains_name_collisions_metadata": false,
+      "contains_mysynap_domain": false,
+      "result": "not_published"
+    }
+  ],
+  "release_control_plane": {
+    "ops_base_url_env": "http://127.0.0.1:8000",
+    "localhost_9700_status": "connection_refused",
+    "localhost_9600_api_releases_tasks_status": 200,
+    "localhost_8000_docs_status": 200,
+    "deploy_api_token_present": true,
+    "gcloud_auth_status": "blocked",
+    "gcloud_auth_error": "Reauthentication failed. cannot prompt during non-interactive execution.",
+    "decision": "Do not create or run release tasks until gcloud auth can refresh non-interactively or an authenticated account is selected."
+  },
+  "mcp_registry_publish": {
+    "local_validate": {
+      "command": "mcp-publisher validate",
+      "result": "passed",
+      "output": "server.json is valid"
+    },
+    "publish_attempt": {
+      "command": "mcp-publisher publish",
+      "result": "blocked",
+      "error": "401 Unauthorized: Invalid or expired Registry JWT token"
+    },
+    "login_attempt": {
+      "command": "mcp-publisher login github",
+      "result": "blocked_waiting_for_human_device_authorization",
+      "note": "The command produced a GitHub device authorization prompt. The waiting process was stopped after no authorization completed in 60 seconds. The one-time device code is intentionally not recorded."
+    }
+  },
+  "probe_gate": {
+    "state": "do_not_probe_yet",
+    "reason": "GPT/Claude/Grok/Gemini probes would still measure the pre-deploy docs/www feed and pre-publish MCP Registry metadata.",
+    "required_next_actions": [
+      "Refresh local gcloud auth with an account that can deploy Synapse docs-front and user-front through Growing local deploy runner.",
+      "Use Growing release tasks, not direct gcloud run deploy, to deploy Synapse-Network main commit 7e32577d25ce2766cbe543cfc5ada15deaeb389d to docs-front and user-front.",
+      "Refresh MCP Registry authentication with mcp-publisher login github, then publish server.json from Synapse-Network-MCP-Server main commit 41c84ff0896238c513c9a99bbe275c2edd84a134.",
+      "Verify live docs brand-disambiguation, docs llms.txt, www llms.txt, and Registry search all expose mysynap.com.",
+      "Only then rerun the same GPT, Claude, Grok, and Gemini probe set for comparable before/after evidence."
+    ]
+  },
+  "secrets_policy": {
+    "contains_secrets": false,
+    "notes": "Deploy API token presence is recorded only as a boolean. No token, key, cookie, Agent Credential, or one-time device code is stored."
+  }
+}
