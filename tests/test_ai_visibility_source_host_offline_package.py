@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -510,6 +513,31 @@ def test_config_free_source_host_audit_tracks_latest_metadata_refresh_status(
     assert facts.live_surfaces == ["glama_ai"]
     assert facts.metadata_refresh_surfaces == ["glama.ai"]
     assert facts.surface_statuses["glama"] == "metadata_refresh_required"
+
+
+def test_source_host_audit_cli_imports_without_pythonpath():
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from scripts.growth.ai_visibility_source_host_audit_cli "
+                "import offline_source_host_audit_facts; "
+                "print(offline_source_host_audit_facts().__class__.__name__)"
+            ),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "OfflineSourceHostAuditFacts" in result.stdout
 
 
 def test_offline_source_host_package_maps_exact_query_collision_surfaces(

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from server.services.growth.ai_visibility_source_host_audit_events import (
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from server.services.growth.ai_visibility_source_host_audit_events import (  # noqa: E402
     SurfaceEvent,
     _surface_statuses,
     append_live_surface_event,
@@ -14,7 +19,6 @@ from server.services.growth.ai_visibility_source_host_audit_events import (
     record_payload_surface_event,
 )
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_EVIDENCE_DIR = PROJECT_ROOT / "docs/archive/evidence/growth/ai-visibility"
 
 
