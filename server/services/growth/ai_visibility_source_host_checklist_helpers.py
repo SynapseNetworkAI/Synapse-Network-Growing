@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from server.config import PROJECT_ROOT
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostDraftOut,
     GrowthAIVisibilitySourceHostExecutionItemOut,
@@ -31,6 +30,7 @@ CONTACT_EMAIL_NOTES = (
     "Operator-owned email only; required when the directory form asks for contact or "
     "account email; do not enter API keys or bearer tokens."
 )
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SUBMISSION_FIELD_KEYS = (
     "server_name",
     "website_url",
@@ -64,6 +64,17 @@ SUBMISSION_FIELD_KEYS_BY_HOST = {
         "tools",
     ),
     "mcpfind.org": (
+        "server_name",
+        "short_description",
+        "github_repository_url",
+        "npm_package",
+        "remote_mcp_endpoint",
+        "tools",
+        "docs",
+        "contact_email",
+        "category",
+    ),
+    "lobehub.com": (
         "server_name",
         "short_description",
         "github_repository_url",

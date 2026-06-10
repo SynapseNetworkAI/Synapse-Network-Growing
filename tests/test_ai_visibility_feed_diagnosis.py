@@ -94,6 +94,7 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
                             "alternativeto.net",
                             "mcp.directory",
                             "mcpservers.org",
+                            "lobehub.com",
                             "mcpfind.org",
                             "protodex.io",
                             "pulsemcp.com",
@@ -109,11 +110,12 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
 
     recommendations = diagnosis["recommended_source_host_executions"]
     surfaces = [item["surface"] for item in recommendations]
-    assert surfaces[:7] == [
+    assert surfaces[:8] == [
         "aitoolnet",
         "alternativeto",
         "mcp_directory",
         "mcpservers",
+        "lobehub",
         "mcpfind",
         "protodex",
         "pulsemcp",
@@ -123,14 +125,16 @@ def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
     assert recommendations[2]["draft_type"] == "mcp_directory_listing"
     assert recommendations[3]["draft_type"] == "mcp_directory_listing"
     assert recommendations[4]["draft_type"] == "mcp_directory_listing"
+    assert recommendations[5]["draft_type"] == "mcp_directory_listing"
     assert recommendations[0]["target_queries"] == ["Synapse vs paid MCP alternatives"]
     assert "browser/form confirmation" in recommendations[0]["validation_command"]
     assert "MCP Directory" in recommendations[2]["rationale"]
     assert "MCPServers" in recommendations[3]["rationale"]
-    assert "MCPFind" in recommendations[4]["rationale"]
-    assert "Protodex" in recommendations[5]["rationale"]
-    assert "PulseMCP" in recommendations[6]["rationale"]
-    assert "after-source-hosts" in recommendations[6]["next_probe_command"]
+    assert "LobeHub" in recommendations[4]["rationale"]
+    assert "MCPFind" in recommendations[5]["rationale"]
+    assert "Protodex" in recommendations[6]["rationale"]
+    assert "PulseMCP" in recommendations[7]["rationale"]
+    assert "after-source-hosts" in recommendations[7]["next_probe_command"]
 
 
 def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Path):

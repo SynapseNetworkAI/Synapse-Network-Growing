@@ -180,7 +180,10 @@ def _check_search_url(
 def _fetch_url(url: str) -> tuple[int, str]:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "Synapse-Growing-AI-Visibility-SpotCheck/1.0"},
+        headers={
+            "User-Agent": "Synapse-Growing-AI-Visibility-SpotCheck/1.0",
+            "Accept": "text/markdown, text/plain;q=0.9, text/html;q=0.8",
+        },
         method="GET",
     )
     try:

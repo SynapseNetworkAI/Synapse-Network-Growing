@@ -91,6 +91,7 @@ def test_ai_visibility_comparison_flags_synapse_org_source_host_collision(
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     for host in (
         "mcpservers.org",
+        "lobehub.com",
         "mcpfind.org",
         "protodex.io",
         "pulsemcp.com",
@@ -126,6 +127,7 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     assert payload["status"] == "ready_for_presence_work"
     assert set(payload["source_hosts"]) == {
         "mcpservers.org",
+        "lobehub.com",
         "mcpfind.org",
         "protodex.io",
         "pulsemcp.com",
@@ -152,6 +154,19 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         action_by_host["mcpservers.org"]["submission_payload"]["category"] == "finance"
     )
     assert action_by_host["mcpservers.org"]["submission_payload"]["plan"] == "free"
+    assert action_by_host["lobehub.com"]["action_type"] == "directory_listing"
+    assert action_by_host["lobehub.com"]["submit_url"] == ("https://lobehub.com/mcp")
+    assert (
+        action_by_host["lobehub.com"]["submission_payload"]["remote_mcp_endpoint"]
+        == "https://mcp.synapse-network.ai/mcp"
+    )
+    assert (
+        action_by_host["lobehub.com"]["submission_payload"]["public_listing_url"]
+        == "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+    )
+    assert "Directory Source-Host Submission Pack" in " ".join(
+        action_by_host["lobehub.com"]["operator_notes"]
+    )
     assert action_by_host["mcpfind.org"]["action_type"] == "directory_listing"
     assert action_by_host["mcpfind.org"]["submit_url"] == ("https://mcpfind.org/submit")
     assert (
