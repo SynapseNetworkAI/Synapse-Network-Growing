@@ -91,6 +91,10 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText(/Live gate: Open the search URLs/)).toBeInTheDocument()
     expect(screen.getAllByText('mcpservers.org').length).toBeGreaterThan(0)
     expect(screen.getByText('directory_listing')).toBeInTheDocument()
+    expect(screen.getAllByText('Source-host action targets').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/mcp_directory_listing/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/mcpservers/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/MCPServers appeared in answer-engine source hosts/).length).toBeGreaterThan(0)
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
     expect(screen.getByText(/synapsenetwork\.xyz/)).toBeInTheDocument()
     expect(screen.getByText('OPENAI_API_KEY')).toBeInTheDocument()
@@ -185,7 +189,23 @@ function feedScorecard() {
     recommended_feed_key: 'mcp_paid_api_discovery',
     ranking_basis: 'Impact score rewards feed readiness.',
     total: 1,
-    items: [{ ...feedCycles().items[0], rank: 1, impact_score: 0, comparison_status: 'needs_external_probe', citation_quality_status: 'needs_external_probe', target_platforms: ['chatgpt'], covered_platforms: [], external_checks_count: 0, local_validation_count: 0, known_collision_competitors: [], official_cited_urls: [], mentioned_delta: 0, cited_delta: 0, recommended_action: 'Resolve feed blockers.' }],
+    items: [{
+      ...feedCycles().items[0],
+      rank: 1,
+      impact_score: 0,
+      comparison_status: 'needs_external_probe',
+      citation_quality_status: 'needs_external_probe',
+      target_platforms: ['chatgpt'],
+      covered_platforms: [],
+      external_checks_count: 0,
+      local_validation_count: 0,
+      known_collision_competitors: [],
+      official_cited_urls: [],
+      source_host_actions: [sourceHostAction()],
+      mentioned_delta: 0,
+      cited_delta: 0,
+      recommended_action: 'Resolve feed blockers.',
+    }],
   }
 }
 
@@ -425,9 +445,20 @@ function goalAudit() {
 }
 
 function comparison() {
-  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
+  return { feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', previous_run_group: '', platforms: ['chatgpt'], external_platforms: ['chatgpt'], total_checks: 1, external_checks_count: 1, local_validation_count: 0, mentioned_count: 1, cited_count: 1, previous_mentioned_count: 0, previous_cited_count: 0, mentioned_delta: 1, cited_delta: 1, comparison_status: 'baseline', citation_quality_status: 'brand_collision_present', feed_effective: false, missing_platforms: ['claude', 'grok'], top_competitors: ['synapsenetwork.xyz'], source_hosts: ['mcpservers.org'], source_host_actions: [sourceHostAction()], known_collision_competitors: ['synapsenetwork.xyz'], official_cited_urls: ['https://www.synapse-network.ai/'], next_actions: ['Run probes.'], evidence_urls: [], latest_run_at: null }
 }
 
 function check() {
   return { id: 1, query: 'MCP paid API', platform: 'www_live_validation', answer_summary: 'Feed blocked.', synapse_mentioned: false, synapse_cited: false, cited_urls: [], competitor_mentions: [], missing_facts: ['Docs page must be live.'], next_action: 'Publish docs.', feed_key: 'mcp_paid_api_discovery', run_group: '2026-06-05-mcp', result_rank: 0, evidence_url: '', metadata: {}, run_at: null, created_at: null, updated_at: null }
+}
+
+function sourceHostAction() {
+  return {
+    host: 'mcpservers.org',
+    surface: 'mcpservers',
+    observed_count: 2,
+    priority: 'p0',
+    draft_type: 'mcp_directory_listing',
+    rationale: 'MCPServers appeared in answer-engine source hosts for paid-MCP discovery queries, so Synapse needs a matching MCP directory listing.',
+  }
 }

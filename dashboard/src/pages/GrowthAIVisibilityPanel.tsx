@@ -4,7 +4,7 @@ import type { GrowthAIVisibilitySourceHostFeedPackage } from '../apiGrowthAiVisi
 import type { GrowthAIVisibilitySourceHostExecutionChecklist } from '../apiGrowthAiVisibilityPlanTypes'
 import { ExternalProbeGateSummary, FeedCycleMatrix, FeedScorecardSummary, GoalAuditSummary, LiveReadinessSummary, NextCycleSummary, OptimizationBriefSummary, WeeklyReportSummary } from './GrowthAIVisibilityGateSummaries'
 import { HandoffBundleSummary, ReleaseSnapshotSummary, ReleaseUnblockSummary } from './GrowthAIVisibilityReleaseSummaries'
-import { Info, signed } from './GrowthAIVisibilityPanelParts'
+import { Info, SourceHostActionList, signed } from './GrowthAIVisibilityPanelParts'
 import { PresencePlanSummary, SourceHostExecutionChecklistSummary, SourceHostFeedPackageSummary } from './GrowthAIVisibilitySourceHostFeedSummary'
 
 function tone(value: boolean) {
@@ -404,6 +404,7 @@ function ComparisonCard({ item }: Readonly<{ item: GrowthAIVisibilityComparison 
       <div className="mt-2 text-sm text-[color:var(--ops-text-muted)]">
         Next: {item.next_actions[0] || '-'}
       </div>
+      <SourceHostActionList actions={item.source_host_actions || []} />
     </div>
   )
 }
