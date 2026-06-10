@@ -74,6 +74,65 @@ def test_operator_brief_renders_observed_outcomes(tmp_path: Path):
     assert "MCPay: 1" in brief
 
 
+def test_cycle_summary_bounds_provider_failure_blockers(tmp_path: Path):
+    probe_path = tmp_path / "provider-failures.jsonl"
+    probe_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "query": "MCP server for paid API calls",
+                        "platform": "claude",
+                        "feed_key": "mcp_paid_api_discovery",
+                        "run_group": "2026-06-18-provider-failures",
+                        "answer_summary": "provider failed",
+                        "synapse_mentioned": False,
+                        "synapse_cited": False,
+                        "missing_facts": [
+                            (
+                                "claude API probe failed: POST https://api.anthropic.com/v1/messages "
+                                'failed with 400: {"request_id":"req_secret","message":"Your credit '
+                                'balance is too low to access the Anthropic API."}'
+                            )
+                        ],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "query": "ChatGPT MCP app for API payments",
+                        "platform": "claude",
+                        "feed_key": "mcp_paid_api_discovery",
+                        "run_group": "2026-06-18-provider-failures",
+                        "answer_summary": "provider failed again",
+                        "synapse_mentioned": False,
+                        "synapse_cited": False,
+                        "missing_facts": [
+                            (
+                                "claude API probe failed: POST https://api.anthropic.com/v1/messages "
+                                "failed with 400: Your credit balance is too low."
+                            )
+                        ],
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = cycle_summary.parse_probe_file(probe_path)
+    payload = cycle_summary.summarize_cycle(records, source_path=str(probe_path))
+
+    assert (
+        "claude API probe failed for 2 query(s): credit balance is too low."
+        in payload["blockers"]
+    )
+    assert (
+        "Missing external platform probes: chatgpt, grok, gemini."
+        in payload["blockers"]
+    )
+    assert "req_secret" not in json.dumps(payload)
+
+
 def _write_source_host_probe(tmp_path: Path) -> Path:
     probe_path = tmp_path / "source-host-cycle.jsonl"
     probe_path.write_text(

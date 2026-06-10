@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import Any
 
 API_KEY_MARKERS = (
     "OPENAI_API_KEY",
@@ -23,3 +24,33 @@ def is_provider_failure_missing_fact(value: str) -> bool:
 
 def has_provider_failure_missing_fact(values: Iterable[str]) -> bool:
     return any(is_provider_failure_missing_fact(value) for value in values)
+
+
+def provider_failure_summaries(records: Iterable[Any]) -> list[str]:
+    by_platform: dict[str, int] = {}
+    reasons: dict[str, str] = {}
+    for record in records:
+        platform = str(getattr(record, "platform", "") or "unknown")
+        by_platform[platform] = by_platform.get(platform, 0) + 1
+        reasons.setdefault(
+            platform,
+            _provider_failure_reason(list(getattr(record, "missing_facts", []) or [])),
+        )
+    return [
+        (
+            f"{platform} API probe failed for {count} query(s): "
+            f"{reasons.get(platform) or 'provider request failed'}."
+        )
+        for platform, count in sorted(by_platform.items())
+    ]
+
+
+def _provider_failure_reason(missing_facts: list[str]) -> str:
+    text = " ".join(str(item or "") for item in missing_facts).casefold()
+    if "credit balance is too low" in text or "purchase credits" in text:
+        return "credit balance is too low"
+    if "monthly spending limit" in text or "used all available credits" in text:
+        return "monthly spending limit or credits exhausted"
+    if "quota exceeded" in text or "resource_exhausted" in text:
+        return "quota exceeded"
+    return "provider request failed"

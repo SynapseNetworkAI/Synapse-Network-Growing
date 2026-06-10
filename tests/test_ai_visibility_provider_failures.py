@@ -74,9 +74,13 @@ def test_cycle_summary_marks_provider_failure_comparison_inconclusive(
     assert payload["completed_external_probe_count"] == 1
     assert payload["comparison"]["comparison_status"] == "inconclusive_provider_failure"
     assert (
-        "claude API probe failed: provider credits unavailable" in payload["blockers"]
+        "claude API probe failed for 1 query(s): provider request failed."
+        in payload["blockers"]
     )
-    assert "grok API probe failed: provider credits unavailable" in payload["blockers"]
+    assert (
+        "grok API probe failed for 1 query(s): provider request failed."
+        in payload["blockers"]
+    )
 
 
 def test_cycle_summary_marks_flat_provider_failure_run_inconclusive(

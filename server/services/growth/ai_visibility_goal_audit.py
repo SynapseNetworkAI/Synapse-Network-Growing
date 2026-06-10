@@ -259,7 +259,7 @@ def _source_host_submission_requirement(
         status="completed" if passed else "blocked",
         evidence=(
             f"Submitted or live surfaces: {', '.join(facts.submitted_or_live_surfaces)}."
-            if passed
+            if facts.submitted_or_live_surfaces
             else ""
         ),
         blocker="" if passed else blocker,
@@ -296,28 +296,35 @@ def _source_host_live_requirement(
     required_hosts = _required_directory_hosts(facts)
     missing = missing_hosts(facts.live_surfaces, required_hosts)
     review_pending = getattr(facts, "review_pending_surfaces", [])
+    live_surfaces = getattr(facts, "live_surfaces", [])
     passed = not missing
     blocker = _live_listing_blocker(
         missing=missing,
         review_pending=review_pending,
+        live_surfaces=live_surfaces,
     )
     return GrowthAIVisibilityGoalAuditRequirementOut(
         key="source_host_live_evidence",
         title="Directory live listing evidence",
         status="completed" if passed else "blocked",
         evidence=(
-            f"Live source-host listings verified: {', '.join(facts.live_surfaces)}."
-            if passed
+            f"Live source-host listings verified: {', '.join(live_surfaces)}."
+            if live_surfaces
             else ""
         ),
         blocker="" if passed else blocker,
         next_action=""
         if passed
-        else _live_listing_next_action(review_pending=review_pending),
+        else _live_listing_next_action(missing=missing, review_pending=review_pending),
     )
 
 
-def _live_listing_blocker(*, missing: list[str], review_pending: list[str]) -> str:
+def _live_listing_blocker(
+    *,
+    missing: list[str],
+    review_pending: list[str],
+    live_surfaces: list[str],
+) -> str:
     blocker = (
         "Directory submission is not enough; live listing evidence is missing for "
         f"{', '.join(missing)}."
@@ -330,15 +337,34 @@ def _live_listing_blocker(*, missing: list[str], review_pending: list[str]) -> s
     ]
     if pending:
         blocker += " Review pending after submission: " + ", ".join(pending) + "."
+    if live_surfaces:
+        blocker += (
+            " Already live source-hosts: "
+            + ", ".join(live_surfaces)
+            + "; do not repeat completed hosts."
+        )
     return blocker
 
 
-def _live_listing_next_action(*, review_pending: list[str]) -> str:
+def _live_listing_next_action(*, missing: list[str], review_pending: list[str]) -> str:
+    missing_without_pending = [
+        host
+        for host in missing
+        if source_host_surface(host)
+        not in {source_host_surface(surface) for surface in review_pending}
+    ]
     if review_pending:
-        return (
+        action = (
             "Recheck review-pending directory listings on a fixed cadence; only rerun "
             "unchanged GPT/Claude/Grok/Gemini probes after public listing evidence is live."
         )
+        if missing_without_pending:
+            action += (
+                " Submit or record remaining directory evidence for: "
+                + ", ".join(missing_without_pending)
+                + "."
+            )
+        return action
     return (
         "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes."
     )

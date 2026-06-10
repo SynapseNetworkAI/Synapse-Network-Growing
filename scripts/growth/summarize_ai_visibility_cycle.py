@@ -24,6 +24,7 @@ from server.services.growth.ai_visibility_plan import (  # noqa: E402
 )
 from server.services.growth.ai_visibility_probe_failures import (  # noqa: E402
     has_provider_failure_missing_fact,
+    provider_failure_summaries,
 )
 from server.services.growth.ai_visibility_text import unique_strings  # noqa: E402
 from scripts.growth.ai_visibility_cycle_comparison import (  # noqa: E402
@@ -284,7 +285,7 @@ def cycle_blockers(
     blockers = unique_strings(
         [fact for record in failed_validation for fact in record.missing_facts]
         + [fact for record in api_probe_blockers for fact in record.missing_facts]
-        + [fact for record in provider_failure_records for fact in record.missing_facts]
+        + provider_failure_summaries(provider_failure_records)
     )
     if api_probe_blockers and not external_records:
         blockers.append(
