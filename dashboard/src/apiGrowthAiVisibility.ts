@@ -1,4 +1,4 @@
-import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from './apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilityDocsBlueprint, GrowthAIVisibilityDesignHandoff, GrowthAIVisibilityFeedPackage, GrowthAIVisibilityOptimizationPlan, GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage, GrowthAIVisibilitySourceHostLiveSpotCheck } from './apiGrowthAiVisibilityPlanTypes'
 
 export type * from './apiGrowthAiVisibilityPlanTypes'
 
@@ -485,11 +485,12 @@ export function createGrowthAiVisibilityApi(request: RequestFn) {
       request<GrowthAIVisibilitySourceHostFeedPackage>('/growth/ai-visibility/source-host-feed-package'),
     getGrowthAIVisibilitySourceHostExecutionChecklist: () =>
       request<GrowthAIVisibilitySourceHostExecutionChecklist>('/growth/ai-visibility/source-host-execution-checklist'),
+    getGrowthAIVisibilitySourceHostLiveSpotCheck: () =>
+      request<GrowthAIVisibilitySourceHostLiveSpotCheck>('/growth/ai-visibility/source-host-live-spot-check'),
     createGrowthAIVisibilityCheck: (data: Partial<GrowthAIVisibilityCheck>) =>
       request<GrowthAIVisibilityCheck>('/growth/ai-visibility/checks', { method: 'POST', body: JSON.stringify(data) }),
   }
 }
-
 function query(params?: Record<string, unknown>) {
   const search = new URLSearchParams()
   Object.entries(params || {}).forEach(([key, value]) => {

@@ -22,7 +22,7 @@ import {
   type GrowthAIVisibilityReleaseUnblockPlan,
   type GrowthAIVisibilityWeeklyReport,
 } from '../api'
-import type { GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from '../apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage, GrowthAIVisibilitySourceHostLiveSpotCheck } from '../apiGrowthAiVisibilityPlanTypes'
 
 export function useGrowthAIVisibilityData() {
   const [items, setItems] = useState<GrowthAIVisibilityCheck[]>([])
@@ -46,6 +46,7 @@ export function useGrowthAIVisibilityData() {
   const [presencePlan, setPresencePlan] = useState<GrowthAIVisibilityPresencePlan | null>(null)
   const [sourceHostFeedPackage, setSourceHostFeedPackage] = useState<GrowthAIVisibilitySourceHostFeedPackage | null>(null)
   const [sourceHostExecutionChecklist, setSourceHostExecutionChecklist] = useState<GrowthAIVisibilitySourceHostExecutionChecklist | null>(null)
+  const [sourceHostLiveSpotCheck, setSourceHostLiveSpotCheck] = useState<GrowthAIVisibilitySourceHostLiveSpotCheck | null>(null)
   const [plan, setPlan] = useState<GrowthAIVisibilityOptimizationPlan | null>(null)
 
   const load = async (options: { includeRuntimeEvidence: boolean; search: string }) => {
@@ -71,6 +72,7 @@ export function useGrowthAIVisibilityData() {
       presencePlanPayload,
       sourceHostFeedPackagePayload,
       sourceHostExecutionChecklistPayload,
+      sourceHostLiveSpotCheckPayload,
       comparisonPayload,
       checksPayload,
     ] = await Promise.all([
@@ -94,6 +96,7 @@ export function useGrowthAIVisibilityData() {
       api.getGrowthAIVisibilityPresencePlan(),
       api.getGrowthAIVisibilitySourceHostFeedPackage(),
       api.getGrowthAIVisibilitySourceHostExecutionChecklist(),
+      includeRuntimeEvidence ? api.getGrowthAIVisibilitySourceHostLiveSpotCheck() : Promise.resolve(null),
       api.getGrowthAIVisibilityComparisons({ limit: 10 }),
       api.getGrowthAIVisibilityChecks({ q: options.search || undefined, limit: 100 }),
     ])
@@ -117,6 +120,7 @@ export function useGrowthAIVisibilityData() {
     setPresencePlan(presencePlanPayload)
     setSourceHostFeedPackage(sourceHostFeedPackagePayload)
     setSourceHostExecutionChecklist(sourceHostExecutionChecklistPayload)
+    setSourceHostLiveSpotCheck(sourceHostLiveSpotCheckPayload)
     setComparisons(comparisonPayload.items)
     setItems(checksPayload.items)
   }
@@ -129,6 +133,7 @@ export function useGrowthAIVisibilityData() {
     presencePlan,
     sourceHostFeedPackage,
     sourceHostExecutionChecklist,
+    sourceHostLiveSpotCheck,
     liveReadiness,
     optimizationBrief,
     handoffBundle,

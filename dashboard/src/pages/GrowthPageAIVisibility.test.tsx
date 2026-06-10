@@ -32,6 +32,7 @@ function installFetch() {
     if (url.includes('/growth/ai-visibility/presence-plan')) return json(presencePlan())
     if (url.includes('/growth/ai-visibility/source-host-feed-package')) return json(sourceHostFeedPackage())
     if (url.includes('/growth/ai-visibility/source-host-execution-checklist')) return json(sourceHostExecutionChecklist())
+    if (url.includes('/growth/ai-visibility/source-host-live-spot-check')) return json(sourceHostLiveSpotCheck())
     if (url.includes('/growth/ai-visibility/docs-blueprint')) return json(docsBlueprint())
     if (url.includes('/growth/ai-visibility/design-handoff')) return json(designHandoff())
     if (url.includes('/growth/ai-visibility/weekly-report')) return json(weeklyReport())
@@ -89,6 +90,12 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText(/Record submission confirmation with --surface mcpservers_org/)).toBeInTheDocument()
     expect(screen.getByText(/Live search: https:\/\/mcpservers\.org\/\?q=Synapse%20Network/)).toBeInTheDocument()
     expect(screen.getByText(/Live gate: Open the search URLs/)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-visibility-source-host-live-spot-check')).toBeInTheDocument()
+    expect(screen.getByText('Source-host live spot-check')).toBeInTheDocument()
+    expect(screen.getByText('candidate_incomplete_needs_metadata_refresh')).toBeInTheDocument()
+    expect(screen.getByText(/1 metadata refresh/)).toBeInTheDocument()
+    expect(screen.getByText(/Refresh directory metadata so the search result includes the Remote MCP endpoint/)).toBeInTheDocument()
+    expect(screen.getByText(/Record: python scripts\/growth\/record_ai_visibility_source_host_execution.py --evidence-mode live/)).toBeInTheDocument()
     expect(screen.getAllByText('mcpservers.org').length).toBeGreaterThan(0)
     expect(screen.getByText('directory_listing')).toBeInTheDocument()
     expect(screen.getAllByText('Source-host action targets').length).toBeGreaterThan(0)
@@ -354,6 +361,45 @@ function sourceHostFeedPackage() {
     blockers: [],
     commands: {
       after_feed_probe: 'python scripts/growth/run_ai_visibility_api_probe.py --platforms chatgpt,claude,grok,gemini --execute',
+    },
+  }
+}
+
+function sourceHostLiveSpotCheck() {
+  return {
+    module_key: 'ai_visibility',
+    check_type: 'source_host_live_spot_check',
+    generated_at: '2026-06-10T00:00:00Z',
+    feed_key: 'mcp_paid_api_discovery',
+    run_group: '2026-06-10-after-owned-source-live',
+    execute: true,
+    status: 'candidate_incomplete_needs_metadata_refresh',
+    items: [
+      {
+        host: 'mcpservers.org',
+        search_url: 'https://mcpservers.org/?q=Synapse%20Network',
+        status: 'not_found',
+        http_status: 200,
+        matched_terms: [],
+        missing_terms: ['synapse network', 'mcp.synapse-network.ai', '@synapse-network-ai/mcp-server'],
+        evidence_excerpt: '',
+        next_action: 'Submit or wait for the directory listing, then rerun this spot check.',
+      },
+      {
+        host: 'glama.ai',
+        search_url: 'https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP',
+        status: 'candidate_incomplete',
+        http_status: 200,
+        matched_terms: ['synapse network', 'synapse-network-mcp-server'],
+        missing_terms: ['mcp.synapse-network.ai', '@synapse-network-ai/mcp-server', 'discover_services'],
+        evidence_excerpt: '',
+        next_action: 'Refresh directory metadata so the search result includes the Remote MCP endpoint, npm package, or tool names; then rerun this spot check.',
+      },
+    ],
+    blockers: [],
+    commands: {
+      execute: 'python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py --execute',
+      record_live_listing: 'python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode live --surface <surface> --source-url <public-listing-url>',
     },
   }
 }

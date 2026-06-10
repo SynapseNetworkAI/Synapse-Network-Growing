@@ -381,6 +381,7 @@ export default function GrowthPage() {
           presencePlan={aiVisibility.presencePlan}
           sourceHostFeedPackage={aiVisibility.sourceHostFeedPackage}
           sourceHostExecutionChecklist={aiVisibility.sourceHostExecutionChecklist}
+          sourceHostLiveSpotCheck={aiVisibility.sourceHostLiveSpotCheck}
           plan={aiVisibility.plan}
           onCreate={() => setRecordModal('ai')}
         />

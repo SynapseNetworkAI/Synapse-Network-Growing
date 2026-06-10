@@ -1,5 +1,13 @@
 import { StateBadge } from '../components/workbench'
-import type { GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage } from '../apiGrowthAiVisibilityPlanTypes'
+import type { GrowthAIVisibilityPresencePlan, GrowthAIVisibilitySourceHostExecutionChecklist, GrowthAIVisibilitySourceHostFeedPackage, GrowthAIVisibilitySourceHostLiveSpotCheck } from '../apiGrowthAiVisibilityPlanTypes'
+
+function spotCheckTone(status: string) {
+  if (status === 'candidate_found' || status === 'all_candidates_found') return 'delivered'
+  if (status === 'candidate_incomplete' || status === 'candidate_incomplete_needs_metadata_refresh') return 'blocked'
+  if (status === 'ready_to_execute' || status === 'pending_execute') return 'running'
+  if (status.includes('failed') || status.includes('blocked') || status === 'not_found') return 'blocked'
+  return 'muted'
+}
 
 export function PresencePlanSummary({ plan }: Readonly<{ plan: GrowthAIVisibilityPresencePlan | null }>) {
   if (!plan) return null
@@ -147,6 +155,73 @@ export function SourceHostExecutionChecklistSummary({ checklist }: Readonly<{ ch
       </div>
       <div className="mt-3 rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
         Gate: {checklist.items[0]?.completion_gate || '-'}
+      </div>
+    </div>
+  )
+}
+
+export function SourceHostLiveSpotCheckSummary({ spotCheck }: Readonly<{ spotCheck: GrowthAIVisibilitySourceHostLiveSpotCheck | null }>) {
+  if (!spotCheck) return null
+  const items = spotCheck.items ?? []
+  const blockers = spotCheck.blockers ?? []
+  const commands = spotCheck.commands ?? {}
+  const incompleteCount = items.filter((item) => item.status === 'candidate_incomplete').length
+  const foundCount = items.filter((item) => item.status === 'candidate_found').length
+  const notFoundCount = items.filter((item) => item.status === 'not_found').length
+  const statusSummary = incompleteCount
+    ? `${incompleteCount} metadata refresh`
+    : foundCount
+      ? `${foundCount} candidates`
+      : `${notFoundCount} missing`
+
+  return (
+    <div className="mt-5 rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel-subtle)] p-4" data-testid="ai-visibility-source-host-live-spot-check">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Source-host live spot-check</div>
+          <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">{spotCheck.feed_key}</div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <StateBadge tone={spotCheck.execute ? 'running' : 'muted'}>{spotCheck.execute ? 'executed' : 'not_executed'}</StateBadge>
+          <StateBadge tone={spotCheckTone(spotCheck.status || 'unknown')}>{spotCheck.status || 'unknown'}</StateBadge>
+        </div>
+      </div>
+      <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">
+        {statusSummary}. This is read-only directory visibility evidence; incomplete candidates still need directory metadata refresh before GPT/Claude probes can treat the source-host as ready.
+      </div>
+      {blockers.length ? (
+        <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-100">
+          {blockers[0]}
+        </div>
+      ) : null}
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        {items.slice(0, 6).map((item) => (
+          <div key={`${item.host}-${item.search_url}`} className="rounded-2xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="font-semibold text-[color:var(--ops-text-title)]">{item.host}</div>
+              <StateBadge tone={spotCheckTone(item.status)}>{item.status}</StateBadge>
+            </div>
+            <a className="mt-2 block break-words text-xs font-semibold leading-5 text-[color:var(--ops-accent)]" href={item.search_url} target="_blank" rel="noreferrer">
+              {item.search_url}
+            </a>
+            <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">HTTP {item.http_status || '-'}</div>
+            <div className="mt-2 text-sm leading-6 text-[color:var(--ops-text-muted)]">{item.next_action || '-'}</div>
+            {(item.matched_terms ?? []).length ? (
+              <div className="mt-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">Matched: {item.matched_terms.slice(0, 5).join(', ')}</div>
+            ) : null}
+            {(item.missing_terms ?? []).length ? (
+              <div className="mt-1 text-xs leading-5 text-[color:var(--ops-text-caption)]">Missing: {item.missing_terms.slice(0, 5).join(', ')}</div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
+          Execute: {commands.execute || '-'}
+        </div>
+        <div className="rounded-xl border border-[color:var(--ops-stroke-soft)] bg-[color:var(--ops-panel)] px-3 py-2 text-xs leading-5 text-[color:var(--ops-text-caption)]">
+          Record: {commands.record_live_listing || '-'}
+        </div>
       </div>
     </div>
   )
