@@ -1,0 +1,34 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-registry-017-source-host-direct",
+  "surface": "lobehub",
+  "source_url": "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server",
+  "checked_at": "2026-06-10T08:27:56.905577+00:00",
+  "required_terms": [
+    "SynapseNetworkAI",
+    "synapse-network-mcp-server"
+  ],
+  "matched_terms": [
+    "SynapseNetworkAI",
+    "synapse-network-mcp-server"
+  ],
+  "missing_terms": [],
+  "content_sha256": "725e1c5ccb6d3ba4822b8f89eb6bab7af6da50c017023ab8cbe832ea4479aef3",
+  "content_bytes": 21495,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "What is Synapse Network MCP?"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "lobehub source host is live and matched 2 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+}

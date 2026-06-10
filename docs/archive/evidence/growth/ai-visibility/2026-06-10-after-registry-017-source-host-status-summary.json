@@ -1,0 +1,90 @@
+{
+  "status": "source_host_refresh_needed_after_registry_017",
+  "registry_version": "0.1.7",
+  "checked_files": [
+    "2026-06-10-after-registry-017-mcpservers-live.json",
+    "2026-06-10-after-registry-017-glama-live.json",
+    "2026-06-10-after-registry-017-pulsemcp-live.json",
+    "2026-06-10-after-registry-017-remote-mcp-servers-live.json",
+    "2026-06-10-after-registry-017-lobehub-live.json"
+  ],
+  "live_verified": [
+    {
+      "surface": "mcpservers",
+      "status": "live_verified",
+      "source_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "matched_terms": [
+        "Synapse Network MCP Server",
+        "mcp.synapse-network.ai/mcp",
+        "SynapseNetworkAI",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "missing_terms": [],
+      "validation_summary": "mcpservers source host is live and matched 6 required terms.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+    },
+    {
+      "surface": "pulsemcp",
+      "status": "live_verified",
+      "source_url": "https://www.pulsemcp.com/servers/synapse-network",
+      "matched_terms": [
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "SynapseNetworkAI"
+      ],
+      "missing_terms": [],
+      "validation_summary": "pulsemcp source host is live and matched 2 required terms.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+    },
+    {
+      "surface": "lobehub",
+      "status": "live_verified",
+      "source_url": "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server",
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server"
+      ],
+      "missing_terms": [],
+      "validation_summary": "lobehub source host is live and matched 2 required terms.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+    }
+  ],
+  "missing_required_terms": [
+    {
+      "surface": "glama_ai",
+      "status": "missing_required_terms",
+      "source_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "matched_terms": [
+        "SynapseNetworkAI",
+        "paid API calls"
+      ],
+      "missing_terms": [
+        "Synapse Network MCP Server"
+      ],
+      "validation_summary": "glama_ai source host is missing required terms: Synapse Network MCP Server.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+    },
+    {
+      "surface": "remote_mcp_servers",
+      "status": "missing_required_terms",
+      "source_url": "https://remote-mcp-servers.com/servers",
+      "matched_terms": [],
+      "missing_terms": [
+        "SynapseNetworkAI/synapse-network-mcp-server",
+        "SynapseNetworkAI"
+      ],
+      "validation_summary": "remote_mcp_servers source host is missing required terms: SynapseNetworkAI/synapse-network-mcp-server, SynapseNetworkAI.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-registry-017-source-host-direct-after-source-host --platforms chatgpt,claude --execute"
+    }
+  ],
+  "recommended_refresh_order": [
+    "glama_ai",
+    "remote_mcp_servers",
+    "mcp.directory",
+    "mcp-marketplace.io",
+    "mcpservers",
+    "pulsemcp",
+    "lobehub"
+  ]
+}
