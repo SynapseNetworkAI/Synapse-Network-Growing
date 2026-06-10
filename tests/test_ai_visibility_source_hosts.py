@@ -38,6 +38,13 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
         "Prioritize third-party presence on cited answer-engine hosts" in action
         for action in payload["next_actions"]
     )
+    action_by_host = {item["host"]: item for item in payload["source_host_actions"]}
+    assert action_by_host["mcpservers.org"]["surface"] == "mcpservers"
+    assert action_by_host["mcpservers.org"]["priority"] == "p0"
+    assert action_by_host["mcpservers.org"]["draft_type"] == "mcp_directory_listing"
+    assert action_by_host["mcpservers.org"]["observed_count"] == 1
+    assert action_by_host["docs.mcpay.tech"]["surface"] == "docs_mcpay_tech"
+    assert action_by_host["docs.mcpay.tech"]["priority"] == "p1"
 
     weekly = synced_client.get("/api/growth/ai-visibility/weekly-report")
     report = next(
@@ -46,6 +53,21 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
         if item["feed_key"] == "mcp_paid_api_discovery"
     )
     assert "docs.mcpay.tech" in report["source_hosts"]
+    report_action_by_host = {
+        item["host"]: item for item in report["source_host_actions"]
+    }
+    assert report_action_by_host["mcpservers.org"]["surface"] == "mcpservers"
+
+    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard")
+    score = next(
+        item
+        for item in scorecard.json()["items"]
+        if item["feed_key"] == "mcp_paid_api_discovery"
+    )
+    score_action_by_host = {item["host"]: item for item in score["source_host_actions"]}
+    assert score_action_by_host["mcpservers.org"]["draft_type"] == (
+        "mcp_directory_listing"
+    )
 
 
 def test_ai_visibility_comparison_flags_synapse_org_source_host_collision(

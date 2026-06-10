@@ -29,6 +29,15 @@ class GrowthAIVisibilitySourceHostSubmissionFieldOut(BaseModel):
     notes: str = ""
 
 
+class GrowthAIVisibilitySourceHostActionOut(BaseModel):
+    host: str
+    surface: str
+    observed_count: int = 0
+    priority: str = "p2"
+    draft_type: str = "contextual_source_host_review"
+    rationale: str = ""
+
+
 class GrowthAIVisibilitySourceHostFeedPackageOut(BaseModel):
     module_key: str = "ai_visibility"
     package_type: str = "source_host_feed"
