@@ -10,6 +10,9 @@ from typing import Any
 from server.services.growth.ai_visibility_live_readiness import (
     ai_visibility_live_readiness,
 )
+from server.services.growth.ai_visibility_remote_mcp_metadata import (
+    remote_mcp_public_metadata_check,
+)
 from server.services.growth.ai_visibility_release_unblock import (
     DEFAULT_ACTOR,  # noqa: F401
     DEFAULT_TARGET_COMMIT,  # noqa: F401
@@ -58,11 +61,13 @@ def build_snapshot(
         }
         for platform, env_key in API_ENV_KEYS.items()
     }
+    remote_mcp_metadata = remote_mcp_public_metadata_check().model_dump(mode="json")
     blockers = _blockers(
         release_plan=release_plan,
         readiness=readiness,
         gcloud=gcloud,
         external_probe_keys=external_probe_keys,
+        remote_mcp_metadata=remote_mcp_metadata,
     )
     return {
         "module_key": "ai_visibility",
@@ -92,6 +97,7 @@ def build_snapshot(
         },
         "gcloud": gcloud,
         "external_probe_keys": external_probe_keys,
+        "remote_mcp_public_metadata": remote_mcp_metadata,
         "blockers": blockers,
         "next_actions": _next_actions(blockers),
     }
@@ -144,6 +150,7 @@ def _blockers(
     readiness: dict[str, Any],
     gcloud: dict[str, dict[str, Any]],
     external_probe_keys: dict[str, dict[str, Any]],
+    remote_mcp_metadata: dict[str, Any],
 ) -> list[str]:
     blockers: list[str] = []
     blockers.extend(release_plan.get("known_blockers", []))
@@ -157,6 +164,13 @@ def _blockers(
             blockers.append(
                 f"{platform} external probe key missing: {result['env_key']}."
             )
+    if not remote_mcp_metadata.get("ok"):
+        blockers.append(
+            str(
+                remote_mcp_metadata.get("blocker")
+                or "Remote MCP public metadata gate failed."
+            )
+        )
     return unique_strings(blockers)
 
 
@@ -176,10 +190,19 @@ def _api_key_label(platform: str) -> str:
 def _next_actions(blockers: list[str]) -> list[str]:
     if not blockers:
         return ["Run external answer-engine probes and compare citation results."]
-    return [
-        "Run gcloud auth login if GCloud checks are blocked.",
-        "Rerun live readiness and external GPT/Claude/Grok/Gemini probes after feed validation passes.",
-    ]
+    actions: list[str] = []
+    if any("Remote MCP public metadata gate failed" in blocker for blocker in blockers):
+        actions.append(
+            "Merge and deploy the Remote MCP metadata refresh, then run "
+            "npm run test:e2e:remote:metadata against https://mcp.synapse-network.ai."
+        )
+    actions.extend(
+        [
+            "Run gcloud auth login if GCloud checks are blocked.",
+            "Rerun live readiness and external GPT/Claude/Grok/Gemini probes after feed validation passes.",
+        ]
+    )
+    return unique_strings(actions)
 
 
 def _bounded(value: str, limit: int = 500) -> str:

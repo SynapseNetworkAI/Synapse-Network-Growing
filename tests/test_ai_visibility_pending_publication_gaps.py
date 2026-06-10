@@ -1,4 +1,7 @@
 from server.services.growth import ai_visibility_release_unblock as release_unblock
+from server.services.growth.ai_visibility_remote_mcp_metadata import (
+    RemoteMcpPublicMetadataCheckOut,
+)
 from server.services.growth.ai_visibility_release_snapshot import build_snapshot
 
 
@@ -98,6 +101,17 @@ def test_release_snapshot_preserves_pending_publication_gaps(monkeypatch):
                 }
             },
         )(),
+    )
+    monkeypatch.setattr(
+        "server.services.growth.ai_visibility_release_snapshot.remote_mcp_public_metadata_check",
+        lambda: RemoteMcpPublicMetadataCheckOut(
+            url="https://mcp.synapse-network.ai/.well-known/glama.json",
+            ok=True,
+            status="ready",
+            http_status=200,
+            missing_fields=[],
+            summary="Remote MCP public metadata has complete AI directory fields.",
+        ),
     )
 
     payload = build_snapshot(

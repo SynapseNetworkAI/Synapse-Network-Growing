@@ -71,6 +71,24 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
                         "rationale": "Synapse.org appeared in exact identity answers.",
                         "validation_command": "Verify official docs disambiguation.",
                     },
+                    {
+                        "surface": "apiosk_com",
+                        "draft_type": "api_monetization_source_host_review",
+                        "rationale": "Apiosk appeared in AI-agent payment answer sources.",
+                        "validation_command": "Record Apiosk review evidence.",
+                    },
+                    {
+                        "surface": "synapsenetwork_xyz",
+                        "draft_type": "brand_collision_source_host_review",
+                        "rationale": "synapsenetwork.xyz appeared in answer sources.",
+                        "validation_command": "Record synapsenetwork.xyz collision evidence.",
+                    },
+                    {
+                        "surface": "apnews.com",
+                        "draft_type": "observed_source_host_review",
+                        "rationale": "AP News appeared in answer sources.",
+                        "validation_command": "Record AP News review evidence.",
+                    },
                 ],
             }
         ),
@@ -128,6 +146,14 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert draft_by_host["docs.synapse-network.ai"].status == (
         "ready_to_publish_on_owned_channels"
     )
+    assert draft_by_host["apiosk.com"].draft_type == (
+        "contextual_partner_or_guest_pitch"
+    )
+    assert draft_by_host["apiosk.com"].target_url == "https://apiosk.com/"
+    assert draft_by_host["synapsenetwork.xyz"].target_url == (
+        "https://synapsenetwork.xyz/"
+    )
+    assert draft_by_host["apnews.com"].target_url == "https://apnews.com/"
     assert (
         "SynapseNetworkAI/Synapse-Network-MCP-Server"
         in draft_by_host["docs.synapse-network.ai"].body_markdown
@@ -150,6 +176,11 @@ def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
     assert item_by_host["docs.synapse-network.ai"].execution_status == (
         "pending_owned_publish"
     )
+    assert item_by_host["apiosk.com"].execution_status == "pending_operator_review"
+    assert item_by_host["synapsenetwork.xyz"].execution_status == (
+        "pending_operator_review"
+    )
+    assert item_by_host["apnews.com"].execution_status == "pending_operator_review"
     assert item_by_host["mcpservers.org"].live_listing_search_urls[0] == (
         "https://mcpservers.org/?q=Synapse%20Network"
     )
