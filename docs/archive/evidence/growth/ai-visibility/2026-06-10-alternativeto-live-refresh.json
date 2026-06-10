@@ -1,0 +1,39 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-p0-directory-refresh",
+  "surface": "alternativeto",
+  "source_url": "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server",
+  "checked_at": "2026-06-09T17:58:22.021521+00:00",
+  "required_terms": [
+    "SynapseNetwork",
+    "mcp.synapse-network.ai",
+    "Synapse-Network-MCP-Server"
+  ],
+  "matched_terms": [
+    "SynapseNetwork"
+  ],
+  "missing_terms": [
+    "mcp.synapse-network.ai",
+    "Synapse-Network-MCP-Server"
+  ],
+  "content_sha256": "542e4ce23babb2dda240f0ac9426e0658c2d9228cfb351721059fb81feb7c52e",
+  "content_bytes": 81516,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "alternativeto source host is missing required terms: mcp.synapse-network.ai, Synapse-Network-MCP-Server.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-p0-directory-refresh-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

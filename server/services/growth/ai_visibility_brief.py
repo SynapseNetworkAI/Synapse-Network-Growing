@@ -194,7 +194,7 @@ def _render_markdown(
             f"- Ready platforms: {', '.join(external_gate.ready_platforms) or '-'}",
             f"- Missing platforms: {', '.join(external_gate.missing_platforms) or '-'}",
             f"- Partial probe command: `{external_gate.partial_api_readiness_command or '-'}`",
-            "- Production feed validation must pass before GPT/Claude/Grok probes count as success evidence.",
+            "- Production feed validation must pass before GPT/Claude/Grok/Gemini probes count as success evidence.",
         ]
     )
     return "\n".join(lines).rstrip() + "\n"
@@ -228,7 +228,7 @@ def _execution_sequence_markdown_lines(*, feed_key: str) -> list[str]:
             f"`python scripts/growth/run_ai_visibility_feed_validation.py --feed-key {feed_key}`."
         ),
         (
-            "- Export the GPT/Claude/Grok probe matrix: "
+            "- Export the GPT/Claude/Grok/Gemini probe matrix: "
             f"`python scripts/growth/generate_ai_visibility_probe_matrix.py --feed-key {feed_key}`."
         ),
         (
@@ -254,7 +254,7 @@ def _fail_closed_markdown_lines() -> list[str]:
             "bare-domain results only count as redirect evidence, not as the canonical citation."
         ),
         (
-            "- Successful GPT/Claude/Grok evidence must cite an official source prefix "
+            "- Successful GPT/Claude/Grok/Gemini evidence must cite an official source prefix "
             "from the official source map."
         ),
         (

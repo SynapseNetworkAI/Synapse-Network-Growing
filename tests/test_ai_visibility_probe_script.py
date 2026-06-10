@@ -339,8 +339,8 @@ def test_generate_probe_matrix_cli_writes_json(tmp_path: Path):
     assert result.returncode == 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["module_key"] == "ai_visibility"
-    assert payload["target_platforms"] == ["chatgpt", "claude", "grok"]
-    assert payload["total"] == 9
+    assert payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
+    assert payload["total"] == 12
     mcp_rows = [
         row for row in payload["rows"] if row["feed_key"] == "mcp_paid_api_discovery"
     ]
@@ -348,6 +348,7 @@ def test_generate_probe_matrix_cli_writes_json(tmp_path: Path):
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     }
     assert all(
         "record_ai_visibility_probe.py" in row["record_probe_command"]
@@ -428,7 +429,7 @@ def test_validate_probe_matrix_cli_accepts_complete_scope(tmp_path: Path):
     payload = json.loads(result.stdout)
     assert payload["status"] == "succeeded"
     assert payload["matched_count"] == sum(len(item["queries"]) for item in scoped_rows)
-    assert payload["platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["platforms"] == ["chatgpt", "claude", "gemini", "grok"]
 
 
 def test_validate_probe_matrix_cli_rejects_missing_matrix_rows(tmp_path: Path):
@@ -617,6 +618,7 @@ def test_generate_mcp_feed_package_includes_paid_api_docs(tmp_path: Path):
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     }
     chatgpt_strategy = next(
         strategy
@@ -678,8 +680,16 @@ def test_generate_design_handoff_cli_writes_json(tmp_path: Path):
     )
     assert payload["source_tool"] == "Stitch"
     assert payload["target_tool"] == "Figma"
-    assert len(payload["frames"]) == 3
+    assert len(payload["frames"]) == 6
     assert payload["frames"][0]["source_page_slug"] == "index"
+    frame_slugs = {frame["source_page_slug"] for frame in payload["frames"]}
+    assert "mcp_paid_api_discovery" in frame_slugs
+    assert "synapse_vs_paid_mcp" in frame_slugs
+    assert "directory_source_host_pack" in frame_slugs
+    assert any(
+        "AIToolNet and AlternativeTo" in frame["stitch_prompt"]
+        for frame in payload["frames"]
+    )
     assert payload["canonical_domain"] == CANONICAL_HOMEPAGE
 
 

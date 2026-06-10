@@ -14,6 +14,9 @@ from server.schemas_growth import (
 from server.services.growth.ai_visibility_official_sources import (
     is_official_citation_url,
 )
+from server.services.growth.ai_visibility_source_host_ranking import (
+    source_hosts_for_actions,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
@@ -108,7 +111,7 @@ def _previous_run_group(previous: GrowthAIVisibilityComparisonOut | None) -> str
 
 
 def _missing_platforms(external_platforms: list[str]) -> list[str]:
-    target_platforms = ["chatgpt", "claude", "grok"]
+    target_platforms = ["chatgpt", "claude", "grok", "gemini"]
     return [
         platform for platform in target_platforms if platform not in external_platforms
     ]
@@ -130,7 +133,7 @@ def _comparison_row_aggregate(rows: list[GrowthAIVisibilityCheckRow]) -> dict:
     _append_source_host_next_action(next_actions, source_hosts)
     return {
         "top_competitors": [item for item, _count in competitors.most_common(5)],
-        "source_hosts": [item for item, _count in source_hosts.most_common(8)],
+        "source_hosts": source_hosts_for_actions(source_hosts),
         "next_actions": next_actions[:5],
         "evidence_urls": evidence_urls[:5],
         "latest_run_at": latest_run_at,
@@ -264,7 +267,9 @@ def _weekly_blockers(
 ) -> list[str]:
     blockers: list[str] = list(validation_blockers)
     if not comparisons:
-        blockers.append("No external GPT/Claude/Grok probe evidence has been recorded.")
+        blockers.append(
+            "No external GPT/Claude/Grok/Gemini probe evidence has been recorded."
+        )
     if "chatgpt" in missing_platforms:
         blockers.append("ChatGPT probe evidence is missing.")
     if "claude" in missing_platforms:
@@ -312,7 +317,9 @@ def _weekly_next_actions(
             f"{', '.join(collision_mentions)}."
         )
     if not actions:
-        actions.append("Schedule the next weekly GPT/Claude/Grok stability probe.")
+        actions.append(
+            "Schedule the next weekly GPT/Claude/Grok/Gemini stability probe."
+        )
     return unique_strings(actions)[:6]
 
 

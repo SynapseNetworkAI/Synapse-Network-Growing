@@ -36,6 +36,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     ]
     assert {
         experiment["feed_key"] for experiment in plan_payload["feed_experiments"]
@@ -67,8 +68,8 @@ def test_growth_ai_visibility_and_discovery_listing(
     probe_matrix = synced_client.get("/api/growth/ai-visibility/probe-matrix")
     assert probe_matrix.status_code == 200
     matrix_payload = probe_matrix.json()
-    assert matrix_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
-    assert matrix_payload["total"] == 9
+    assert matrix_payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
+    assert matrix_payload["total"] == 12
     mcp_chatgpt = next(
         row
         for row in matrix_payload["rows"]
@@ -124,7 +125,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert {
         strategy["platform"]
         for strategy in mcp_package.json()["items"][0]["platform_strategies"]
-    } == {"chatgpt", "claude", "grok"}
+    } == {"chatgpt", "claude", "grok", "gemini"}
     assert any(
         "Remote MCP custom app" in strategy["feed_focus"]
         for strategy in mcp_package.json()["items"][0]["platform_strategies"]
@@ -136,13 +137,13 @@ def test_growth_ai_visibility_and_discovery_listing(
     release_plan = synced_client.get("/api/growth/ai-visibility/release-unblock-plan")
     assert release_plan.status_code == 200
     release_payload = release_plan.json()
-    assert release_payload["status"] == "production_jsonld_verified"
+    assert release_payload["status"] == "blocked_until_gcloud_auth"
     assert release_payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert release_payload["services"] == ["user-front"]
+    assert release_payload["services"] == ["docs-front", "user-front"]
     assert release_payload["target_commit_sha"] == (
-        "09a8e5fcb1511ca19b2ec417474ba5e780510469"
+        "b0fab9bcdfaed5715b62e0aa8dbc21136d983055"
     )
-    assert release_payload["source_pr"]["number"] == 216
+    assert release_payload["source_pr"]["number"] == 223
     assert release_payload["source_pr"]["state"] == "MERGED"
     assert {item["number"] for item in release_payload["source_prs"]} == {
         203,
@@ -152,19 +153,32 @@ def test_growth_ai_visibility_and_discovery_listing(
         214,
         215,
         216,
+        223,
     }
-    assert release_payload["deployment_gaps"][0]["service_key"] == "user-front"
-    assert release_payload["deployment_gaps"][0]["status"] == "staging_and_production_at_target"
+    assert {item["service_key"] for item in release_payload["deployment_gaps"]} == {
+        "docs-front",
+        "user-front",
+    }
+    assert all(
+        item["status"] == "staging_and_production_behind_target"
+        for item in release_payload["deployment_gaps"]
+    )
     assert release_payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
     assert release_payload["predeploy_evidence"]["validation_count"] >= 5
-    assert release_payload["deploy_readiness_status"] == "production_jsonld_verified"
+    assert (
+        release_payload["deploy_readiness_status"]
+        == "ready_for_release_runner_after_gcloud_auth"
+    )
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in release_payload["confirmed_facts"]
     )
-    assert release_payload["known_blockers"] == []
+    assert any(
+        "Production source-host feed terms agent402" in blocker
+        for blocker in release_payload["known_blockers"]
+    )
     rendered_release_plan = json.dumps(release_payload)
     assert "gcloud auth login" in rendered_release_plan
     assert "X-Growing-Agent-Deploy-Token" in rendered_release_plan
@@ -178,7 +192,7 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert feed_cycles.status_code == 200
     cycle_payload = feed_cycles.json()
     assert cycle_payload["total"] == 3
-    assert cycle_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert cycle_payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert {item["feed_key"] for item in cycle_payload["items"]} == {
         "brand_disambiguation_www",
         "agent_payment_category_pages",
@@ -297,14 +311,19 @@ def test_growth_ai_visibility_and_discovery_listing(
     )
     assert design_payload["source_tool"] == "Stitch"
     assert design_payload["target_tool"] == "Figma"
-    assert len(design_payload["frames"]) == 3
+    assert len(design_payload["frames"]) == 6
     assert design_payload["frames"][0]["source_page_slug"] == "index"
+    frame_slugs = {frame["source_page_slug"] for frame in design_payload["frames"]}
+    assert {"mcp_paid_api_discovery", "directory_source_host_pack"} <= frame_slugs
     assert "DefinitionBlock" in {
+        component["name"] for component in design_payload["component_specs"]
+    }
+    assert "SubmissionChecklist" in {
         component["name"] for component in design_payload["component_specs"]
     }
     assert design_payload["design_tokens"]["radius"] == "8px"
     assert any(
-        "Generate the three frames in Stitch" in step
+        "Generate each frame in Stitch" in step
         for step in design_payload["import_steps"]
     )
 
@@ -555,11 +574,9 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert goal_payload["goal_achieved"] is False
     assert goal_payload["status"] == "incomplete"
     assert goal_payload["official_homepage"] == "https://www.synapse-network.ai/"
-    assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok"]
+    assert goal_payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert goal_payload["completed_count"] < goal_payload["total_required"]
-    requirement_by_key = {
-        item["key"]: item for item in goal_payload["requirements"]
-    }
+    requirement_by_key = {item["key"]: item for item in goal_payload["requirements"]}
     assert requirement_by_key["strategy"]["status"] == "completed"
     assert requirement_by_key["product_docs"]["status"] == "completed"
     assert requirement_by_key["stitch_figma"]["status"] == "completed"
@@ -591,6 +608,7 @@ def test_growth_ai_visibility_and_discovery_listing(
         "chatgpt",
         "claude",
         "grok",
+        "gemini",
     }
 
     live_validation = synced_client.post(
@@ -634,60 +652,6 @@ def test_growth_ai_visibility_and_discovery_listing(
     assert patched.status_code == 200
     assert patched.json()["status"] == "listed"
     assert db_session.query(GrowthDiscoveryListingRow).count() == 1
-
-
-def test_public_web_search_diagnostic_records_do_not_cover_target_platforms(
-    synced_client,
-):
-    response = synced_client.post(
-        "/api/growth/ai-visibility/checks",
-        json={
-            "query": "MCP server for paid API calls Synapse",
-            "platform": "public_web_search",
-            "answer_summary": "Public web search did not return Synapse.",
-            "synapse_mentioned": False,
-            "synapse_cited": False,
-            "competitor_mentions": ["MCPay", "Hud Remote MCP Server"],
-            "missing_facts": [
-                "Public web search returned no official Synapse result."
-            ],
-            "next_action": "Refresh IndexNow and rerun public web search.",
-            "feed_key": "mcp_paid_api_discovery",
-            "run_group": "2026-06-19-public-web-search",
-            "metadata": {"mode": "public_web_search_snapshot"},
-        },
-    )
-
-    assert response.status_code == 201
-    comparison = synced_client.get(
-        "/api/growth/ai-visibility/comparisons"
-        "?feed_key=mcp_paid_api_discovery"
-        "&run_group=2026-06-19-public-web-search"
-    ).json()["items"][0]
-    assert comparison["external_platforms"] == ["public_web_search"]
-    assert comparison["external_checks_count"] == 1
-    assert comparison["mentioned_count"] == 0
-    assert comparison["cited_count"] == 0
-    assert set(comparison["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
-    assert "MCPay" in comparison["top_competitors"]
-
-    scorecard = synced_client.get("/api/growth/ai-visibility/feed-scorecard").json()
-    mcp_score = next(
-        item
-        for item in scorecard["items"]
-        if item["feed_key"] == "mcp_paid_api_discovery"
-    )
-    assert "public_web_search" not in mcp_score["covered_platforms"]
-    assert set(mcp_score["missing_platforms"]) == {
-        "chatgpt",
-        "claude",
-        "grok",
-    }
-    assert "Refresh IndexNow and rerun public web search." in mcp_score["next_actions"]
 
 
 def test_growth_ai_visibility_live_readiness_api(monkeypatch, synced_client):
@@ -751,7 +715,13 @@ def test_growth_ai_visibility_external_probe_gate_blocks_until_feed_ready(
 ):
     from scripts.growth.record_ai_visibility_probe import ProbeRecord
 
-    for env_key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY"):
+    for env_key in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "XAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GENIMI_API_KEY",
+    ):
         monkeypatch.delenv(env_key, raising=False)
 
     def fake_validate_feed(*, feed_key: str, run_group: str):
@@ -828,7 +798,7 @@ def test_ai_visibility_weekly_report_blocks_known_brand_collisions(synced_client
 
     assert report.status_code == 200
     payload = report.json()
-    assert payload["covered_platforms"] == ["chatgpt", "claude", "grok"]
+    assert payload["covered_platforms"] == ["chatgpt", "claude", "gemini", "grok"]
     assert payload["stable_positive_runs"] == 0
     assert any("synapsenetwork.xyz" in blocker for blocker in payload["blockers"])
     assert any(

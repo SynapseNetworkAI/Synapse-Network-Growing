@@ -27,16 +27,27 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     )
     parser.add_argument("--feed-key", default=DEFAULT_FEED_KEY)
     parser.add_argument("--run-group", default="")
+    parser.add_argument(
+        "--diagnosis-file",
+        help="Optional feed diagnosis JSON to build an offline checklist without the Ops API ledger.",
+    )
     parser.add_argument("--output", help="Write JSON to this path instead of stdout.")
     args = parser.parse_args()
 
-    checklist = run_with_db(
-        lambda db: _build_execution_checklist(
-            db,
+    if args.diagnosis_file:
+        checklist = _build_execution_checklist_from_diagnosis(
+            args.diagnosis_file,
             feed_key=args.feed_key,
             run_group=args.run_group or None,
         )
-    )
+    else:
+        checklist = run_with_db(
+            lambda db: _build_execution_checklist(
+                db,
+                feed_key=args.feed_key,
+                run_group=args.run_group or None,
+            )
+        )
     write_json_payload(pydantic_payload(checklist), args.output)
     return 0
 
@@ -48,6 +59,23 @@ def _build_execution_checklist(db, *, feed_key: str, run_group: str | None):
 
     return ai_visibility_source_host_execution_checklist(
         db,
+        feed_key=feed_key,
+        run_group=run_group,
+    )
+
+
+def _build_execution_checklist_from_diagnosis(
+    diagnosis_file: str,
+    *,
+    feed_key: str,
+    run_group: str | None,
+):
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+    )
+
+    return source_host_execution_checklist_from_diagnosis(
+        diagnosis_file,
         feed_key=feed_key,
         run_group=run_group,
     )

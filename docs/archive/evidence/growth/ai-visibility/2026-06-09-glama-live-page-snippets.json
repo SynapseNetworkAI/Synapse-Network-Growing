@@ -1,0 +1,37 @@
+{
+  "url": "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
+  "status": "fetched",
+  "bytes": 138550,
+  "terms": [
+    {
+      "term": "Synapse Network",
+      "found": true,
+      "snippet": "h, initial-scale=1\" name=\"viewport\"/><link as=\"font\" crossorigin=\"anonymous\" href=\"https://static.glama.ai/client/fonts/inter/Inter-VariableFont.woff2\" rel=\"preload\" type=\"font/woff2\"/><link href=\"/manifest.json\" rel=\"manifest\"/><meta content=\"#060f11\" name=\"theme-color\"/><title>Synapse Network MCP MCP Servers | Glama</title><meta content=\"Everything MCP \u2013 servers updated daily. The most comprehensive registry of Model Context Protocol (MCP) servers, clients, tools, and integrations.\" name=\"description\"/><link href=\"https://glama.ai/mcp/servers?query=Synapse+Network+MC"
+    },
+    {
+      "term": "Synapse-Network-MCP-Server",
+      "found": true,
+      "snippet": "sults\" class=\"cYdhWw dAaUHp jQiSdx\" role=\"list\"><li aria-label=\"SynapseNetwork MCP Server for paid API calls\" class=\"bHfsGq! eXSGnJ jDOzgL jsnJKs vjReU fPSBzf bnYmbW jsCBtQ diVeFv ATFzw\"><div class=\"bYPztT fPSBzf hnMRLK jrIcfy\"><a href=\"/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server\" class=\"bejlTa bhFGkb BdEWC jEevvj jClhju koJNIU iWtjzs iVlkKm dGndpe jsLxaN bZRhvx fEVEmD JAEma gXlbfc bXBpoe ecmYYS bVhrBr jutHam entBuJ jGjvJV fzpbvq\">SynapseNetwork MCP Server for paid API calls</a><div class=\"dDifmo jmzEDN ATGke ATGkl\" style=\"background:#ff0000\" title=\"Serv"
+    },
+    {
+      "term": "https://mcp.synapse-network.ai/mcp",
+      "found": false,
+      "snippet": ""
+    },
+    {
+      "term": "discover_services",
+      "found": false,
+      "snippet": ""
+    },
+    {
+      "term": "invoke_and_pay",
+      "found": false,
+      "snippet": ""
+    },
+    {
+      "term": "get_receipt",
+      "found": false,
+      "snippet": ""
+    }
+  ]
+}

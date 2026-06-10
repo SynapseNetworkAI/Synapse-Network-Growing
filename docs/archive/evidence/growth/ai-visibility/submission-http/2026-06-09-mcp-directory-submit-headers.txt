@@ -1,0 +1,11 @@
+HTTP/2 409
+date: Tue, 09 Jun 2026 08:30:45 GMT
+content-type: application/json
+alt-svc: h3=":443"; ma=86400
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=A2RJ9%2BTcA0jzCIqOCqYYRC0CnC01QVOqs9w0bbxSqM0xlhPjdRgVSEs8wp4Cd8wirfnx8d9xf%2F6N42fRvIcdFXK3smC7w%2FVmX8lW%2FDOSOgzBAAPnpdqa47a5VgUbCGDC"}]}
+vary: Accept-Encoding
+vary: rsc, next-router-state-tree, next-router-prefetch, next-router-segment-prefetch
+cf-cache-status: DYNAMIC
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+server: cloudflare
+cf-ray: a08ec699bdaace7e-SIN

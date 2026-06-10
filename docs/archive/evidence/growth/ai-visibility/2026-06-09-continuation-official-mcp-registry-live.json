@@ -1,0 +1,40 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-continuation-official-registry-live",
+  "surface": "registry_modelcontextprotocol_io",
+  "source_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+  "checked_at": "2026-06-09T12:50:14.207403+00:00",
+  "required_terms": [
+    "SynapseNetworkAI",
+    "synapse-network-mcp-server",
+    "mcp.synapse-network.ai"
+  ],
+  "matched_terms": [
+    "SynapseNetworkAI",
+    "synapse-network-mcp-server",
+    "mcp.synapse-network.ai"
+  ],
+  "missing_terms": [],
+  "content_sha256": "1bb83f9fc32b1c7537df72d0945a4c5cade5e0dcb9a159aa4e7725595558a446",
+  "content_bytes": 4863,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "registry_modelcontextprotocol_io source host is live and matched 3 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-continuation-official-registry-live-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

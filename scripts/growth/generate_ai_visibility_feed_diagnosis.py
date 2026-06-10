@@ -35,6 +35,9 @@ from server.services.growth.ai_visibility_feed_diagnosis_models import (  # noqa
     SourceHostExecution,
     TARGET_PLATFORMS,
 )
+from server.services.growth.ai_visibility_observed_source_hosts import (  # noqa: E402
+    observed_source_host_recommendations,
+)
 from server.services.growth.ai_visibility_text import unique_strings  # noqa: E402
 
 
@@ -274,7 +277,9 @@ def recommendations_for(
         run_group=f"{run_group}-after-source-hosts",
         platforms=target_platforms,
     )
-    return source_host_recommendations(
+    return observed_source_host_recommendations(
+        external_records=external_records, rerun=rerun
+    ) + source_host_recommendations(
         all_queries=all_queries,
         collision_queries=collision_queries,
         monetization_queries=monetization_queries,

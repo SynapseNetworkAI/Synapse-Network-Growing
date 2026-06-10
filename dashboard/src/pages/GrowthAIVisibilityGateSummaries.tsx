@@ -141,7 +141,7 @@ export function GoalAuditSummary({ audit }: Readonly<{ audit: GrowthAIVisibility
         <div>
           <div className="text-[11px] uppercase tracking-[0.18em] text-[color:var(--ops-text-caption)]">Goal completion audit</div>
           <div className="mt-1 text-lg font-semibold text-[color:var(--ops-text-title)]">
-            {audit.goal_achieved ? 'GPT/Claude/Grok visibility proven' : 'Objective still requires external evidence'}
+            {audit.goal_achieved ? 'GPT/Claude/Grok/Gemini visibility proven' : 'Objective still requires external evidence'}
           </div>
         </div>
         <StateBadge tone={audit.goal_achieved ? 'delivered' : 'blocked'}>{audit.status}</StateBadge>

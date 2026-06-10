@@ -1,0 +1,39 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-docs-brand-disambiguation-live-refresh",
+  "surface": "docs_brand_disambiguation",
+  "source_url": "https://docs.synapse-network.ai/llms.mdx/docs/mcp/brand-disambiguation/content.md",
+  "checked_at": "2026-06-09T14:56:13.834573+00:00",
+  "required_terms": [
+    "SynapseNetworkAI builds Synapse Network",
+    "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "https://mcp.synapse-network.ai/mcp",
+    "python-docs.synapse.org"
+  ],
+  "matched_terms": [
+    "SynapseNetworkAI builds Synapse Network",
+    "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "https://mcp.synapse-network.ai/mcp",
+    "python-docs.synapse.org"
+  ],
+  "missing_terms": [],
+  "content_sha256": "ae0406c06cfb00f6226667a981e16d9a55c479ae2c352762c3bea08e2276d14e",
+  "content_bytes": 9747,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "What is SynapseNetworkAI/Synapse-Network-MCP-Server?",
+    "SynapseNetworkAI Remote MCP endpoint paid API calls discover_services"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "docs_brand_disambiguation source host is live and matched 4 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-docs-brand-disambiguation-live-refresh-after-source-host --platforms chatgpt,claude --execute"
+}

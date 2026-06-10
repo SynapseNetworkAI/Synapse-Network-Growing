@@ -33,7 +33,7 @@ from server.services.growth.ai_visibility_official_sources import (
     is_official_citation_url,
 )
 
-AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok"]
+AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
 
 
@@ -273,7 +273,7 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok"
+        "--platforms chatgpt,claude,grok,gemini"
     )
     return GrowthAIVisibilityNextCycleOut(
         feed_key=feed_key,

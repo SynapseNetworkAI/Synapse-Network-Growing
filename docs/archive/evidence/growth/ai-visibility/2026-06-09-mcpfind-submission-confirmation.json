@@ -1,0 +1,28 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-mcpfind-public-search",
+  "surface": "mcpfind",
+  "source_url": "https://github.com/MCPFind/mcp-find/pull/68",
+  "checked_at": "2026-06-09T15:26:51.237204+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "1f91d1fd9de97a526ef10ae5b82c2b6b6314b889efbfbda50f6db6ba2ffed868",
+  "content_bytes": 174,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "Opened MCPFind PR #68 adding Synapse Network MCP Server with GitHub repository, npm package @synapse-network-ai/mcp-server, finance category, and paid Remote MCP description.",
+  "screenshot_url": "https://github.com/MCPFind/mcp-find/pull/68",
+  "validation_summary": "mcpfind browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-mcpfind-public-search-after-source-host --platforms chatgpt,claude --execute"
+}

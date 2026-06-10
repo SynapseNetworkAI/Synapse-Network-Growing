@@ -1,0 +1,37 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-protodex-live",
+  "surface": "protodex",
+  "source_url": "https://protodex.io/servers/synapsenetworkai-synapse-network-mcp-server.html",
+  "checked_at": "2026-06-09T17:09:33.561105+00:00",
+  "required_terms": [
+    "Synapse-Network-MCP-Server",
+    "SynapseNetworkAI/Synapse-Network-MCP-Server"
+  ],
+  "matched_terms": [
+    "Synapse-Network-MCP-Server",
+    "SynapseNetworkAI/Synapse-Network-MCP-Server"
+  ],
+  "missing_terms": [],
+  "content_sha256": "46e6a76e65910599c2cf2a813fb182057c5b0d0782f6d2c4df9eecb23264ff4c",
+  "content_bytes": 40744,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "protodex source host is live and matched 2 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-live-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

@@ -14,10 +14,10 @@ def test_release_unblock_plan_exposes_verified_jsonld_publication_surfaces():
         actor="codex/test-ai-visibility",
     )
 
-    assert payload["source_pr"]["number"] == 216
+    assert payload["source_pr"]["number"] == 223
     assert payload["source_pr"]["state"] == "MERGED"
     assert payload["source_pr"]["merge_commit"] == (
-        "09a8e5fcb1511ca19b2ec417474ba5e780510469"
+        "b0fab9bcdfaed5715b62e0aa8dbc21136d983055"
     )
     assert payload["pending_source_prs"] == []
     merged_jsonld_pr = next(
@@ -33,7 +33,10 @@ def test_release_unblock_plan_exposes_verified_jsonld_publication_surfaces():
         for item in payload["verified_publication_surfaces"]
     )
     assert all(item["surface"] == "www-jsonld" for item in payload["verified_publication_surfaces"])
-    assert payload["known_blockers"] == []
+    assert any(
+        "Production source-host feed terms agent402" in blocker
+        for blocker in payload["known_blockers"]
+    )
     validation_commands = "\n".join(
         command
         for group in payload["command_groups"]
@@ -49,6 +52,7 @@ def test_release_unblock_plan_exposes_verified_jsonld_publication_surfaces():
     assert "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp" in (
         validation_commands
     )
+    assert "agent402|mcpay.fun|Cashfree" in validation_commands
     assert "application/ld\\+json" in validation_commands
     assert "FAQPage" in validation_commands
     assert "SoftwareApplication" in validation_commands

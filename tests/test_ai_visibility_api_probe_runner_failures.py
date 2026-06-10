@@ -48,3 +48,31 @@ def test_run_api_probes_records_provider_failures_without_stopping(monkeypatch):
     assert "claude API probe failed" in claude.answer_summary
     assert "secret-anthropic-key" not in claude.answer_summary
     assert "Fix provider/API probe failure" in claude.next_action
+
+
+def test_provider_failure_redacts_account_identifiers(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
+    monkeypatch.setenv("XAI_API_KEY", "secret-xai-key")
+
+    def fake_call_platform(platform: str, query: str):  # noqa: ARG001
+        raise RuntimeError(
+            "POST https://api.x.ai/v1/responses failed with 403: "
+            "team e1874538-b2a3-4c03-a773-ccd3373313db used secret-xai-key "
+            "for project_proj123456"
+        )
+
+    monkeypatch.setattr(api_probe, "call_platform", fake_call_platform)
+
+    records = api_probe.run_api_probes(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-18-api-probe",
+        platforms=["grok"],
+        queries=["MCP server for paid API calls"],
+    )
+
+    assert validate_records(records) == []
+    grok = records[0]
+    assert "secret-xai-key" not in grok.answer_summary
+    assert "e1874538-b2a3-4c03-a773-ccd3373313db" not in grok.answer_summary
+    assert "project_proj123456" not in grok.answer_summary
+    assert "team [REDACTED]" in grok.answer_summary

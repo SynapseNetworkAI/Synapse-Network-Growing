@@ -1,0 +1,31 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-protodex-metadata-refresh",
+  "surface": "protodex",
+  "source_url": "https://github.com/LuciferForge/mcp-directory/issues/17#issuecomment-4662154573",
+  "checked_at": "2026-06-09T17:12:02.062185+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "27129fbbd57c50101b4a738888814d3f1c06ccd2befd3ad92e79b64d46867069",
+  "content_bytes": 257,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "Requested Protodex metadata refresh for SynapseNetwork MCP Server: API Integration category, stronger Remote MCP paid API discovery description, preferred npm install command, docs URL, Remote MCP endpoint, and tool names. No credentials or tokens included.",
+  "screenshot_url": "https://github.com/LuciferForge/mcp-directory/issues/17#issuecomment-4662154573",
+  "validation_summary": "protodex browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-metadata-refresh-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

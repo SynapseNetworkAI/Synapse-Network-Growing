@@ -1,0 +1,26 @@
+{
+  "captured_at": "2026-06-09T16:32:33.987077+00:00",
+  "surface": "protodex",
+  "status": "submitted_issue_pending_review",
+  "submission_url": "https://github.com/LuciferForge/mcp-directory/issues/17",
+  "checks": [
+    {
+      "url": "https://protodex.io/submit.html",
+      "status": 200,
+      "final_url": "https://protodex.io/submit.html",
+      "contains_synapse": false
+    },
+    {
+      "url": "https://protodex.io/?q=Synapse%20Network",
+      "status": 200,
+      "final_url": "https://protodex.io/?q=Synapse%20Network",
+      "contains_synapse": false
+    },
+    {
+      "url": "https://github.com/LuciferForge/mcp-directory/issues/17",
+      "status": 200,
+      "final_url": "https://github.com/LuciferForge/mcp-directory/issues/17",
+      "contains_synapse": false
+    }
+  ]
+}

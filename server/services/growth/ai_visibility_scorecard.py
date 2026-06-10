@@ -47,7 +47,7 @@ def ai_visibility_feed_scorecard(db: Session) -> GrowthAIVisibilityFeedScorecard
         generated_at=datetime.now(timezone.utc),
         recommended_feed_key=cycles.recommended_feed_key,
         ranking_basis=(
-            "Impact score rewards feed readiness, GPT/Claude/Grok coverage, "
+            "Impact score rewards feed readiness, GPT/Claude/Grok/Gemini coverage, "
             "official Synapse citations, positive deltas, durable feed effectiveness, "
             "and penalizes missing citations or known brand-collision results."
         ),
@@ -215,7 +215,7 @@ def _recommended_action(
     if citation_quality_status == "missing_official_citation":
         return "Revise feed assets so answer engines cite official www, docs, GitHub, MCP, or registry sources."
     if cycle.external_probe_ready:
-        return "Run unchanged GPT/Claude/Grok probes and record results under the same run group."
+        return "Run unchanged GPT/Claude/Grok/Gemini probes and record results under the same run group."
     if missing_platforms:
         return f"Complete missing external probes: {', '.join(missing_platforms)}."
     if feed_effective:

@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-06-09T11:41:57.259093+00:00",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/submit",
+  "server_function_url": "https://mcpservers.org/_serverFn/62b9fa2877951ac582b1d0a4835a88ab4b119b1d5fd1a39a67a6a9faadcbc72d",
+  "submission_confirmation": {
+    "submission_id": 3144,
+    "name": "Synapse Network MCP Server",
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "category": "finance",
+    "status": "pending",
+    "plan": "free",
+    "payment_status": "not_required",
+    "created_at": "2026-06-09T11:41:28.092Z"
+  },
+  "submitted_payload_summary": "Submitted Synapse Network MCP Server to MCPServers free queue with GitHub URL, finance category, Remote MCP endpoint, and discover_services/invoke_and_pay/get_receipt public tool facts.",
+  "secret_safety": "No API keys, bearer tokens, cookies, or private credentials were submitted or stored in this artifact.",
+  "raw_response_preview": "{\"t\":10,\"i\":0,\"p\":{\"k\":[\"result\",\"error\",\"context\"],\"v\":[{\"t\":10,\"i\":1,\"p\":{\"k\":[\"submission\"],\"v\":[{\"t\":10,\"i\":2,\"p\":{\"k\":[\"id\",\"name\",\"description\",\"url\",\"category\",\"email\",\"status\",\"plan\",\"paymentStatus\",\"subscriptionId\",\"createdAt\",\"updatedAt\",\"deletedAt\"],\"v\":[{\"t\":0,\"s\":3144},{\"t\":1,\"s\":\"Synapse Network MCP Server\"},{\"t\":1,\"s\":\"Synapse Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts. Remote MCP: https://mcp.synapse-network.ai/mcp. Tools: discover_services, invoke_and_pay, get_receipt.\"},{\"t\":1,\"s\":\"https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\"},{\"t\":1,\"s\":\"finance\"},{\"t\":1,\"s\":\"support@synapse-network.ai\"},{\"t\":1,\"s\":\"pending\"},{\"t\":1,\"s\":\"free\"},{\"t\":1,\"s\":\"not_required\"},{\"t\":2,\"s\":0},{\"t\":5,\"i\":3,\"s\":\"2026-06-09T11:41:28.092Z\"},{\"t\":5,\"i\":4,\"s\":\"2026-06-09T11:41:28.092Z\"},{\"t\":2,\"s\":0}]},\"o\":0}]},\"o\":0},{\"t\":2,\"s\":1},{\"t\":11,\"i\":5,\"p\":{\"k\":[],\"v\":[]},\"o\":0}]},\"o\":0}"
+}

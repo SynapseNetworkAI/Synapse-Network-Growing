@@ -2,7 +2,7 @@
 """Validate live AI visibility feed assets and emit JSONL evidence rows.
 
 This runner checks public crawl/readiness surfaces before an operator spends
-time or API tokens on GPT/Claude/Grok probes. It emits *_live_validation rows,
+time or API tokens on GPT/Claude/Grok/Gemini probes. It emits *_live_validation rows,
 which are intentionally local/live readiness evidence, not answer-engine proof.
 """
 

@@ -218,7 +218,7 @@ def _api_probe_command(feed_key: str, *, execute: bool) -> str:
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         "--run-group YYYY-MM-DD-weekly "
-        "--platforms chatgpt,claude,grok"
+        "--platforms chatgpt,claude,grok,gemini"
     )
     return f"{command} --execute" if execute else command
 

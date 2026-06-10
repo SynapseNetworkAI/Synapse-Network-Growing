@@ -77,6 +77,7 @@ def test_public_search_snapshot_records_synapseproto_competitor():
     assert records[0].synapse_mentioned is False
     assert records[0].competitor_mentions == ["Synapse Protocol"]
     assert records[0].metadata["result_urls"] == ["https://www.synapseproto.com/"]
+    assert records[0].metadata["source_hosts"] == ["synapseproto.com"]
 
 
 def test_ai_visibility_plan_names_synapse_protocol_collision():

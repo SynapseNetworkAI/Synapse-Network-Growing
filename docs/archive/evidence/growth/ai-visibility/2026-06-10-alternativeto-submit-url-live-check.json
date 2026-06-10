@@ -1,0 +1,27 @@
+{
+  "captured_at": "2026-06-09T16:10:56.640848+00:00",
+  "surface": "alternativeto",
+  "bug_id": 69,
+  "status": "submit_url_404_requires_operator_login_or_contact_path",
+  "checks": [
+    {
+      "url": "https://alternativeto.net/software/submit/",
+      "status": 404,
+      "error_type": "HTTPError",
+      "message": "HTTP Error 404: Not Found"
+    },
+    {
+      "url": "https://alternativeto.net/",
+      "status": 403,
+      "error_type": "HTTPError",
+      "message": "HTTP Error 403: Forbidden"
+    },
+    {
+      "url": "https://alternativeto.net/browse/search/?q=SynapseNetwork%20MCP%20Server",
+      "status": 403,
+      "error_type": "HTTPError",
+      "message": "HTTP Error 403: Forbidden"
+    }
+  ],
+  "summary": "The generated direct AlternativeTo submit URL returns 404; source-host package should point to the live site and require operator login/contact confirmation instead of a direct form receipt."
+}

@@ -1,0 +1,32 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-mcpservers-submission",
+  "surface": "mcpservers",
+  "source_url": "https://mcpservers.org/submit",
+  "checked_at": "2026-06-09T11:41:57.337818+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "732ec4902d597765fb3744074842b9814dc2c48ceca7f33fdf189dc0a01bc0cc",
+  "content_bytes": 248,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "Synapse vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "Submitted Synapse Network MCP Server to MCPServers free listing queue with GitHub URL, finance category, Remote MCP endpoint, and discover_services/invoke_and_pay/get_receipt public tool facts. Submission id 3144 returned pending/free/not_required.",
+  "screenshot_url": "docs/archive/evidence/growth/ai-visibility/2026-06-09-mcpservers-submission-response.json",
+  "validation_summary": "mcpservers browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-09-after-mcpservers-submission-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}

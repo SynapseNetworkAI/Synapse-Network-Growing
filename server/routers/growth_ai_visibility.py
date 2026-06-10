@@ -30,6 +30,7 @@ from server.schemas_growth import (
     GrowthAIVisibilityReleaseUnblockPlanOut,
     GrowthAIVisibilitySourceHostExecutionChecklistOut,
     GrowthAIVisibilitySourceHostFeedPackageOut,
+    GrowthAIVisibilitySourceHostLiveSpotCheckOut,
     GrowthAIVisibilityWeeklyReportOut,
 )
 from server.services.growth import (
@@ -49,6 +50,7 @@ from server.services.growth import (
     ai_visibility_release_unblock,
     ai_visibility_scorecard,
     ai_visibility_source_host_feed,
+    ai_visibility_source_host_live_spot_check,
     ai_visibility_discovery,
 )
 
@@ -279,6 +281,24 @@ def get_ai_visibility_source_host_execution_checklist(
         db,
         feed_key=feed_key,
         run_group=run_group,
+    )
+
+
+@router.get(
+    "/ai-visibility/source-host-live-spot-check",
+    response_model=GrowthAIVisibilitySourceHostLiveSpotCheckOut,
+)
+def get_ai_visibility_source_host_live_spot_check(
+    feed_key: str = ai_visibility_presence_plan.DEFAULT_FEED_KEY,
+    run_group: str | None = None,
+    execute: bool = False,
+    db: Session = Depends(get_db),
+):
+    return ai_visibility_source_host_live_spot_check.ai_visibility_source_host_live_spot_check(
+        db,
+        feed_key=feed_key,
+        run_group=run_group,
+        execute=execute,
     )
 
 
