@@ -73,6 +73,7 @@ def render_operator_brief(*, feed_key: str, cycle_summary_path: str = "") -> str
     lines.extend(
         _bullets(cycle_summary.get("blockers") or ["Run feed validation first."])
     )
+    lines.extend(_observed_outcome_section(cycle_summary))
     lines.extend(
         [
             "",
@@ -211,6 +212,47 @@ def _execution_commands(package, commands: dict[str, Any]) -> list[tuple[str, st
         ),
     ]
     return [(label, str(command)) for label, command in values if str(command).strip()]
+
+
+def _observed_outcome_section(cycle_summary: dict[str, Any]) -> list[str]:
+    lines: list[str] = ["", "## Observed Search Outcome", ""]
+    platform_results = cycle_summary.get("platform_results")
+    if isinstance(platform_results, list) and platform_results:
+        for result in platform_results:
+            if not isinstance(result, dict):
+                continue
+            lines.append(
+                "- "
+                f"{result.get('platform', 'unknown')}: "
+                f"{result.get('status', 'unknown')} "
+                f"({result.get('mentioned_count', 0)} mentions / "
+                f"{result.get('cited_count', 0)} citations). "
+                f"Next: {result.get('next_action', '')}"
+            )
+    else:
+        lines.append("- No platform-level probe outcome has been summarized yet.")
+    lines.extend(["", "## Next Feed Targets", ""])
+    source_hosts = cycle_summary.get("top_source_hosts")
+    if isinstance(source_hosts, list) and source_hosts:
+        for item in source_hosts[:8]:
+            if not isinstance(item, dict):
+                continue
+            surface = item.get("surface") or item.get("value") or "unknown"
+            lines.append(
+                "- "
+                f"{surface}: {item.get('value', '')} "
+                f"appeared {item.get('count', 0)} time(s)."
+            )
+    else:
+        lines.append("- No answer-engine source hosts have been summarized yet.")
+    competitors = cycle_summary.get("top_competitors")
+    if isinstance(competitors, list) and competitors:
+        lines.extend(["", "Top competing/collision terms:"])
+        for item in competitors[:8]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('value', '')}: {item.get('count', 0)}")
+    return lines
 
 
 def _api_probe_command(feed_key: str, *, execute: bool) -> str:

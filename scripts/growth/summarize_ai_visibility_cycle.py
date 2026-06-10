@@ -29,6 +29,9 @@ from server.services.growth.ai_visibility_text import unique_strings  # noqa: E4
 from scripts.growth.ai_visibility_cycle_comparison import (  # noqa: E402
     comparison_summary,
 )
+from scripts.growth.ai_visibility_cycle_outcomes import (  # noqa: E402
+    cycle_outcomes_for,
+)
 
 TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 
@@ -158,6 +161,10 @@ def summarize_cycle(
         previous_source_path=previous_source_path,
         provider_failure_count=len(provider_failure_records),
     )
+    outcomes = cycle_outcomes_for(external_records).model_dump(
+        mode="json",
+        exclude_none=True,
+    )
     return {
         "module_key": "ai_visibility",
         "status": status,
@@ -184,6 +191,9 @@ def summarize_cycle(
         "missing_platforms": missing_platforms,
         "blockers": blockers,
         "feed_improvements": feed_improvements,
+        "platform_results": outcomes["platform_results"],
+        "top_source_hosts": outcomes["top_source_hosts"],
+        "top_competitors": outcomes["top_competitors"],
         "next_actions": next_actions[:8],
         "platform_strategies": platform_strategies,
         "comparison": comparison,
@@ -281,7 +291,9 @@ def cycle_blockers(
             "External API probes are blocked by missing provider credentials."
         )
     elif not external_records:
-        blockers.append("No external GPT/Claude/Grok/Gemini probe evidence has been recorded.")
+        blockers.append(
+            "No external GPT/Claude/Grok/Gemini probe evidence has been recorded."
+        )
     if external_records and missing_platforms:
         blockers.append(
             f"Missing external platform probes: {', '.join(missing_platforms)}."
