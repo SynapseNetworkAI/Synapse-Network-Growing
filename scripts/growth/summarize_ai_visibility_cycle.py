@@ -281,7 +281,7 @@ def cycle_blockers(
             "External API probes are blocked by missing provider credentials."
         )
     elif not external_records:
-        blockers.append("No external GPT/Claude/Grok probe evidence has been recorded.")
+        blockers.append("No external GPT/Claude/Grok/Gemini probe evidence has been recorded.")
     if external_records and missing_platforms:
         blockers.append(
             f"Missing external platform probes: {', '.join(missing_platforms)}."
@@ -337,7 +337,7 @@ def recommended_actions(
         return ["Fix live feed blockers before running external answer-engine probes."]
     if status == "ready_for_external_probe":
         return [
-            "Run the generated ChatGPT, Claude, and Grok probe template with unchanged questions."
+            "Run the generated ChatGPT, Claude, Grok, and Gemini probe template with unchanged questions."
         ]
     if status == "partial_external_probe":
         return [f"Complete missing external probes for {', '.join(missing_platforms)}."]

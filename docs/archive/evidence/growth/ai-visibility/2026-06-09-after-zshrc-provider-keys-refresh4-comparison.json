@@ -1,0 +1,61 @@
+{
+    "items": [
+        {
+            "feed_key": "mcp_paid_api_discovery",
+            "run_group": "2026-06-09-after-zshrc-provider-keys-refresh4",
+            "previous_run_group": "2026-06-09-after-zshrc-provider-keys-refresh3",
+            "platforms": [
+                "chatgpt",
+                "claude",
+                "gemini",
+                "grok"
+            ],
+            "external_platforms": [
+                "chatgpt",
+                "claude",
+                "gemini",
+                "grok"
+            ],
+            "total_checks": 12,
+            "external_checks_count": 12,
+            "local_validation_count": 0,
+            "mentioned_count": 0,
+            "cited_count": 0,
+            "previous_mentioned_count": 0,
+            "previous_cited_count": 0,
+            "mentioned_delta": 0,
+            "cited_delta": 0,
+            "comparison_status": "flat",
+            "citation_quality_status": "missing_official_citation",
+            "feed_effective": false,
+            "missing_platforms": [],
+            "top_competitors": [
+                "x402",
+                "mcpay",
+                "composio",
+                "stripe",
+                "teleport"
+            ],
+            "source_hosts": [
+                "mcp.directory",
+                "docs.mcpay.tech",
+                "alternativeto.net",
+                "anythingmcp.com",
+                "arxiv.org",
+                "chatforest.com",
+                "coincodecap.com",
+                "mcp-marketplace.io"
+            ],
+            "known_collision_competitors": [],
+            "official_cited_urls": [],
+            "next_actions": [
+                "Fix provider/API probe failure and rerun the same query.",
+                "Deploy/refresh feed assets and rerun the same API probe.",
+                "Prioritize third-party presence on cited answer-engine hosts: mcp.directory, docs.mcpay.tech, alternativeto.net."
+            ],
+            "evidence_urls": [],
+            "latest_run_at": "2026-06-09T10:29:09.594926"
+        }
+    ],
+    "total": 1
+}

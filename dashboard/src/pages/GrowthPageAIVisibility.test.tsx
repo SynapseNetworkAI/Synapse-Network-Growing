@@ -70,7 +70,7 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByTestId('ai-visibility-official-sources')).toBeInTheDocument()
     expect(screen.getByText('Citation authority surfaces')).toBeInTheDocument()
     expect(screen.getByText('remote_mcp')).toBeInTheDocument()
-    expect(screen.getByText('https://mcp.synapse-network.ai/mcp')).toBeInTheDocument()
+    expect(screen.getAllByText('https://mcp.synapse-network.ai/mcp').length).toBeGreaterThan(0)
     expect(screen.getByTestId('ai-visibility-probe-matrix')).toBeInTheDocument()
     expect(screen.getByText('Answer-engine probe matrix')).toBeInTheDocument()
     expect(screen.getByText('ready_to_probe')).toBeInTheDocument()
@@ -85,6 +85,10 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByTestId('ai-visibility-source-host-execution-checklist')).toBeInTheDocument()
     expect(screen.getByText('Source-host execution checklist')).toBeInTheDocument()
     expect(screen.getByText('pending_submission')).toBeInTheDocument()
+    expect(screen.getByText('GitHub repository URL')).toBeInTheDocument()
+    expect(screen.getByText(/Record submission confirmation with --surface mcpservers_org/)).toBeInTheDocument()
+    expect(screen.getByText(/Live search: https:\/\/mcpservers\.org\/\?q=Synapse%20Network/)).toBeInTheDocument()
+    expect(screen.getByText(/Live gate: Open the search URLs/)).toBeInTheDocument()
     expect(screen.getAllByText('mcpservers.org').length).toBeGreaterThan(0)
     expect(screen.getByText('directory_listing')).toBeInTheDocument()
     expect(screen.getByText('brand_collision_present')).toBeInTheDocument()
@@ -101,7 +105,7 @@ describe('GrowthPage AI visibility', () => {
     expect(screen.getByText('Validate matrix')).toBeInTheDocument()
     expect(screen.getByTestId('ai-visibility-goal-audit')).toBeInTheDocument()
     expect(screen.getByText('Objective still requires external evidence')).toBeInTheDocument()
-    expect(screen.getByText('GPT/Claude/Grok search evidence')).toBeInTheDocument()
+    expect(screen.getByText('GPT/Claude/Grok/Gemini search evidence')).toBeInTheDocument()
     expect(screen.getAllByText('mcp_paid_api_discovery').length).toBeGreaterThan(0)
     expect(screen.queryByText('Provider Source Configs')).not.toBeInTheDocument()
   })
@@ -145,7 +149,7 @@ function feedCycles() {
   return {
     module_key: 'ai_visibility',
     generated_at: '2026-06-05T00:00:00Z',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     recommended_feed_key: 'mcp_paid_api_discovery',
     total: 1,
     items: [{
@@ -158,7 +162,7 @@ function feedCycles() {
       external_probe_ready: false,
       feed_effective: false,
       external_platforms: [],
-      missing_platforms: ['chatgpt', 'claude', 'grok'],
+      missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
       mentioned_count: 0,
       cited_count: 0,
       blockers: ['Docs /mcp/paid-api-calls page must be live.'],
@@ -210,7 +214,7 @@ function probeMatrix() {
   return {
     module_key: 'ai_visibility',
     generated_at: '2026-06-05T00:00:00Z',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     recommended_feed_key: 'mcp_paid_api_discovery',
     total: 1,
     rows: [{
@@ -281,8 +285,18 @@ function sourceHostExecutionChecklist() {
       draft_type: 'directory_submission',
       execution_status: 'pending_submission',
       target_url: 'https://mcpservers.org/submit',
+      design_handoff_frame: 'Directory Source-Host Submission Pack',
       action_required: 'Submit the directory form using the non-secret payload.',
+      submission_fields: [
+        { label: 'GitHub repository URL', value: 'https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server', notes: 'Use the public repo.' },
+        { label: 'Remote MCP endpoint', value: 'https://mcp.synapse-network.ai/mcp', notes: 'Put in description if needed.' },
+      ],
+      submission_steps: ['Open https://mcpservers.org/submit in an operator-owned browser session.'],
+      evidence_recording_steps: ['Record submission confirmation with --surface mcpservers_org.'],
+      live_listing_search_urls: ['https://mcpservers.org/?q=Synapse%20Network'],
+      live_listing_validation_steps: ['Open the search URLs and confirm a public listing page.'],
       required_evidence: ['submission_url_or_receipt', 'submitted_payload_summary', 'screenshot'],
+      submission_confirmation_command: 'python scripts/growth/record_ai_visibility_source_host_execution.py --evidence-mode submission-confirmation',
       validation_command: 'curl -fsS "https://mcpservers.org/" | grep -i synapse',
       re_probe_command: 'python scripts/growth/run_ai_visibility_api_probe.py --execute',
       completion_gate: 'Do not mark complete until operator evidence proves the listing is live.',
@@ -333,7 +347,7 @@ function designHandoff() {
 }
 
 function weeklyReport() {
-  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', goal_status: 'optimizing', goal_achieved: false, required_stable_runs: 3, stable_positive_runs: 0, target_platforms: ['chatgpt', 'claude', 'grok'], covered_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok'], total_external_checks: 0, total_mentioned_count: 0, total_cited_count: 0, latest_feed_key: 'mcp_paid_api_discovery', latest_run_group: '', latest_comparison_status: 'needs_external_probe', feed_reports: [], blockers: ['Fewer than three stable positive external runs have been recorded.'], next_actions: ['Run probes.'], recommended_feed_key: 'mcp_paid_api_discovery', recommended_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py' }
+  return { module_key: 'ai_visibility', generated_at: '2026-06-05T00:00:00Z', goal_status: 'optimizing', goal_achieved: false, required_stable_runs: 3, stable_positive_runs: 0, target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], covered_platforms: [], missing_platforms: ['chatgpt', 'claude', 'grok', 'gemini'], total_external_checks: 0, total_mentioned_count: 0, total_cited_count: 0, latest_feed_key: 'mcp_paid_api_discovery', latest_run_group: '', latest_comparison_status: 'needs_external_probe', feed_reports: [], blockers: ['Fewer than three stable positive external runs have been recorded.'], next_actions: ['Run probes.'], recommended_feed_key: 'mcp_paid_api_discovery', recommended_probe_template_command: 'python scripts/growth/generate_ai_visibility_probe_template.py' }
 }
 
 function nextCycle() {
@@ -397,14 +411,14 @@ function goalAudit() {
     status: 'incomplete',
     goal_achieved: false,
     official_homepage: 'https://www.synapse-network.ai/',
-    target_platforms: ['chatgpt', 'claude', 'grok'],
+    target_platforms: ['chatgpt', 'claude', 'grok', 'gemini'],
     completed_count: 5,
     total_required: 8,
     requirements: [
       { key: 'strategy', title: 'Agent optimization strategy', status: 'completed', required: true, evidence: '3 feed experiments.', blocker: '', next_action: '' },
-      { key: 'external_search_evidence', title: 'GPT/Claude/Grok search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing real external GPT/Claude/Grok evidence.', next_action: 'Run full external probes and record evidence.' },
+      { key: 'external_search_evidence', title: 'GPT/Claude/Grok/Gemini search evidence', status: 'blocked', required: true, evidence: '', blocker: 'Missing real external GPT/Claude/Grok/Gemini evidence.', next_action: 'Run full external probes and record evidence.' },
     ],
-    blockers: ['Missing real external GPT/Claude/Grok evidence.'],
+    blockers: ['Missing real external GPT/Claude/Grok/Gemini evidence.'],
     next_actions: ['Run full external probes and record evidence.'],
     export_command: 'python scripts/growth/generate_ai_visibility_goal_audit.py',
   }

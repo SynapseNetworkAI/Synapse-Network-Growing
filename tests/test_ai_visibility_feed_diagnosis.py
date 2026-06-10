@@ -79,6 +79,89 @@ def test_diagnosis_marks_validation_only_rows_as_no_external_evidence(tmp_path: 
     )
 
 
+def test_diagnosis_promotes_observed_source_host_actions(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="Synapse vs paid MCP alternatives",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": [
+                            "aitoolnet.com",
+                            "alternativeto.net",
+                            "mcp.directory",
+                            "mcpservers.org",
+                            "mcpfind.org",
+                            "protodex.io",
+                            "pulsemcp.com",
+                            "mcp-marketplace.io",
+                        ],
+                    },
+                )
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    surfaces = [item["surface"] for item in recommendations]
+    assert surfaces[:7] == [
+        "aitoolnet",
+        "alternativeto",
+        "mcp_directory",
+        "mcpservers",
+        "mcpfind",
+        "protodex",
+        "pulsemcp",
+    ]
+    assert recommendations[0]["draft_type"] == "ai_tool_directory_listing"
+    assert recommendations[1]["draft_type"] == "software_alternative_listing"
+    assert recommendations[2]["draft_type"] == "mcp_directory_listing"
+    assert recommendations[3]["draft_type"] == "mcp_directory_listing"
+    assert recommendations[4]["draft_type"] == "mcp_directory_listing"
+    assert recommendations[0]["target_queries"] == ["Synapse vs paid MCP alternatives"]
+    assert "browser/form confirmation" in recommendations[0]["validation_command"]
+    assert "MCP Directory" in recommendations[2]["rationale"]
+    assert "MCPServers" in recommendations[3]["rationale"]
+    assert "MCPFind" in recommendations[4]["rationale"]
+    assert "Protodex" in recommendations[5]["rationale"]
+    assert "PulseMCP" in recommendations[6]["rationale"]
+    assert "after-source-hosts" in recommendations[6]["next_probe_command"]
+
+
+def test_diagnosis_promotes_synapse_org_brand_collision_source_host(tmp_path: Path):
+    records = parse_probe_file(
+        write_probe_jsonl(
+            tmp_path,
+            [
+                probe_row(
+                    platform="chatgpt",
+                    query="SynapseNetwork MCP Server",
+                    metadata={
+                        "mode": "api_probe",
+                        "source_hosts": ["python-docs.synapse.org"],
+                    },
+                )
+            ],
+        )
+    )
+
+    diagnosis = diagnose_feed(records, source_path="probe.jsonl").model_dump()
+
+    recommendations = diagnosis["recommended_source_host_executions"]
+    first = recommendations[0]
+    assert first["surface"] == "docs_disambiguation_links"
+    assert first["draft_type"] == "brand_disambiguation_answer_block"
+    assert first["priority"] == "p0"
+    assert first["target_queries"] == ["SynapseNetwork MCP Server"]
+    assert "Synapse.org/Sage Bionetworks" in first["content_brief"]
+    assert "exact identifier probes" in first["validation_command"]
+
+
 def test_diagnosis_cli_writes_json_and_recommendations_jsonl(tmp_path: Path):
     probe_path = write_probe_jsonl(
         tmp_path,
@@ -132,6 +215,7 @@ def probe_row(
     platform: str,
     query: str = "MCP server for paid API calls",
     competitors: list[str] | None = None,
+    metadata: dict | None = None,
 ) -> dict:
     return {
         "query": query,
@@ -145,6 +229,7 @@ def probe_row(
         "competitor_mentions": competitors or [],
         "missing_facts": ["Synapse Network was not cited."],
         "next_action": "Add independent source-host citation evidence.",
+        "metadata": metadata or {},
     }
 
 

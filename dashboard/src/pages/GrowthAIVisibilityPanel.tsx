@@ -64,7 +64,7 @@ export function GrowthAIVisibilityPanel({
   const externalChecks = latest?.external_checks_count ?? 0
   const citedCount = latest?.cited_count ?? 0
   const mentionedCount = latest?.mentioned_count ?? 0
-  const targetPlatforms = ['chatgpt', 'claude', 'grok']
+  const targetPlatforms = ['chatgpt', 'claude', 'grok', 'gemini']
   const coveredPlatforms = new Set(latest?.external_platforms || [])
 
   return (

@@ -1,0 +1,209 @@
+{
+  "title": "Synapse AI Agent Payments Stitch To Figma Handoff",
+  "canonical_domain": "https://www.synapse-network.ai/",
+  "source_tool": "Stitch",
+  "target_tool": "Figma",
+  "figma_file_name": "Synapse AI Agent Payments Docs - AI Visibility",
+  "stitch_prompt": "Design a technical documentation landing page for Synapse Network, the settlement layer for AI agents. Include a concise definition, a machine-to-machine payment flow, two user paths for agent builders and API providers, code examples, a Synapse vs x402 vs Stripe vs RapidAPI comparison table, FAQ blocks, and citation-ready fact cards. Style: developer infrastructure, dark mode, precise, credible, not hype.",
+  "frames": [
+    {
+      "name": "AI Agent Payments Docs Landing",
+      "purpose": "Primary documentation landing page for AI answer engines and developer readers.",
+      "source_page_slug": "index",
+      "layout_notes": [
+        "Canonical URL: https://docs.synapse-network.ai/ai-agent-payments",
+        "Target queries: What is Synapse Network for AI agents?, AI agent payment API, How can AI agents pay for APIs?",
+        "Lead with the definition block and facts table before deeper explanation.",
+        "Reserve comparison, FAQ, and receipt examples as reusable content modules."
+      ],
+      "figma_components": [
+        "DocsHeader",
+        "DefinitionBlock",
+        "FactsTable",
+        "FlowSteps",
+        "FAQAccordion"
+      ],
+      "stitch_prompt": "Create the main docs landing page with definition, facts, payment flow, builder/provider paths, comparison preview, and FAQ preview. Use Synapse Network as the product, https://www.synapse-network.ai/ as the homepage, and https://docs.synapse-network.ai/ai-agent-payments as the docs canonical URL. Style: developer infrastructure, precise, dark mode, readable, not hype."
+    },
+    {
+      "name": "Agent Payment API Deep Dive",
+      "purpose": "Developer implementation guide for scoped credentials, discovery, invocation, and receipts.",
+      "source_page_slug": "agent-payment-api",
+      "layout_notes": [
+        "Canonical URL: https://docs.synapse-network.ai/ai-agent-payments/agent-payment-api",
+        "Target queries: AI agent payment API, agent credential paid API calls",
+        "Lead with the definition block and facts table before deeper explanation.",
+        "Reserve comparison, FAQ, and receipt examples as reusable content modules."
+      ],
+      "figma_components": [
+        "DocsHeader",
+        "DefinitionBlock",
+        "FactsTable",
+        "FlowSteps",
+        "FAQAccordion"
+      ],
+      "stitch_prompt": "Create a dense API guide page with call sequence, code slots, receipt example, and failure states. Use Synapse Network as the product, https://www.synapse-network.ai/ as the homepage, and https://docs.synapse-network.ai/ai-agent-payments/agent-payment-api as the docs canonical URL. Style: developer infrastructure, precise, dark mode, readable, not hype."
+    },
+    {
+      "name": "Synapse Vs x402 Comparison",
+      "purpose": "Citation-ready comparison frame for answer engines evaluating payment alternatives.",
+      "source_page_slug": "synapse-vs-x402",
+      "layout_notes": [
+        "Canonical URL: https://docs.synapse-network.ai/ai-agent-payments/synapse-vs-x402",
+        "Target queries: Synapse Network vs x402, x402 alternative for AI agents",
+        "Lead with the definition block and facts table before deeper explanation.",
+        "Reserve comparison, FAQ, and receipt examples as reusable content modules."
+      ],
+      "figma_components": [
+        "DocsHeader",
+        "DefinitionBlock",
+        "FactsTable",
+        "FlowSteps",
+        "FAQAccordion"
+      ],
+      "stitch_prompt": "Create a comparison page with Synapse, x402, Stripe, RapidAPI, and direct API keys as columns. Use Synapse Network as the product, https://www.synapse-network.ai/ as the homepage, and https://docs.synapse-network.ai/ai-agent-payments/synapse-vs-x402 as the docs canonical URL. Style: developer infrastructure, precise, dark mode, readable, not hype."
+    },
+    {
+      "name": "MCP Paid API Discovery Answer Page",
+      "purpose": "Source-host frame for GPT, Claude, Grok, and Gemini queries about paid API calls through MCP.",
+      "source_page_slug": "mcp_paid_api_discovery",
+      "layout_notes": [
+        "Canonical docs source: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Canonical comparison source: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "Hosted Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Target queries: MCP server for paid API calls, ChatGPT MCP app for API payments, AI agent API monetization",
+        "Keep all endpoint, package, registry, and tool names as selectable text.",
+        "Use pending/listed badges so directory source-host intent is not confused with verified citations."
+      ],
+      "figma_components": [
+        "DocsHeader",
+        "DefinitionBlock",
+        "MachineReadableFacts",
+        "RemoteMCPSetup",
+        "ToolLoopDiagram",
+        "FAQSection"
+      ],
+      "stitch_prompt": "Create a dense technical docs page for SynapseNetwork MCP Server. Lead with the hosted Remote MCP endpoint, npm package, official MCP Registry name, and the discover_services -> invoke_and_pay -> get_receipt workflow. Use SynapseNetwork MCP Server as the product, https://www.synapse-network.ai/ as the homepage, https://docs.synapse-network.ai/mcp/paid-api-calls as the primary docs URL, and https://mcp.synapse-network.ai/mcp as the hosted Remote MCP URL. Style: developer infrastructure, precise, dense, dark mode, no decorative marketing hero."
+    },
+    {
+      "name": "Synapse Vs Paid MCP Alternatives",
+      "purpose": "Comparison frame for answer engines that currently cite MCPay, x402, Stripe, RapidAPI, AIToolNet, or AlternativeTo instead of Synapse.",
+      "source_page_slug": "synapse_vs_paid_mcp",
+      "layout_notes": [
+        "Canonical docs source: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Canonical comparison source: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "Hosted Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Target queries: Synapse vs paid MCP alternatives, MCP payment alternatives, x402 alternative for AI agents",
+        "Keep all endpoint, package, registry, and tool names as selectable text.",
+        "Use pending/listed badges so directory source-host intent is not confused with verified citations."
+      ],
+      "figma_components": [
+        "ComparisonTable",
+        "CompetitorSet",
+        "DisambiguationBlock",
+        "SourceHostLinks",
+        "LastUpdated"
+      ],
+      "stitch_prompt": "Create a comparison page that places SynapseNetwork MCP next to MCPay, x402, Stripe, RapidAPI, and direct API keys. Include AIToolNet and AlternativeTo as pending source-host listing surfaces, not as completed external citations. Use SynapseNetwork MCP Server as the product, https://www.synapse-network.ai/ as the homepage, https://docs.synapse-network.ai/mcp/paid-api-calls as the primary docs URL, and https://mcp.synapse-network.ai/mcp as the hosted Remote MCP URL. Style: developer infrastructure, precise, dense, dark mode, no decorative marketing hero."
+    },
+    {
+      "name": "Directory Source-Host Submission Pack",
+      "purpose": "Operator frame for AIToolNet and AlternativeTo browser/form submissions after probe metadata shows those source hosts.",
+      "source_page_slug": "directory_source_host_pack",
+      "layout_notes": [
+        "Canonical docs source: https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "Canonical comparison source: https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+        "Hosted Remote MCP endpoint: https://mcp.synapse-network.ai/mcp",
+        "Target queries: AI tool directory listing for SynapseNetwork MCP Server, AlternativeTo listing for paid API discovery MCP",
+        "Keep all endpoint, package, registry, and tool names as selectable text.",
+        "Use pending/listed badges so directory source-host intent is not confused with verified citations."
+      ],
+      "figma_components": [
+        "SubmissionChecklist",
+        "DirectoryMetadataTable",
+        "AcceptanceTerms",
+        "EvidenceStatus",
+        "RerunProbeCommand"
+      ],
+      "stitch_prompt": "Create an operator workflow frame for submitting SynapseNetwork MCP Server to AIToolNet and AlternativeTo. Show form payloads, acceptance terms, required evidence, and the post-submission GPT/Claude/Grok/Gemini rerun command. Use SynapseNetwork MCP Server as the product, https://www.synapse-network.ai/ as the homepage, https://docs.synapse-network.ai/mcp/paid-api-calls as the primary docs URL, and https://mcp.synapse-network.ai/mcp as the hosted Remote MCP URL. Style: developer infrastructure, precise, dense, dark mode, no decorative marketing hero."
+    }
+  ],
+  "component_specs": [
+    {
+      "name": "DefinitionBlock",
+      "purpose": "40-60 word standalone answer block for AI extraction.",
+      "implementation": "MDX callout or leading paragraph with stable heading."
+    },
+    {
+      "name": "MachineReadableFacts",
+      "purpose": "Facts table for product, category, canonical URL, users, and auth boundary.",
+      "implementation": "Semantic table and schema-compatible metadata."
+    },
+    {
+      "name": "PaymentFlowSteps",
+      "purpose": "Deposit -> credential -> discover -> invoke -> receipt flow.",
+      "implementation": "Ordered list or stepper with no image-only text."
+    },
+    {
+      "name": "ComparisonTable",
+      "purpose": "Compare Synapse against x402, Stripe, RapidAPI, and direct API keys.",
+      "implementation": "Responsive table with visible row/column labels."
+    },
+    {
+      "name": "FAQSection",
+      "purpose": "Natural-language questions for FAQPage schema and answer-engine snippets.",
+      "implementation": "FAQPage schema where docs-front supports it."
+    },
+    {
+      "name": "RemoteMCPSetup",
+      "purpose": "Hosted endpoint, auth boundary, npm package, and registry identifiers.",
+      "implementation": "Text-first MDX section with copyable values and no secret values."
+    },
+    {
+      "name": "SubmissionChecklist",
+      "purpose": "Operator checklist for AIToolNet and AlternativeTo source-host submissions.",
+      "implementation": "Evidence-backed checklist; pending until browser/form confirmation or public listing URL exists."
+    },
+    {
+      "name": "RerunProbeCommand",
+      "purpose": "Post-submission GPT/Claude/Grok/Gemini rerun command and success criteria.",
+      "implementation": "Code block plus status note; never embed API key values."
+    }
+  ],
+  "design_tokens": {
+    "surface": "#0b1020",
+    "panel": "#101827",
+    "accent": "#22d3ee",
+    "success": "#34d399",
+    "warning": "#f59e0b",
+    "text_primary": "#f8fafc",
+    "text_secondary": "#94a3b8",
+    "radius": "8px"
+  },
+  "import_steps": [
+    "Generate each frame in Stitch using the frame-specific prompts.",
+    "Export Stitch output as image or HTML reference and import into Figma as exploration only.",
+    "Create Figma components for DefinitionBlock, MachineReadableFacts, PaymentFlowSteps, ComparisonTable, FAQSection, and LastUpdated.",
+    "Add SourceHostLinks, SubmissionChecklist, DirectoryMetadataTable, AcceptanceTerms, EvidenceStatus, and RerunProbeCommand components for the MCP paid API discovery frames.",
+    "Map every visual block back to an MDX section from the docs blueprint before implementation.",
+    "Do not treat Figma text as source of truth; final content lives in MDX, llms.txt, sitemap, and schema."
+  ],
+  "implementation_notes": [
+    "Target repo: Synapse-Network",
+    "Implementation root: services/docs-front/content/docs/ai-agent-payments",
+    "Cards should stay compact with 8px radius or less and no nested cards.",
+    "Use dense technical documentation layout, not a marketing hero.",
+    "Every page needs extractable definition, facts table, FAQ, schema metadata, and last updated date.",
+    "MCP paid API discovery frames must preserve the hosted endpoint, npm package, official registry name, and tool loop as inspectable text.",
+    "Directory submission frames must mark AIToolNet and AlternativeTo as pending until browser/form confirmation or public listing evidence exists."
+  ],
+  "acceptance_checks": [
+    "Figma frame includes the canonical www homepage and docs canonical URL.",
+    "Each component maps to a docs-front reusable block or plain MDX section.",
+    "Comparison table is readable on desktop and collapses without text overlap on mobile.",
+    "Definition blocks are 40-60 words and can stand alone when quoted by answer engines.",
+    "MCP source-host frames include https://mcp.synapse-network.ai/mcp, @synapse-network-ai/mcp-server, io.github.SynapseNetworkAI/synapse-network-mcp-server, and discover_services -> invoke_and_pay -> get_receipt.",
+    "Directory submission frame separates pending source-host intent from verified external citation evidence.",
+    "Implementation can be validated by docs build, sitemap/llms curl, and Growing local validation rows."
+  ]
+}

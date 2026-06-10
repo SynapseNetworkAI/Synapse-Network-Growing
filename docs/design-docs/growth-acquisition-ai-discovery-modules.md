@@ -588,11 +588,11 @@ Product documentation design:
 
 Stitch and Figma workflow:
 
-1. Use Stitch to design the docs landing page and comparison blocks from the plan's `design_plan.stitch_prompt`.
+1. Use Stitch to design the docs landing page, MCP paid API discovery page, comparison blocks, and source-host submission pack from the plan's `design_plan.stitch_prompt` and frame-specific prompts.
 2. Export `GET /api/growth/ai-visibility/design-handoff` or `scripts/growth/generate_ai_visibility_design_handoff.py` before generating the Stitch exploration so the frame names, component specs, and acceptance checks stay stable.
 3. Import the Stitch exploration into Figma as visual guidance.
-4. Normalize typography, spacing, and reusable docs-front components in Figma.
-5. Implement the final source of truth in MDX / production site code, `llms.txt`, sitemap, and schema. Figma must not become the canonical content source.
+4. Normalize typography, spacing, and reusable docs-front components in Figma, including `RemoteMCPSetup`, `SubmissionChecklist`, and `RerunProbeCommand`.
+5. Implement the final source of truth in MDX / production site code, `llms.txt`, sitemap, schema, and directory submission metadata. Figma must not become the canonical content source.
 6. After implementation, record the feed as local validation rows first, then run external GPT / Claude / Grok probes after the content is live.
 
 Success requires repeated external evidence, not a one-off local change: brand queries should cite `www`, docs, GitHub, or MCP registry; at least half of the priority category queries should mention Synapse on two target platforms; and results should hold for three weekly runs.

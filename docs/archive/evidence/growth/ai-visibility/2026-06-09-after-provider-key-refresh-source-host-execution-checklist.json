@@ -1,0 +1,168 @@
+{
+  "module_key": "ai_visibility",
+  "checklist_type": "source_host_feed_execution",
+  "generated_at": "2026-06-09T05:05:30.937713Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-provider-key-refresh",
+  "status": "ready_for_operator_execution",
+  "items": [
+    {
+      "key": "01-aitoolnet.com-directory_submission",
+      "host": "aitoolnet.com",
+      "priority": 1,
+      "draft_type": "directory_submission",
+      "execution_status": "pending_submission",
+      "target_url": "https://www.aitoolnet.com/finish",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Submit the directory form using the non-secret payload.",
+      "required_evidence": [
+        "submission_url_or_receipt",
+        "submitted_payload_summary",
+        "screenshot"
+      ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface aitoolnet --source-url https://www.aitoolnet.com/finish --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission-confirmation.json",
+      "validation_command": "curl -fsS \"https://aitoolnet.com/\" | grep -i \"synapse\"",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "02-alternativeto.net-directory_submission",
+      "host": "alternativeto.net",
+      "priority": 2,
+      "draft_type": "directory_submission",
+      "execution_status": "pending_submission",
+      "target_url": "https://alternativeto.net/software/submit/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Submit the directory form using the non-secret payload.",
+      "required_evidence": [
+        "submission_url_or_receipt",
+        "submitted_payload_summary",
+        "screenshot"
+      ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface alternativeto --source-url https://alternativeto.net/software/submit/ --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-alternativeto-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-alternativeto-submission-confirmation.json",
+      "validation_command": "curl -fsS \"https://alternativeto.net/\" | grep -i \"synapse\"",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "03-anythingmcp.com-owned_comparison_refresh",
+      "host": "anythingmcp.com",
+      "priority": 3,
+      "draft_type": "owned_comparison_refresh",
+      "execution_status": "pending_owned_publish",
+      "target_url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "design_handoff_frame": "",
+      "action_required": "Publish the comparison draft on owned docs or GitHub surfaces.",
+      "required_evidence": [
+        "published_url",
+        "git_commit_or_pr",
+        "live_curl_validation"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp | grep -i \"anythingmcp\"",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "04-arxiv.org-contextual_partner_or_guest_pitch",
+      "host": "arxiv.org",
+      "priority": 4,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://arxiv.org/",
+      "design_handoff_frame": "",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -I -sS \"https://arxiv.org/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "05-chatforest.com-contextual_partner_or_guest_pitch",
+      "host": "chatforest.com",
+      "priority": 5,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://chatforest.com/",
+      "design_handoff_frame": "",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -I -sS \"https://chatforest.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "06-coincodecap.com-contextual_partner_or_guest_pitch",
+      "host": "coincodecap.com",
+      "priority": 6,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://coincodecap.com/",
+      "design_handoff_frame": "",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -I -sS \"https://coincodecap.com/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "07-mcp-marketplace.io-directory_submission",
+      "host": "mcp-marketplace.io",
+      "priority": 7,
+      "draft_type": "directory_submission",
+      "execution_status": "pending_operator_login",
+      "target_url": "https://mcp-marketplace.io/submit",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Submit the directory form using the non-secret payload.",
+      "required_evidence": [
+        "submission_url_or_receipt",
+        "submitted_payload_summary",
+        "screenshot"
+      ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcp_marketplace --source-url https://mcp-marketplace.io/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_marketplace-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcp_marketplace-submission-confirmation.json",
+      "validation_command": "curl -fsS \"https://mcp-marketplace.io/\" | grep -i \"synapse\"",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "08-mcpanalytics.ai-contextual_partner_or_guest_pitch",
+      "host": "mcpanalytics.ai",
+      "priority": 8,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://mcpanalytics.ai/",
+      "design_handoff_frame": "",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -I -sS \"https://mcpanalytics.ai/\" | head -5",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "export_feed_package": "python scripts/growth/generate_ai_visibility_source_host_feed_package.py --feed-key mcp_paid_api_discovery --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-feed-package.json",
+    "after_feed_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-presence-feed --platforms chatgpt,claude,grok,gemini --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-after-presence-feed-external-probes.jsonl --execute",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery\""
+  }
+}

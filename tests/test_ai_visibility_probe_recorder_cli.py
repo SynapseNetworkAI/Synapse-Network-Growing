@@ -142,8 +142,10 @@ def test_public_search_snapshot_import_outputs_diagnostic_probe_rows(
         "Public web search returned no official Synapse result for query: MCP server for paid API calls Synapse"
     ]
     assert records[0].metadata["diagnostic_only"] is True
+    assert records[0].metadata["source_hosts"] == ["docs.mcpay.tech", "docs.hud.io"]
     assert records[1].synapse_mentioned is True
     assert records[1].result_rank == 1
+    assert records[1].metadata["source_hosts"] == ["docs.synapse-network.ai"]
 
     errors = record_probe_cli.validate_records(records)
     assert errors == []

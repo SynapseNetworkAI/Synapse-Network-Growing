@@ -1,0 +1,68 @@
+{
+  "run_group": "2026-06-09-exact-identifier",
+  "status": "incomplete_positive_partial",
+  "goal": "Make Synapse Network MCP discoverable and cited by GPT, Claude, Grok, and Gemini for exact MCP identity queries.",
+  "evidence_files": [
+    "docs/archive/evidence/growth/ai-visibility/2026-06-09-exact-identifier-api-probes.jsonl",
+    "docs/archive/evidence/growth/ai-visibility/2026-06-09-exact-identifier-gemini-retry.jsonl"
+  ],
+  "summary": {
+    "probe_rows": 20,
+    "synapse_mentions": 3,
+    "synapse_citations": 1,
+    "positive_platforms": [
+      "chatgpt"
+    ],
+    "blocked_platforms": [
+      "claude",
+      "grok",
+      "gemini"
+    ]
+  },
+  "positive_evidence": [
+    {
+      "platform": "chatgpt",
+      "query": "https://mcp.synapse-network.ai/mcp discover_services",
+      "synapse_mentioned": true,
+      "synapse_cited": true,
+      "cited_urls": [
+        "https://mcp.synapse-network.ai/mcp",
+        "https://mcp.synapse-network.ai/mcp/discover_services`"
+      ],
+      "interpretation": "ChatGPT can now cite the hosted Synapse Remote MCP endpoint for an exact endpoint and tool-name query."
+    }
+  ],
+  "remaining_blockers": [
+    {
+      "platform": "chatgpt",
+      "type": "brand_collision",
+      "details": "Broader SynapseNetwork MCP Server queries still collide with Synapse.org biomedical MCP content and adjacent MCP directories."
+    },
+    {
+      "platform": "claude",
+      "type": "provider_credit_blocker",
+      "details": "Anthropic API returned insufficient credit balance, so current Claude citation status could not be measured."
+    },
+    {
+      "platform": "grok",
+      "type": "provider_credit_blocker",
+      "details": "XAI API returned team credit or monthly spending limit exhaustion, so current Grok citation status could not be measured."
+    },
+    {
+      "platform": "gemini",
+      "type": "provider_quota_blocker",
+      "details": "Gemini API returned free-tier generate_content quota exhaustion on the batch run and the single retry."
+    },
+    {
+      "platform": "all",
+      "type": "stability_blocker",
+      "details": "The goal requires stable positive evidence across GPT, Claude, Grok, and Gemini; this run proves only partial ChatGPT progress."
+    }
+  ],
+  "next_actions": [
+    "Submit or confirm live listings on AIToolNet, AlternativeTo, mcp.directory, and MCPServers with canonical Synapse Network MCP metadata.",
+    "Add more exact identity language to official source-host surfaces: Synapse Network MCP Server, SynapseNetworkAI/Synapse-Network-MCP-Server, and mcp.synapse-network.ai/mcp.",
+    "After Anthropic/XAI credits and Gemini quota are available, rerun the exact identifier probe set.",
+    "Keep the hosted endpoint evidence separate from BYOK credential documentation so public crawlers can index the endpoint without exposing billing credentials."
+  ]
+}

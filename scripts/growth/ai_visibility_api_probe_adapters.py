@@ -360,4 +360,15 @@ def redact_secrets(value: str) -> str:
         secret_value = os.environ.get(env_key, "").strip()
         if secret_value:
             redacted = redacted.replace(secret_value, "[REDACTED]")
+    redacted = re.sub(
+        r"\bteam\s+[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b",
+        "team [REDACTED]",
+        redacted,
+        flags=re.IGNORECASE,
+    )
+    redacted = re.sub(
+        r"\b(?:org|acct|account|project)_[A-Za-z0-9_-]{6,}\b",
+        "[REDACTED_ACCOUNT_ID]",
+        redacted,
+    )
     return redacted

@@ -1,0 +1,30 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "submission_recorded",
+  "evidence_type": "submission_confirmation",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-protodex-submission",
+  "surface": "protodex",
+  "source_url": "https://github.com/LuciferForge/mcp-directory/issues/17",
+  "checked_at": "2026-06-09T16:32:32.606862+00:00",
+  "required_terms": [],
+  "matched_terms": [],
+  "missing_terms": [],
+  "content_sha256": "fbe4dfd269d294b99032949a1370103dfe980fc8d796ce73bd7dd769cc49e3e1",
+  "content_bytes": 222,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "source_host_submission_confirmation_not_external_citation",
+  "design_handoff_frame": "Directory Source-Host Submission Pack",
+  "submitted_payload_summary": "Submitted Synapse Network MCP Server to Protodex via GitHub issue with public GitHub repository, API Integration category, Remote MCP endpoint, npm package, docs URL, and discover_services/invoke_and_pay/get_receipt tools.",
+  "screenshot_url": "https://github.com/LuciferForge/mcp-directory/issues/17",
+  "validation_summary": "protodex browser/form submission evidence recorded; this is not a live listing or answer-engine citation.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-protodex-submission-after-source-host --platforms chatgpt,claude,gemini --execute"
+}

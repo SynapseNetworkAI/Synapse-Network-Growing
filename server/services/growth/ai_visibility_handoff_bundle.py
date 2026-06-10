@@ -199,7 +199,7 @@ def _handoff_next_actions(release_snapshot: dict[str, Any]) -> list[str]:
     return unique_strings(
         list(release_snapshot.get("next_actions") or [])
         + [
-            "Run full GPT/Claude/Grok probes only after production feed validation passes.",
+            "Run full GPT/Claude/Grok/Gemini probes only after production feed validation passes.",
         ]
     )
 

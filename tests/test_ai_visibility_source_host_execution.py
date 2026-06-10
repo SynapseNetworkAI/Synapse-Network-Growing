@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from scripts.growth.record_ai_visibility_source_host_execution import (
+    build_submission_confirmation_evidence,
     build_source_host_evidence,
     fetch_text,
 )
@@ -55,6 +56,35 @@ def test_source_host_execution_evidence_fails_closed_on_missing_terms():
     assert evidence.missing_terms == ["RapidAPI", "Project Synapse"]
 
 
+def test_source_host_submission_confirmation_is_not_external_citation():
+    evidence = build_submission_confirmation_evidence(
+        feed_key="mcp_paid_api_discovery",
+        run_group="2026-06-09-after-provider-key-refresh",
+        surface="aitoolnet",
+        source_url="https://www.aitoolnet.com/finish",
+        submitted_payload_summary=(
+            "Submitted SynapseNetwork MCP Server with Remote MCP endpoint, "
+            "GitHub, npm package, discover_services, invoke_and_pay, get_receipt."
+        ),
+        screenshot_url="docs/archive/evidence/growth/ai-visibility/aitoolnet.png",
+        design_handoff_frame="Directory Source-Host Submission Pack",
+        target_platforms=["chatgpt", "claude"],
+        target_queries=["Synapse vs paid MCP alternatives"],
+    )
+
+    assert evidence.status == "submission_recorded"
+    assert evidence.evidence_type == "submission_confirmation"
+    assert (
+        evidence.evidence_role
+        == "source_host_submission_confirmation_not_external_citation"
+    )
+    assert evidence.design_handoff_frame == "Directory Source-Host Submission Pack"
+    assert evidence.content_sha256
+    assert evidence.content_bytes > 0
+    assert "not a live listing" in evidence.validation_summary
+    assert "after-source-host" in evidence.next_probe_command
+
+
 def test_source_host_execution_cli_writes_json(tmp_path: Path):
     source_path = tmp_path / "README.md"
     source_path.write_text(
@@ -97,6 +127,52 @@ def test_source_host_execution_cli_writes_json(tmp_path: Path):
     assert payload["module_key"] == "ai_visibility_source_host_execution"
     assert payload["status"] == "live_verified"
     assert payload["surface"] == "github_readme"
+
+
+def test_source_host_submission_confirmation_cli_writes_json(tmp_path: Path):
+    output_path = tmp_path / "submission-evidence.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/growth/record_ai_visibility_source_host_execution.py",
+            "--feed-key",
+            "mcp_paid_api_discovery",
+            "--run-group",
+            "2026-06-09-after-provider-key-refresh",
+            "--surface",
+            "alternativeto",
+            "--source-url",
+            "https://alternativeto.net/",
+            "--evidence-mode",
+            "submission-confirmation",
+            "--submitted-payload-summary",
+            "Submitted SynapseNetwork MCP Server with non-secret public metadata.",
+            "--screenshot-url",
+            "docs/archive/evidence/growth/ai-visibility/alternativeto.png",
+            "--design-handoff-frame",
+            "Directory Source-Host Submission Pack",
+            "--target-platform",
+            "chatgpt",
+            "--target-query",
+            "Synapse vs paid MCP alternatives",
+            "--output",
+            str(output_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "submission_recorded"
+    assert payload["evidence_type"] == "submission_confirmation"
+    assert payload["design_handoff_frame"] == "Directory Source-Host Submission Pack"
+    assert payload["evidence_role"] == (
+        "source_host_submission_confirmation_not_external_citation"
+    )
 
 
 def test_fetch_text_sends_source_host_user_agent(monkeypatch):

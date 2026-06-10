@@ -32,6 +32,11 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
         "feed_validation.validate_feed",
         fake_validate_feed,
     )
+    monkeypatch.setattr(
+        "server.services.growth.ai_visibility_external_probe_gate."
+        "_source_host_blockers",
+        lambda **_: [],
+    )
 
     response = synced_client.get(
         "/api/growth/ai-visibility/external-probe-gate"
@@ -54,7 +59,7 @@ def test_growth_ai_visibility_external_probe_gate_partial_ready(
     assert "--platforms chatgpt,claude,grok,gemini" in payload["api_readiness_command"]
     assert "--platforms chatgpt,claude,grok,gemini" in payload["manual_probe_template_command"]
     assert "grok missing XAI_API_KEY." in payload["blockers"]
-    assert "gemini missing GEMINI_API_KEY." in payload["blockers"]
+    assert "gemini missing GEMINI_API_KEY or GENIMI_API_KEY." in payload["blockers"]
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
 
@@ -90,6 +95,11 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
         "feed_validation.validate_feed",
         fake_validate_feed,
     )
+    monkeypatch.setattr(
+        "server.services.growth.ai_visibility_external_probe_gate."
+        "_source_host_blockers",
+        lambda **_: [],
+    )
 
     response = synced_client.get(
         "/api/growth/ai-visibility/external-probe-gate"
@@ -108,12 +118,72 @@ def test_growth_ai_visibility_external_probe_gate_ready_redacts_keys(
     assert payload["ready_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
     assert payload["missing_platforms"] == []
     assert all(item["configured"] for item in payload["provider_readiness"])
+    gemini = next(item for item in payload["provider_readiness"] if item["platform"] == "gemini")
+    assert gemini["env_key"] == "GEMINI_API_KEY or GENIMI_API_KEY"
     assert (
         "generate_ai_visibility_probe_template.py"
         in payload["manual_probe_template_command"]
     )
     assert "sk-test-openai-secret" not in rendered
     assert "sk-test-anthropic-secret" not in rendered
+    assert "xai-test-secret" not in rendered
+    assert "gemini-test-secret" not in rendered
+
+
+def test_growth_ai_visibility_external_probe_gate_blocks_missing_source_host_terms(
+    monkeypatch,
+    synced_client,
+):
+    from scripts.growth.record_ai_visibility_probe import ProbeRecord
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-openai-secret")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-anthropic-secret")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-secret")
+    monkeypatch.setenv("GENIMI_API_KEY", "gemini-test-secret")
+
+    def fake_validate_feed(*, feed_key: str, run_group: str):
+        return [
+            ProbeRecord(
+                query="Remote MCP live readiness",
+                platform="mcp_live_validation",
+                feed_key=feed_key,
+                run_group=run_group,
+                answer_summary="Live feed validation passed.",
+                synapse_mentioned=True,
+                synapse_cited=True,
+                cited_urls=["https://www.synapse-network.ai/"],
+            )
+        ]
+
+    monkeypatch.setattr(
+        "server.services.growth.ai_visibility_live_readiness."
+        "feed_validation.validate_feed",
+        fake_validate_feed,
+    )
+    monkeypatch.setattr(
+        "server.services.growth.ai_visibility_external_probe_gate."
+        "_source_host_blockers",
+        lambda **_: [
+            "Production source-host feed terms agent402, mcpay.fun, and Cashfree are not live on docs/www yet.",
+        ],
+    )
+
+    response = synced_client.get(
+        "/api/growth/ai-visibility/external-probe-gate"
+        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-08-external"
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    rendered = json.dumps(payload)
+    assert payload["status"] == "blocked_until_feed_ready"
+    assert payload["feed_ready"] is False
+    assert payload["api_keys_ready"] is True
+    assert payload["ready_to_execute"] is False
+    assert payload["partial_ready_to_execute"] is False
+    assert payload["manual_ready_to_execute"] is False
+    assert any("Production source-host feed terms agent402" in item for item in payload["blockers"])
+    assert "sk-test-openai-secret" not in rendered
     assert "xai-test-secret" not in rendered
     assert "gemini-test-secret" not in rendered
 

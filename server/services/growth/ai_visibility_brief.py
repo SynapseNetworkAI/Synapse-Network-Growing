@@ -194,7 +194,7 @@ def _render_markdown(
             f"- Ready platforms: {', '.join(external_gate.ready_platforms) or '-'}",
             f"- Missing platforms: {', '.join(external_gate.missing_platforms) or '-'}",
             f"- Partial probe command: `{external_gate.partial_api_readiness_command or '-'}`",
-            "- Production feed validation must pass before GPT/Claude/Grok probes count as success evidence.",
+            "- Production feed validation must pass before GPT/Claude/Grok/Gemini probes count as success evidence.",
         ]
     )
     return "\n".join(lines).rstrip() + "\n"

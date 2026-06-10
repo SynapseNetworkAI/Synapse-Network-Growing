@@ -1,0 +1,130 @@
+{
+  "blockers": [
+    "Missing source-host submission confirmation evidence for alternativeto.net.",
+    "Directory submission is not enough; live listing evidence is missing for alternativeto.net, mcpservers.org.",
+    "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
+    "Fewer than three stable positive external runs have been recorded."
+  ],
+  "completed_count": 8,
+  "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/goal-audit.json",
+  "generated_at": "2026-06-09T12:50:27.715653Z",
+  "goal_achieved": false,
+  "module_key": "ai_visibility",
+  "next_actions": [
+    "Submit current P0 directory forms and record confirmation evidence.",
+    "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
+    "Repeat feed, probe, compare, and weekly report cycles.",
+    "Fix provider/API probe failure and rerun the same query.",
+    "Deploy/refresh feed assets and rerun the same API probe."
+  ],
+  "official_homepage": "https://www.synapse-network.ai/",
+  "requirements": [
+    {
+      "blocker": "",
+      "evidence": "3 feed experiments and 4 success criteria are defined.",
+      "key": "strategy",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Agent optimization strategy"
+    },
+    {
+      "blocker": "",
+      "evidence": "AI Agent Payments blueprint has 7 page(s).",
+      "key": "product_docs",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Product docs design"
+    },
+    {
+      "blocker": "",
+      "evidence": "Synapse AI Agent Payments Docs - AI Visibility has 6 frame prompt(s).",
+      "key": "stitch_figma",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Stitch to Figma handoff"
+    },
+    {
+      "blocker": "",
+      "evidence": "3 feed cycle(s) and 3 score row(s).",
+      "key": "growing_module",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Growing AI Visibility module"
+    },
+    {
+      "blocker": "",
+      "evidence": "brand_disambiguation_www, agent_payment_category_pages, mcp_paid_api_discovery",
+      "key": "feed_experiments",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Different feed experiments"
+    },
+    {
+      "blocker": "",
+      "evidence": "Directory Source-Host Submission Pack covers alternativeto.net, mcpservers.org.",
+      "key": "source_host_handoff",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Directory source-host handoff"
+    },
+    {
+      "blocker": "Missing source-host submission confirmation evidence for alternativeto.net.",
+      "evidence": "",
+      "key": "source_host_submission_evidence",
+      "next_action": "Submit current P0 directory forms and record confirmation evidence.",
+      "required": true,
+      "status": "blocked",
+      "title": "Directory submission evidence"
+    },
+    {
+      "blocker": "Directory submission is not enough; live listing evidence is missing for alternativeto.net, mcpservers.org.",
+      "evidence": "",
+      "key": "source_host_live_evidence",
+      "next_action": "Verify published listings, then rerun unchanged GPT/Claude/Grok/Gemini probes.",
+      "required": true,
+      "status": "blocked",
+      "title": "Directory live listing evidence"
+    },
+    {
+      "blocker": "",
+      "evidence": "Ready feeds: mcp_paid_api_discovery",
+      "key": "feed_readiness",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Live feed readiness"
+    },
+    {
+      "blocker": "",
+      "evidence": "Covered chatgpt, claude, gemini, grok with 15 official citation(s).",
+      "key": "external_search_evidence",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "GPT/Claude/Grok/Gemini search evidence"
+    },
+    {
+      "blocker": "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
+      "evidence": "",
+      "key": "stable_positive_runs",
+      "next_action": "Repeat feed, probe, compare, and weekly report cycles.",
+      "required": true,
+      "status": "blocked",
+      "title": "Continuous optimization proof"
+    }
+  ],
+  "status": "incomplete",
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "total_required": 11
+}

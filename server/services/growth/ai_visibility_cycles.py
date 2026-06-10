@@ -162,7 +162,7 @@ def _next_actions(
             blockers + ["Resolve feed blockers before external probes."]
         )[:6]
     if status == "ready_for_external_probe":
-        return ["Run unchanged ChatGPT, Claude, and Grok probes for this feed."]
+        return ["Run unchanged ChatGPT, Claude, Grok, and Gemini probes for this feed."]
     if status == "partial_external_probe":
         return [f"Complete missing external probes: {', '.join(missing_platforms)}."]
     if status in {"citation_observed", "mention_observed"}:

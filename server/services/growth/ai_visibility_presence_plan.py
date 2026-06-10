@@ -11,55 +11,85 @@ from server.schemas_growth import (
     GrowthAIVisibilityPresencePlanOut,
 )
 from server.services.growth import ai_visibility_discovery
+from server.services.growth.ai_visibility_directory_submission_payloads import (
+    directory_submission_payload,
+)
+from server.services.growth.ai_visibility_source_host_directory_config import (
+    DIRECTORY_SUBMIT_URLS,
+)
 from server.services.growth.ai_visibility_text import unique_strings
 
 DEFAULT_FEED_KEY = "mcp_paid_api_discovery"
 DEFAULT_RUN_GROUP = "latest"
 
 DIRECTORY_HOSTS = {
+    "aitoolnet.com",
+    "alternativeto.net",
+    "glama.ai",
     "mcpservers.org",
     "mcp.directory",
+    "mcpfind.org",
     "mcp-marketplace.io",
-    "mcp.so",
     "lobehub.com",
-}
-EDITORIAL_HOSTS = {
-    "chatforest.com",
-    "coincodecap.com",
+    "protodex.io",
+    "pulsemcp.com",
 }
 CONTROLLED_HOSTS = {
     "github.com",
     "registry.modelcontextprotocol.io",
     "smithery.ai",
-    "glama.ai",
 }
 COMPETITOR_HOSTS = {
+    "agent402.dev",
+    "autobase.biz",
+    "cashfree.com",
+    "developer.paddle.com",
+    "docs-dev.seamless.ai",
     "docs.mcpay.tech",
+    "docs.mcp.run",
     "docs.latchmcp.app",
     "mcp.magpie.im",
+    "mcp.paddle.com",
     "teleport.ltd",
     "docs.stripe.com",
     "anythingmcp.com",
     "mcpsynapse.dev",
+    "rapid-mcp.com",
 }
-BRAND_COLLISION_HOSTS = {"mcp.synapse.org", "python-docs.synapse.org", "synapse.org"}
-DIRECTORY_SUBMIT_URLS = {
-    "mcp.directory": "https://mcp.directory/submit",
-    "mcpservers.org": "https://mcpservers.org/submit",
-    "mcp-marketplace.io": "https://mcp-marketplace.io/submit",
-    "mcp.so": "https://mcp.so/submit",
+BRAND_COLLISION_HOSTS = {
+    "python-docs.synapse.org",
+    "synapse.org",
 }
 OFFICIAL_GITHUB_REPOSITORY = (
     "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server"
 )
 OFFICIAL_NPM_PACKAGE = "@synapse-network-ai/mcp-server"
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
+OFFICIAL_CONTACT_EMAIL = "support@synapse-network.ai"
 LISTING_DESCRIPTION = (
     "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke "
     "approved paid tools with bounded USDC spend, and retrieve settlement receipts."
 )
 OFFICIAL_DOCS_URL = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 COMPARISON_DOCS_URL = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
+COMPETITOR_COMPARISON_TERMS = {
+    "agent402.dev": ["agent402", "x402", "paid MCP server"],
+    "cashfree.com": [
+        "Cashfree",
+        "agentic payments",
+        "ChatGPT MCP app for API payments",
+    ],
+    "developer.paddle.com": ["Paddle", "MCP server for paid API calls"],
+    "docs-dev.seamless.ai": ["Seamless.AI", "ChatGPT MCP app for API payments"],
+    "docs.mcp.run": ["mcp.run", "ChatGPT MCP app for API payments"],
+    "docs.mcpay.tech": ["MCPay", "mcpay.fun", "x402"],
+    "docs.latchmcp.app": ["Latch", "x402", "paid MCP"],
+    "docs.stripe.com": ["Stripe", "agent payments", "micropayments"],
+    "mcp.magpie.im": ["Magpie", "paid MCP"],
+    "mcp.paddle.com": ["Paddle MCP", "paid API calls"],
+    "rapid-mcp.com": ["Rapid MCP", "paid MCP alternatives"],
+    "teleport.ltd": ["Teleport", "MCP app payments"],
+}
 
 
 def ai_visibility_presence_plan(
@@ -125,8 +155,6 @@ def _action_for_host(
         return _directory_action(normalized, index)
     if normalized in CONTROLLED_HOSTS:
         return _controlled_action(normalized, index)
-    if normalized in EDITORIAL_HOSTS:
-        return _editorial_action(normalized, index)
     if normalized in COMPETITOR_HOSTS:
         return _competitor_action(normalized, index)
     if normalized in BRAND_COLLISION_HOSTS:
@@ -137,9 +165,27 @@ def _action_for_host(
 def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceActionOut:
     submit_url = DIRECTORY_SUBMIT_URLS.get(host, "")
     operator_notes = []
-    if host in {"mcp-marketplace.io", "mcp.so"}:
+    if host == "mcp-marketplace.io":
         operator_notes.append(
             "Login appears required before submission; use the operator-owned directory account."
+        )
+    if host in {"aitoolnet.com", "alternativeto.net", "glama.ai"}:
+        operator_notes.extend(
+            [
+                "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the browser form.",
+                "CLI probes can receive site-level 403; verify through browser/form confirmation or a public listing URL.",
+            ]
+        )
+    if host == "aitoolnet.com":
+        operator_notes.extend(
+            [
+                "AIToolNet finish page asks listings to email support@aitoolnet.com; "
+                "send from support@synapse-network.ai or another operator-owned "
+                "Synapse mailbox.",
+                "Do not mark AIToolNet submitted from CLI reachability alone; "
+                "require an email draft/send receipt, browser confirmation screen, "
+                "or screenshot.",
+            ]
         )
     return _action(
         host=host,
@@ -178,29 +224,6 @@ def _controlled_action(host: str, index: int) -> GrowthAIVisibilityPresenceActio
     )
 
 
-def _editorial_action(host: str, index: int) -> GrowthAIVisibilityPresenceActionOut:
-    payload = _editorial_payload(host)
-    return _action(
-        host=host,
-        priority=index,
-        action_type="editorial_pitch",
-        ownership="partner_or_editorial_review",
-        rationale=(
-            "ChatGPT cited this editorial/source host for MCP or agent-payment "
-            "queries; a factual pitch can create a citable third-party mention."
-        ),
-        target_surface=f"https://{host}/",
-        asset="Editorial pitch for a Synapse Remote MCP review, comparison, or roundup mention.",
-        validation_command=f'curl -fsS "{payload["target_url"]}" | grep -i "synapse"',
-        source_reference_url=payload["target_url"],
-        submission_payload=payload,
-        operator_notes=[
-            "Do not imply an existing partnership; submit as an editorial correction, review request, or topic pitch.",
-            "Use only public facts and links; do not include credentials, API keys, or private billing data.",
-        ],
-    )
-
-
 def _competitor_action(host: str, index: int) -> GrowthAIVisibilityPresenceActionOut:
     return _action(
         host=host,
@@ -231,28 +254,49 @@ def _brand_collision_action(
     return _action(
         host=host,
         priority=index,
-        action_type="brand_collision_disambiguation",
-        ownership="owned",
+        action_type="brand_disambiguation",
+        ownership="owned_content_required",
         rationale=(
-            "Answer-engine source evidence confused Synapse Network with an "
-            "unrelated Synapse.org/Sage surface; owned docs and llms.txt need "
-            "explicit identity and not-this-project language before rerunning probes."
+            "Answer engines are using this non-Synapse-Network source for exact "
+            "SynapseNetwork MCP queries; official source hosts need stronger "
+            "identity and disambiguation language."
         ),
         target_surface=COMPARISON_DOCS_URL,
         asset=(
-            "Owned docs/llms disambiguation block naming SynapseNetworkAI, "
-            "www.synapse-network.ai, docs.synapse-network.ai, and the unrelated "
-            f"collision host {host}."
+            "Owned docs/README/registry disambiguation block naming Synapse Network, "
+            "SynapseNetworkAI/Synapse-Network-MCP-Server, the hosted Remote MCP "
+            "endpoint, and the Synapse.org/Sage Bionetworks distinction."
         ),
         validation_command=(
-            "curl -fsS https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp "
-            '| grep -E "SynapseNetworkAI|Sage|synapse.org|mcp.synapse.org"'
+            "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls "
+            "| grep -i 'Sage Bionetworks'"
         ),
         source_reference_url=f"https://{host}/",
-        submission_payload=_brand_collision_payload(host),
+        submission_payload={
+            "collision_host": host,
+            "owned_docs_url": OFFICIAL_DOCS_URL,
+            "owned_comparison_url": COMPARISON_DOCS_URL,
+            "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
+            "official_registry_query": (
+                "io.github.SynapseNetworkAI/synapse-network-mcp-server"
+            ),
+            "exact_identifier_queries": [
+                "SynapseNetwork MCP Server",
+                "SynapseNetworkAI Synapse-Network-MCP-Server",
+                "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+                "https://mcp.synapse-network.ai/mcp discover_services",
+            ],
+            "recommended_copy": (
+                "Synapse Network MCP Server is the Remote MCP endpoint for AI "
+                "agents buying paid APIs through Synapse Network at "
+                "synapse-network.ai. It is separate from Synapse.org and Sage "
+                "Bionetworks biomedical data infrastructure."
+            ),
+            "evidence_status": "pending_owned_disambiguation_publication",
+        },
         operator_notes=[
-            "Publish only on owned SynapseNetworkAI surfaces; do not contact or edit the unrelated Synapse.org project.",
-            "The goal is disambiguation, not a competitive claim.",
+            "Publish on owned docs and GitHub first; do not request edits to the unrelated Synapse.org site.",
+            "After publication, rerun exact identifier probes before changing directory priorities.",
         ],
     )
 
@@ -314,7 +358,7 @@ def _action(
         ],
         validation_command=validation_command,
         probe_followup=(
-            "Rerun the unchanged ChatGPT/Claude/Grok probe matrix after the listing "
+            "Rerun the unchanged ChatGPT/Claude/Grok/Gemini probe matrix after the listing "
             "or comparison asset is live and indexed."
         ),
         submit_url=submit_url,
@@ -325,59 +369,22 @@ def _action(
 
 
 def _directory_payload(host: str) -> dict[str, object]:
-    base_payload: dict[str, object] = {
-        "server_name": "Synapse Network MCP Server",
-        "short_description": LISTING_DESCRIPTION,
-        "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
-        "npm_package": OFFICIAL_NPM_PACKAGE,
-        "remote_mcp_endpoint": REMOTE_MCP_ENDPOINT,
-        "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
-        "website": "https://www.synapse-network.ai/",
-        "docs": OFFICIAL_DOCS_URL,
-        "contact_email": "<operator email>",
-    }
-    if host == "mcp.directory":
-        return {
-            **base_payload,
-            "pypi_package": "",
-            "form_fields": [
-                "GitHub Repository URL",
-                "NPM package",
-                "PyPI package",
-                "Short description",
-                "Email",
-            ],
-        }
-    if host == "mcpservers.org":
-        return {
-            **base_payload,
-            "link": OFFICIAL_GITHUB_REPOSITORY,
-            "category": "Finance & Payments",
-            "premium_listing": False,
-        }
-    if host == "mcp.so":
-        return {
-            **base_payload,
-            "name": "Synapse Network MCP Server",
-            "url": OFFICIAL_GITHUB_REPOSITORY,
-            "server_config": {
-                "mcpServers": {
-                    "synapse-agentpay": {
-                        "command": "npx",
-                        "args": ["-y", OFFICIAL_NPM_PACKAGE],
-                        "env": {
-                            "SYNAPSE_AGENT_KEY": "agt_xxx",
-                            "SYNAPSE_ENV": "prod",
-                        },
-                    }
-                }
-            },
-            "login_required": True,
-        }
-    return {
-        **base_payload,
-        "login_required": host == "mcp-marketplace.io",
-    }
+    return directory_submission_payload(
+        host,
+        {
+            "server_name": "Synapse Network MCP Server",
+            "short_description": LISTING_DESCRIPTION,
+            "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
+            "npm_package": OFFICIAL_NPM_PACKAGE,
+            "remote_mcp_endpoint": REMOTE_MCP_ENDPOINT,
+            "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
+            "website": "https://www.synapse-network.ai/",
+            "docs": OFFICIAL_DOCS_URL,
+            "contact_email": OFFICIAL_CONTACT_EMAIL,
+            "stitch_figma_frame": "Directory Source-Host Submission Pack",
+            "evidence_status": "pending_submission_not_external_citation",
+        },
+    )
 
 
 def _controlled_payload(host: str) -> dict[str, object]:
@@ -396,62 +403,37 @@ def _controlled_payload(host: str) -> dict[str, object]:
 
 
 def _comparison_payload(host: str) -> dict[str, object]:
+    cited_terms = _comparison_terms(host)
     return {
         "competitor_host": host,
         "owned_comparison_url": COMPARISON_DOCS_URL,
+        "answer_engine_queries": [
+            "MCP server for paid API calls",
+            "ChatGPT MCP app for API payments",
+            "Synapse vs paid MCP alternatives",
+        ],
+        "cited_terms": cited_terms,
         "recommended_copy_angle": (
             "Explain how Synapse differs from paid MCP alternatives by combining "
             "Remote MCP discovery, bounded agent spend, USDC settlement, and receipts."
+        ),
+        "answer_engine_source_block": (
+            "Synapse Network is a Remote MCP and settlement layer for AI agents that "
+            "need to discover paid APIs, invoke approved tools with bounded USDC "
+            "spend, and retrieve receipts. Unlike "
+            f"{', '.join(cited_terms)} surfaces, Synapse emphasizes credential "
+            "isolation, spend limits, receipts, and provider settlement for "
+            "machine-to-machine API commerce."
         ),
         "source_hosts_to_monitor": [host],
     }
 
 
-def _brand_collision_payload(host: str) -> dict[str, object]:
-    return {
-        "collision_host": host,
-        "owned_disambiguation_url": COMPARISON_DOCS_URL,
-        "llms_txt_anchor": "SynapseNetworkAI official sources",
-        "recommended_answer_block": (
-            "Synapse Network, by SynapseNetworkAI, is the AI-agent payment and "
-            "Remote MCP settlement layer at https://www.synapse-network.ai/. "
-            "It is not Sage Bionetworks Synapse, synapse.org, mcp.synapse.org, "
-            "python-docs.synapse.org, or Synapse Protocol."
-        ),
-        "required_official_links": [
-            "https://www.synapse-network.ai/",
-            OFFICIAL_DOCS_URL,
-            COMPARISON_DOCS_URL,
-            OFFICIAL_GITHUB_REPOSITORY,
-        ],
-    }
-
-
-def _editorial_payload(host: str) -> dict[str, object]:
-    contacts = {
-        "chatforest.com": "https://chatforest.com/reviews/",
-        "coincodecap.com": "https://coincodecap.com/contact",
-    }
-    angles = {
-        "chatforest.com": (
-            "Review Synapse Network MCP Server as a Remote MCP for paid API "
-            "discovery, bounded invocation, USDC settlement, and receipts."
-        ),
-        "coincodecap.com": (
-            "Cover Synapse Network as AI-agent payment infrastructure for MCP "
-            "paid API calls, USDC micropayments, and API provider monetization."
-        ),
-    }
-    return {
-        "target_url": contacts.get(host, f"https://{host}/"),
-        "pitch_subject": "Synapse Network Remote MCP for paid API calls",
-        "pitch_angle": angles.get(host, LISTING_DESCRIPTION),
-        "official_facts_url": OFFICIAL_DOCS_URL,
-        "comparison_url": COMPARISON_DOCS_URL,
-        "github_repository_url": OFFICIAL_GITHUB_REPOSITORY,
-        "remote_mcp_endpoint": REMOTE_MCP_ENDPOINT,
-        "tools": ["discover_services", "invoke_and_pay", "get_receipt"],
-    }
+def _comparison_terms(host: str) -> list[str]:
+    normalized = host.strip().lower()
+    if normalized in COMPETITOR_COMPARISON_TERMS:
+        return COMPETITOR_COMPARISON_TERMS[normalized]
+    return [normalized.split(".")[0]]
 
 
 def _blockers(

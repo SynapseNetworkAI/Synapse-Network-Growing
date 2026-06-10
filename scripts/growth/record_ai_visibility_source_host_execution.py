@@ -37,6 +37,16 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
     parser.add_argument("--surface", required=True)
     parser.add_argument("--source-url", required=True)
     parser.add_argument(
+        "--evidence-mode",
+        choices=["live", "submission-confirmation"],
+        default="live",
+        help=(
+            "live fetches source-url and checks required terms; "
+            "submission-confirmation records browser/form evidence without "
+            "claiming a public listing is live."
+        ),
+    )
+    parser.add_argument(
         "--required-term",
         action="append",
         default=[],
@@ -54,23 +64,51 @@ def main() -> int:  # pragma: no cover - subprocess CLI wrapper
         default=[],
         help="Probe query this source-host execution is meant to influence.",
     )
+    parser.add_argument(
+        "--submitted-payload-summary",
+        default="",
+        help="Required for submission-confirmation mode; do not include secrets.",
+    )
+    parser.add_argument(
+        "--screenshot-url",
+        default="",
+        help="Required for submission-confirmation mode; local artifact or browser screenshot URL.",
+    )
+    parser.add_argument(
+        "--design-handoff-frame",
+        default="",
+        help="Optional Stitch/Figma frame that guided the submission.",
+    )
     parser.add_argument("--output", help="Write JSON evidence to this path.")
     args = parser.parse_args()
 
     try:
-        content = fetch_text(args.source_url)
-        evidence = build_source_host_evidence(
-            feed_key=args.feed_key,
-            run_group=args.run_group,
-            surface=args.surface,
-            source_url=args.source_url,
-            content=content,
-            required_terms=args.required_term,
-            target_platforms=args.target_platform or DEFAULT_PLATFORMS,
-            target_queries=args.target_query,
-        )
+        if args.evidence_mode == "submission-confirmation":
+            evidence = build_submission_confirmation_evidence(
+                feed_key=args.feed_key,
+                run_group=args.run_group,
+                surface=args.surface,
+                source_url=args.source_url,
+                submitted_payload_summary=args.submitted_payload_summary,
+                screenshot_url=args.screenshot_url,
+                design_handoff_frame=args.design_handoff_frame,
+                target_platforms=args.target_platform or DEFAULT_PLATFORMS,
+                target_queries=args.target_query,
+            )
+        else:
+            content = fetch_text(args.source_url)
+            evidence = build_source_host_evidence(
+                feed_key=args.feed_key,
+                run_group=args.run_group,
+                surface=args.surface,
+                source_url=args.source_url,
+                content=content,
+                required_terms=args.required_term,
+                target_platforms=args.target_platform or DEFAULT_PLATFORMS,
+                target_queries=args.target_query,
+            )
         write_json_payload(evidence.model_dump(), args.output)
-        return 0 if evidence.status == "live_verified" else 2
+        return 0 if evidence.status in {"live_verified", "submission_recorded"} else 2
     except Exception as exc:
         emit_failure(exc)
         return 1
@@ -105,6 +143,52 @@ def build_source_host_evidence(
         target_platforms=unique_strings(target_platforms),
         target_queries=unique_strings(target_queries),
         validation_summary=validation_summary(status, surface, matched, missing),
+        next_probe_command=next_probe_command(feed_key, run_group, target_platforms),
+    )
+
+
+def build_submission_confirmation_evidence(
+    *,
+    feed_key: str,
+    run_group: str,
+    surface: str,
+    source_url: str,
+    submitted_payload_summary: str,
+    screenshot_url: str,
+    design_handoff_frame: str,
+    target_platforms: list[str],
+    target_queries: list[str],
+) -> SourceHostExecutionEvidence:
+    summary = submitted_payload_summary.strip()
+    screenshot = screenshot_url.strip()
+    if not summary:
+        raise ValueError("submitted_payload_summary is required")
+    if not screenshot:
+        raise ValueError("screenshot_url is required")
+    content_hash = hashlib.sha256(summary.encode("utf-8")).hexdigest()
+    return SourceHostExecutionEvidence(
+        status="submission_recorded",
+        evidence_type="submission_confirmation",
+        feed_key=feed_key,
+        run_group=run_group,
+        surface=surface,
+        source_url=source_url,
+        checked_at=datetime.now(UTC).isoformat(),
+        required_terms=[],
+        matched_terms=[],
+        missing_terms=[],
+        content_sha256=content_hash,
+        content_bytes=len(summary.encode("utf-8")),
+        target_platforms=unique_strings(target_platforms),
+        target_queries=unique_strings(target_queries),
+        evidence_role="source_host_submission_confirmation_not_external_citation",
+        design_handoff_frame=design_handoff_frame.strip(),
+        submitted_payload_summary=summary,
+        screenshot_url=screenshot,
+        validation_summary=(
+            f"{surface} browser/form submission evidence recorded; "
+            "this is not a live listing or answer-engine citation."
+        ),
         next_probe_command=next_probe_command(feed_key, run_group, target_platforms),
     )
 

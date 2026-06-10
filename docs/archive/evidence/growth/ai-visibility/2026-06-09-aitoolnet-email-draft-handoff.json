@@ -1,0 +1,37 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "source_host_email_draft_handoff",
+  "status": "draft_ready_gmail_scope_blocked",
+  "generated_at": "2026-06-09T13:15:00Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-after-official-registry-live",
+  "surface": "aitoolnet",
+  "host": "aitoolnet.com",
+  "source_url": "https://www.aitoolnet.com/finish",
+  "target_platforms": ["chatgpt", "claude", "grok", "gemini"],
+  "target_queries": [
+    "Synapse vs paid MCP alternatives",
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments"
+  ],
+  "evidence_role": "operator_submission_handoff_not_submission_confirmation",
+  "recipient": "support@aitoolnet.com",
+  "subject": "Friend link - Synapse Network Listing",
+  "body": "Hello AIToolNet team,\n\nPlease review SynapseNetwork MCP Server for an AIToolNet listing.\n\nWebsite: https://www.synapse-network.ai/\nGitHub: https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server\nnpm: @synapse-network-ai/mcp-server\nRemote MCP endpoint: https://mcp.synapse-network.ai/mcp\nCategory: AI agents / Developer tools / Payments\nTools: discover_services, invoke_and_pay, get_receipt\n\nShort description: Remote MCP for paid API discovery, API invocation, USDC agent payments, and receipts.\n\nThanks,\nSynapse Network",
+  "gmail_draft_attempt": {
+    "attempted": true,
+    "status": "failed_missing_permissions_or_scopes",
+    "safe_summary": "Gmail draft creation was attempted through the connected Gmail app, but the app connection is missing permissions or scopes required for draft creation."
+  },
+  "submission_confirmation_gate": {
+    "required": true,
+    "record_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface aitoolnet --source-url https://www.aitoolnet.com/finish --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-aitoolnet-submission-confirmation.json",
+    "do_not_count_until": "A sent-email receipt, Gmail draft screenshot, or public AIToolNet listing exists."
+  },
+  "next_actions": [
+    "Reconnect Gmail with draft/create permission or send the email from the Synapse support mailbox.",
+    "Capture a sent-email or draft screenshot artifact.",
+    "Record submission-confirmation evidence with record_ai_visibility_source_host_execution.py.",
+    "Wait for public AIToolNet listing, then rerun live source-host spot-check and unchanged GPT/Claude/Grok/Gemini probes."
+  ]
+}

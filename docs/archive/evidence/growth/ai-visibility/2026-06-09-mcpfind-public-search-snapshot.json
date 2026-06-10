@@ -1,0 +1,51 @@
+{
+  "snapshot_type": "public_web_search_visibility",
+  "observed_at": "2026-06-09T15:25:00Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-09-mcpfind-public-search",
+  "official_homepage": "https://www.synapse-network.ai/",
+  "capture_method": "Codex web search snapshot; public search only, no API keys or private credentials.",
+  "queries": [
+    {
+      "query": "SynapseNetworkAI Synapse-Network-MCP-Server Remote MCP paid API calls",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPFind - Open-Source MCP Server Directory",
+          "url": "https://mcpfind.org/",
+          "notes": "Search result exposed a relevant MCP directory with a Submit a Server path; Synapse listing was not present in returned results."
+        },
+        {
+          "name": "Corelayer MCP Server",
+          "url": "https://docs.corelayer.com/cli/mcp-server",
+          "notes": "Adjacent Remote MCP documentation result."
+        },
+        {
+          "name": "Telnyx Remote MCP",
+          "url": "https://developers.telnyx.com/docs/development/mcp/remote-mcp",
+          "notes": "Adjacent Remote MCP documentation result."
+        },
+        {
+          "name": "Magpie MCP Server",
+          "url": "https://mcp.magpie.im/",
+          "notes": "Adjacent paid/payment MCP result."
+        }
+      ]
+    },
+    {
+      "query": "site:mcpfind.org Synapse Network MCP Server",
+      "synapse_found_in_returned_results": false,
+      "observed_competitors_or_adjacent_results": [
+        {
+          "name": "MCPFind - Open-Source MCP Server Directory",
+          "url": "https://mcpfind.org/",
+          "notes": "No Synapse-specific MCPFind listing was returned."
+        }
+      ]
+    }
+  ],
+  "next_actions": [
+    "Submit SynapseNetwork MCP Server to MCPFind with Remote MCP endpoint, GitHub, npm package, docs URL, and tool names.",
+    "Record MCPFind submission confirmation, then rerun unchanged ChatGPT/Claude/Grok/Gemini probes after the listing is live."
+  ]
+}

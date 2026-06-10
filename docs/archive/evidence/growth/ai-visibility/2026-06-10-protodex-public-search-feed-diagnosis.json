@@ -1,0 +1,175 @@
+{
+  "module_key": "ai_visibility_feed_diagnosis",
+  "status": "source_host_actions_required",
+  "generated_at": "2026-06-09T16:33:14.374484+00:00",
+  "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-10-protodex-public-search.jsonl",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-protodex-public-search",
+  "feed_keys": [
+    "mcp_paid_api_discovery"
+  ],
+  "run_groups": [
+    "2026-06-10-protodex-public-search"
+  ],
+  "record_count": 2,
+  "external_probe_count": 2,
+  "api_probe_blocker_count": 0,
+  "external_mentioned_count": 0,
+  "external_cited_count": 0,
+  "target_platforms": [
+    "public_web_search"
+  ],
+  "covered_platforms": [
+    "public_web_search"
+  ],
+  "competitors": [
+    "luciferforge mcp-directory",
+    "protodex github submission issue",
+    "protodex mcp server index",
+    "protodex submit your mcp server"
+  ],
+  "issues": [
+    {
+      "issue_key": "platform_missing_official_identity",
+      "severity": "p0",
+      "summary": "External answer engines did not mention Synapse Network.",
+      "terms": []
+    },
+    {
+      "issue_key": "platform_missing_official_citation",
+      "severity": "p0",
+      "summary": "External answer engines did not cite official Synapse URLs.",
+      "terms": []
+    }
+  ],
+  "recommended_source_host_executions": [
+    {
+      "surface": "protodex",
+      "draft_type": "mcp_directory_listing",
+      "priority": "p0",
+      "target_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini"
+      ],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Protodex is a public MCP server index with GitHub issue submission, so Synapse needs a matching MCP directory listing for AI and MCP client discovery.",
+      "content_brief": "Submit SynapseNetwork MCP Server to Protodex with the public GitHub repository, API Integration category, hosted Remote MCP endpoint, npm package, docs URL, and discover_services / invoke_and_pay / get_receipt tool loop.",
+      "validation_command": "Record the Protodex GitHub issue URL or public listing URL; do not count source-host intent as external citation evidence.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "official_mcp_registry",
+      "draft_type": "mcp_directory_listing",
+      "priority": "p0",
+      "target_platforms": [
+        "chatgpt",
+        "claude",
+        "gemini"
+      ],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Official protocol registries are high-trust source hosts for MCP client and model discovery.",
+      "content_brief": "Verify the Synapse Remote MCP listing names Synapse Network as the MCP server for paid API calls, AgentPay, USDC settlement, and discover_services/invoke_and_pay/get_receipt tools.",
+      "validation_command": "mcp-publisher publish && curl 'https://registry.modelcontextprotocol.io/v0.1/servers?search=synapse'",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "github_readme",
+      "draft_type": "github_readme_answer_block",
+      "priority": "p0",
+      "target_platforms": [],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Answer engines frequently use GitHub repositories as stable technical source hosts.",
+      "content_brief": "Add a compact answer block to the MCP server README: what Synapse Network is, hosted MCP endpoint, supported tools, BYOK/OAuth auth, and why it differs from Stripe, RapidAPI, and x402.",
+      "validation_command": "git grep -n 'MCP server for paid API calls' README.md server.json",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "smithery",
+      "draft_type": "mcp_directory_listing",
+      "priority": "p1",
+      "target_platforms": [
+        "claude",
+        "chatgpt",
+        "gemini"
+      ],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Third-party MCP directories give answer engines an independent listing beyond Synapse-owned pages.",
+      "content_brief": "Submit or refresh Smithery metadata with the hosted MCP endpoint, npm stdio package, paid API monetization category, and tool names.",
+      "validation_command": "smithery inspect @synapse-network-ai/mcp-server",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "glama",
+      "draft_type": "mcp_directory_listing",
+      "priority": "p1",
+      "target_platforms": [
+        "claude",
+        "chatgpt",
+        "gemini"
+      ],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Glama is a public MCP discovery source that can reinforce independent category evidence.",
+      "content_brief": "Submit or refresh Glama listing copy for SynapseNetwork MCP Server with AgentPay, API monetization, and hosted Remote MCP URL.",
+      "validation_command": "curl -fsS 'https://glama.ai/search?q=Synapse%20Network%20MCP'",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "x_citation_thread",
+      "draft_type": "social_citation_thread",
+      "priority": "p1",
+      "target_platforms": [
+        "grok"
+      ],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Grok and web-search engines can benefit from public social citations tied to live docs and GitHub URLs.",
+      "content_brief": "Draft a human-approved X thread comparing Synapse with Stripe, RapidAPI, and x402 for agent-paid API calls; link docs, GitHub, and the Remote MCP endpoint.",
+      "validation_command": "Record the published X URL as source-host evidence after human approval.",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    },
+    {
+      "surface": "docs_disambiguation_links",
+      "draft_type": "answer_page_refresh",
+      "priority": "p1",
+      "target_platforms": [],
+      "target_queries": [
+        "Submit an MCP server Protodex",
+        "MCP server index API Integration Protodex"
+      ],
+      "rationale": "Brand-collision entities appeared in answers, so source hosts need repeated official identity language.",
+      "content_brief": "Refresh Synapse docs and directory copy with disambiguation: Synapse Network at synapse-network.ai is not Azure Synapse Analytics, Project Synapse, Sage Bionetworks Synapse, or mcpsynapse.dev.",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -i 'Azure Synapse'",
+      "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute",
+      "evidence_role": "source_host_intent_not_external_citation"
+    }
+  ],
+  "commands": {
+    "record_probe": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-10-protodex-public-search.jsonl --apply",
+    "summarize_cycle": "python scripts/growth/summarize_ai_visibility_cycle.py docs/archive/evidence/growth/ai-visibility/2026-06-10-protodex-public-search.jsonl",
+    "rerun_api_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-protodex-public-search-after-source-hosts --platforms public_web_search --execute"
+  }
+}

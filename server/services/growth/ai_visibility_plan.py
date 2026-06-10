@@ -8,10 +8,8 @@ from server.schemas_growth import (
     GrowthAIVisibilityFeedPackageListOut,
     GrowthAIVisibilityFeedPackageOut,
     GrowthAIVisibilityOptimizationPlanOut,
+    GrowthAIVisibilityPlatformStrategyOut,
     GrowthAIVisibilityQueryOut,
-)
-from server.services.growth.ai_visibility_platform_strategies import (
-    platform_strategies,
 )
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
@@ -21,8 +19,8 @@ def ai_visibility_optimization_plan() -> GrowthAIVisibilityOptimizationPlanOut:
     return GrowthAIVisibilityOptimizationPlanOut(
         objective=(
             "Make Synapse Network discoverable and citable in ChatGPT, Claude, "
-            "and Grok for AI agent payments, paid API calls, MCP tooling, and "
-            "provider monetization queries."
+            "Grok, and Gemini for AI agent payments, paid API calls, MCP tooling, "
+            "and provider monetization queries."
         ),
         critical_fixes=_critical_fixes(),
         baseline_queries=_baseline_queries(),
@@ -59,7 +57,7 @@ def _critical_fixes() -> list[str]:
         f"Use {CANONICAL_HOMEPAGE} as the canonical homepage in metadata, llms.txt, and sitemap links.",
         "Redirect https://synapse-network.ai/* to https://www.synapse-network.ai/* with a permanent 301/308 response.",
         "Return a non-empty https://www.synapse-network.ai/sitemap.xml with homepage and AI-agent-payment landing pages.",
-        "Add brand-disambiguation copy that distinguishes Synapse Network from unrelated Synapse Protocol, synapse.network DeFi launchpad, Sage/Synapse.org docs, and synapsenetwork.xyz economy-layer results.",
+        "Add brand-disambiguation copy that distinguishes Synapse Network from unrelated Synapse Protocol, synapse.network DeFi launchpad, and synapsenetwork.xyz economy-layer results.",
         "Explicitly allow OpenAI, ChatGPT, Claude, Perplexity, Bing, and Google AI/search crawlers through robots while disallowing private app routes.",
     ]
 
@@ -110,7 +108,15 @@ def _feed_experiments() -> list[GrowthAIVisibilityFeedExperimentOut]:
         ),
         GrowthAIVisibilityFeedExperimentOut(
             feed_key="mcp_paid_api_discovery",
-            surfaces=["www", "docs", "mcp_registry", "mcp_marketplace", "smithery", "glama", "github"],
+            surfaces=[
+                "www",
+                "docs",
+                "mcp_registry",
+                "mcp_marketplace",
+                "smithery",
+                "glama",
+                "github",
+            ],
             content_assets=[
                 "canonical homepage facts",
                 "MCP docs category",
@@ -223,7 +229,7 @@ def _feed_package(
         content_assets=experiment.content_assets,
         target_queries=experiment.target_queries,
         publish_assets=_publish_assets(experiment.feed_key),
-        platform_strategies=platform_strategies(experiment.feed_key),
+        platform_strategies=_platform_strategies(experiment.feed_key),
         stitch_prompt=_stitch_prompt_for_feed(experiment.feed_key, design_plan),
         figma_handoff=design_plan.figma_handoff,
         validation_commands=_validation_commands(experiment.feed_key),
@@ -320,9 +326,13 @@ def _publish_assets(feed_key: str) -> list[GrowthAIVisibilityFeedAssetOut]:
             ),
             _asset(
                 "mcp_marketplace",
-                "https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server",
-                "Approved MCP Marketplace listing that answer engines can cite for Remote MCP paid API discovery.",
-                "curl -fsSL https://mcp-marketplace.io/server/io-github-synapsenetworkai-synapse-network-mcp-server | grep -E 'Synapse Network MCP Server|paid API discovery|mcp.synapse-network.ai/mcp'",
+                "https://mcp-marketplace.io/server/"
+                "io-github-synapsenetworkai-synapse-network-mcp-server",
+                "Approved third-party MCP Marketplace listing for answer-engine "
+                "source-host discovery.",
+                "curl -fsSL https://mcp-marketplace.io/server/"
+                "io-github-synapsenetworkai-synapse-network-mcp-server | grep -E "
+                "'Synapse Network MCP Server|paid API discovery|mcp.synapse-network.ai/mcp'",
             ),
             _asset(
                 "smithery",
@@ -347,6 +357,74 @@ def _asset(surface: str, target: str, purpose: str, validation: str):
         target=target,
         purpose=purpose,
         validation=validation,
+    )
+
+
+def _platform_strategies(feed_key: str) -> list[GrowthAIVisibilityPlatformStrategyOut]:
+    if feed_key == "mcp_paid_api_discovery":
+        specs = [
+            (
+                "chatgpt",
+                "Remote MCP custom app discovery and web citations.",
+                ["docs", "mcp_registry", "www_llms", "github"],
+                [
+                    "MCP server for paid API calls",
+                    "ChatGPT MCP app for API payments",
+                    "SynapseNetwork MCP vs paid MCP alternatives",
+                ],
+                "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs or MCP registry.",
+                "Ship OAuth/custom app docs, refresh MCP Registry metadata, then rerun ChatGPT scan.",
+            ),
+            (
+                "claude",
+                "Remote connector compatibility and docs citation.",
+                ["docs", "github", "glama", "www_llms"],
+                ["Claude MCP connector for paid API calls", "MCP server that lets agents pay for APIs"],
+                "Claude web search mentions Synapse and cites docs, GitHub, or a directory listing.",
+                "Add Claude connector setup block and directory evidence, then rerun Claude web search.",
+            ),
+            (
+                "grok",
+                "Public web plus X-facing MCP discovery language.",
+                ["www", "docs", "x_profile", "smithery", "glama"],
+                ["MCP server for paid API calls", "AI agents paying for APIs with MCP"],
+                "Grok search returns Synapse or the Remote MCP endpoint among cited/source results.",
+                "Publish social/distribution copy linking the docs page, then rerun Grok web/X search.",
+            ),
+            (
+                "gemini",
+                "Google-grounded MCP and agent-payment discovery.",
+                ["www", "docs", "github", "mcp_registry"],
+                ["Gemini MCP server for paid API calls", "AI agents pay for API calls with MCP"],
+                "Gemini mentions Synapse and cites www, docs, GitHub, or MCP Registry.",
+                "Refresh Google-indexable docs, sitemap, and llms.txt terms, then rerun Gemini search.",
+            ),
+        ]
+    else:
+        specs = [
+            ("chatgpt", "Official www/docs citation for category and how-to answers.", ["www", "docs", "github"], ["AI agent payment API", "How can AI agents pay for APIs?"], "ChatGPT mentions Synapse and cites the official www or docs surface.", "Tighten definition blocks, llms.txt, and GitHub README facts before rerunning."),
+            ("claude", "Docs-first explanation with comparison and FAQ blocks.", ["docs", "github", "www"], ["Synapse Network vs x402", "AI agent USDC settlement layer"], "Claude cites Synapse docs or GitHub when answering comparison/category queries.", "Add comparison, FAQ, and source-backed claims, then rerun Claude web search."),
+            ("grok", "Fresh public web and social distribution signals.", ["www", "docs", "x_profile", "github"], ["AI agent payment API", "How can API providers earn from AI agents?"], "Grok mentions Synapse from public web or X-linked official content.", "Publish public distribution copy with canonical links, then rerun Grok web/X search."),
+            ("gemini", "Google-indexed official docs and category pages.", ["www", "docs", "github"], ["AI agent payment API", "MCP server for paid API calls"], "Gemini mentions Synapse and cites the official www, docs, or GitHub surface.", "Refresh sitemap/indexable docs and rerun Gemini with the same query wording."),
+        ]
+    return [_platform_strategy(*spec) for spec in specs]
+
+
+def _platform_strategy(
+    platform: str,
+    feed_focus: str,
+    preferred_surfaces: list[str],
+    probe_queries: list[str],
+    success_signal: str,
+    fallback_action: str,
+) -> GrowthAIVisibilityPlatformStrategyOut:
+    return GrowthAIVisibilityPlatformStrategyOut(
+        platform=platform,
+        feed_focus=feed_focus,
+        preferred_surfaces=preferred_surfaces,
+        probe_queries=probe_queries,
+        success_signal=success_signal,
+        fallback_action=fallback_action,
     )
 
 
@@ -401,8 +479,8 @@ def _feed_next_actions(feed_key: str) -> list[str]:
     actions = {
         "brand_disambiguation_www": [
             "Fix bare-domain redirect, canonical, explicit AI crawler robots policy, sitemap, llms.txt, and brand answer blocks before baseline rerun.",
-            "Track synapseproto.com, synapsenetwork.xyz, unrelated synapse.network, and Sage/Synapse.org results as brand-collision competitors in external probe rows.",
-            "Run ChatGPT, Claude, and Grok brand query probes with screenshot evidence.",
+            "Track synapseproto.com, synapsenetwork.xyz, and unrelated synapse.network results as brand-collision competitors in external probe rows.",
+            "Run ChatGPT, Claude, Grok, and Gemini brand query probes with screenshot evidence.",
         ],
         "agent_payment_category_pages": [
             "Publish AI Agent Payments docs category and www landing pages.",

@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostExecutionChecklistOut,
-    GrowthAIVisibilitySourceHostExecutionItemOut,
     GrowthAIVisibilitySourceHostDraftOut,
     GrowthAIVisibilitySourceHostFeedPackageOut,
+)
+from server.services.growth.ai_visibility_source_host_checklist_helpers import (
+    source_host_execution_checklist_from_package,
 )
 from server.services.growth.ai_visibility_presence_plan import (
     DEFAULT_FEED_KEY,
@@ -21,15 +23,6 @@ from server.services.growth.ai_visibility_presence_plan import (
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
 OFFICIAL_DOCS = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 COMPARISON_DOCS = "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp"
-COMPETITOR_LABELS = {
-    "anythingmcp.com": "AnythingMCP",
-    "docs.latchmcp.app": "Latch MCP",
-    "docs.mcpay.tech": "MCPay",
-    "docs.stripe.com": "Stripe",
-    "mcp.magpie.im": "Magpie",
-    "mcpsynapse.dev": "MCP Synapse",
-    "teleport.ltd": "Teleport",
-}
 
 
 def ai_visibility_source_host_feed_package(
@@ -79,23 +72,7 @@ def ai_visibility_source_host_execution_checklist(
         feed_key=feed_key,
         run_group=run_group,
     )
-    items = [_execution_item(draft, package.commands) for draft in package.drafts]
-    blockers = list(package.blockers)
-    if not items:
-        blockers.append("No source-host execution items are available.")
-    return GrowthAIVisibilitySourceHostExecutionChecklistOut(
-        generated_at=datetime.now(timezone.utc),
-        feed_key=package.feed_key,
-        run_group=package.run_group,
-        status="ready_for_operator_execution" if items else "blocked_until_drafts",
-        items=items,
-        blockers=blockers,
-        commands={
-            "export_feed_package": package.commands.get("export_package", ""),
-            "after_feed_probe": package.commands.get("after_feed_probe", ""),
-            "compare": package.commands.get("compare", ""),
-        },
-    )
+    return source_host_execution_checklist_from_package(package)
 
 
 def _draft_from_action(action) -> GrowthAIVisibilitySourceHostDraftOut:
@@ -103,68 +80,9 @@ def _draft_from_action(action) -> GrowthAIVisibilitySourceHostDraftOut:
         return _directory_draft(action)
     if action.action_type == "comparison_presence":
         return _comparison_draft(action)
-    if action.action_type == "brand_collision_disambiguation":
-        return _brand_collision_draft(action)
+    if action.action_type == "brand_disambiguation":
+        return _brand_disambiguation_draft(action)
     return _contextual_draft(action)
-
-
-def _execution_item(
-    draft: GrowthAIVisibilitySourceHostDraftOut,
-    commands: dict[str, str],
-) -> GrowthAIVisibilitySourceHostExecutionItemOut:
-    return GrowthAIVisibilitySourceHostExecutionItemOut(
-        key=f"{draft.priority:02d}-{draft.host}-{draft.draft_type}",
-        host=draft.host,
-        priority=draft.priority,
-        draft_type=draft.draft_type,
-        execution_status=_execution_status(draft),
-        target_url=draft.submit_url or draft.target_url,
-        action_required=_action_required(draft),
-        required_evidence=_required_evidence(draft),
-        validation_command=draft.validation_command,
-        re_probe_command=commands.get("after_feed_probe", ""),
-        completion_gate=(
-            "Do not mark complete until operator evidence proves the listing, "
-            "owned page, or partner mention is live; then rerun unchanged probes."
-        ),
-    )
-
-
-def _execution_status(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
-    if draft.status == "ready_to_submit":
-        return "pending_submission"
-    if draft.status == "ready_to_publish_on_owned_channels":
-        return "pending_owned_publish"
-    if draft.status == "operator_login_required":
-        return "pending_operator_login"
-    return "pending_operator_review"
-
-
-def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
-    actions = {
-        "directory_submission": "Submit the directory form using the non-secret payload.",
-        "owned_comparison_refresh": "Publish the comparison draft on owned docs or GitHub surfaces.",
-        "owned_brand_disambiguation_refresh": "Publish the disambiguation block on owned docs, llms.txt, and README surfaces.",
-        "contextual_partner_or_guest_pitch": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
-    }
-    return actions.get(
-        draft.draft_type, "Review the draft and decide the next safe action."
-    )
-
-
-def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
-    if draft.draft_type == "directory_submission":
-        return ["submission_url_or_receipt", "submitted_payload_summary", "screenshot"]
-    if draft.draft_type == "owned_comparison_refresh":
-        return ["published_url", "git_commit_or_pr", "live_curl_validation"]
-    if draft.draft_type == "owned_brand_disambiguation_refresh":
-        return [
-            "published_url",
-            "git_commit_or_pr",
-            "llms_txt_validation",
-            "unchanged_probe_rerun",
-        ]
-    return ["review_notes", "target_contact_or_surface", "decision_or_published_url"]
 
 
 def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
@@ -189,6 +107,8 @@ def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 f"- GitHub: {action.submission_payload.get('github_repository_url', '')}",
                 f"- npm: {action.submission_payload.get('npm_package', '')}",
                 f"- Docs: {OFFICIAL_DOCS}",
+                f"- Stitch/Figma frame: {action.submission_payload.get('stitch_figma_frame', 'Directory Source-Host Submission Pack')}",
+                f"- Evidence status: {action.submission_payload.get('evidence_status', 'pending_submission_not_external_citation')}",
                 "",
                 "Synapse does not expose raw customer agent credentials to public listings.",
             ]
@@ -202,7 +122,11 @@ def _directory_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
 
 
 def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
-    competitor = _competitor_label(action.host)
+    payload = action.submission_payload
+    cited_terms = _payload_list(payload, "cited_terms")
+    target_queries = _payload_list(payload, "answer_engine_queries")
+    answer_block = str(payload.get("answer_engine_source_block") or "")
+    competitor = cited_terms[0] if cited_terms else action.host.split(".")[0]
     title = f"Synapse Network vs {competitor} for paid MCP and agent payments"
     return GrowthAIVisibilitySourceHostDraftOut(
         host=action.host,
@@ -219,8 +143,21 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
             [
                 f"# {title}",
                 "",
-                "Synapse Network combines Remote MCP discovery with scoped agent "
-                "credentials, bounded paid API invocation, USDC settlement, and receipts.",
+                "## Answer-engine source block",
+                "",
+                answer_block
+                or (
+                    "Synapse Network combines Remote MCP discovery with scoped agent "
+                    "credentials, bounded paid API invocation, USDC settlement, and receipts."
+                ),
+                "",
+                "## Target queries",
+                "",
+                *[f"- {query}" for query in target_queries],
+                "",
+                "## Cited terms to include exactly",
+                "",
+                *[f"- {term}" for term in cited_terms],
                 "",
                 f"The cited alternative surface is `{action.host}`. Compare on:",
                 "",
@@ -230,69 +167,66 @@ def _comparison_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
                 "- Human confirmation for consequential paid actions",
                 "",
                 f"Official docs: {OFFICIAL_DOCS}",
+                f"Comparison docs: {COMPARISON_DOCS}",
             ]
         ),
         source_reference_url=action.source_reference_url,
-        submission_payload=action.submission_payload,
+        submission_payload=payload,
         validation_command=action.validation_command,
         probe_followup=action.probe_followup,
         operator_notes=action.operator_notes,
     )
 
 
-def _brand_collision_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
-    collision_host = str(action.submission_payload.get("collision_host", action.host))
-    title = f"Synapse Network official identity block for {collision_host}"
-    answer_block = str(action.submission_payload.get("recommended_answer_block", ""))
+def _payload_list(payload: dict[str, object], key: str) -> list[str]:
+    value = payload.get(key)
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
+
+
+def _brand_disambiguation_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:
+    title = "Synapse Network MCP brand disambiguation block"
+    payload = action.submission_payload
     return GrowthAIVisibilitySourceHostDraftOut(
         host=action.host,
         priority=action.priority,
         draft_type="owned_brand_disambiguation_refresh",
         status="ready_to_publish_on_owned_channels",
-        target_url=action.target_surface,
+        target_url=COMPARISON_DOCS,
         title=title,
         summary=(
-            "Publish an owned disambiguation block so answer engines do not map "
-            f"SynapseNetworkAI MCP queries to `{collision_host}`."
+            "Publish a concise disambiguation block on official Synapse Network "
+            "MCP source hosts so answer engines stop resolving exact MCP queries "
+            "to unrelated Synapse.org biomedical docs."
         ),
         body_markdown="\n".join(
             [
                 f"# {title}",
                 "",
-                "Answer-engine disambiguation block:",
+                str(payload.get("recommended_copy", "")),
                 "",
-                f"> {answer_block}",
+                "Exact identifiers to repeat:",
                 "",
-                "Add this block to:",
+                "- SynapseNetwork MCP Server",
+                "- SynapseNetworkAI/Synapse-Network-MCP-Server",
+                "- io.github.SynapseNetworkAI/synapse-network-mcp-server",
+                f"- Remote MCP endpoint: {REMOTE_MCP_ENDPOINT}",
                 "",
-                "- `docs.synapse-network.ai/mcp/synapse-vs-paid-mcp`",
-                "- `www.synapse-network.ai/llms.txt` under official sources",
-                "- SynapseNetworkAI MCP README / directory description",
+                "Publish or verify this block on:",
                 "",
-                "Required official links:",
-                "",
-                *[
-                    f"- {url}"
-                    for url in action.submission_payload.get(
-                        "required_official_links", []
-                    )
-                ],
+                f"- Docs: {OFFICIAL_DOCS}",
+                f"- Comparison: {COMPARISON_DOCS}",
+                f"- GitHub: {payload.get('github_repository_url', '')}",
+                "- Official MCP Registry metadata",
             ]
         ),
         source_reference_url=action.source_reference_url,
-        submission_payload=action.submission_payload,
+        submission_payload=payload,
         validation_command=action.validation_command,
         probe_followup=action.probe_followup,
         operator_notes=action.operator_notes,
     )
-
-
-def _competitor_label(host: str) -> str:
-    normalized = host.strip().lower()
-    if normalized in COMPETITOR_LABELS:
-        return COMPETITOR_LABELS[normalized]
-    parts = [part for part in normalized.split(".") if part and part != "docs"]
-    return parts[0] if parts else normalized
 
 
 def _contextual_draft(action) -> GrowthAIVisibilitySourceHostDraftOut:

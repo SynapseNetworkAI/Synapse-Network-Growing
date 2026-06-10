@@ -13,7 +13,7 @@ target_repo: Synapse-Network-Growing
 
 Use this runbook after publishing a content feed experiment, for example the
 `AI Agent Payments` docs and `www` landing pages. The goal is to record real
-ChatGPT, Claude, and Grok answer-engine evidence without confusing it with local
+ChatGPT, Claude, Grok, and Gemini answer-engine evidence without confusing it with local
 page validation.
 
 ## What Counts As Evidence
@@ -198,7 +198,13 @@ curl -fsS \
   | python -m json.tool
 ```
 
-Each feed package includes `platform_strategies` for ChatGPT, Claude, and Grok.
+For browser-assisted directory submissions such as AIToolNet or AlternativeTo,
+the checklist may include a `design_handoff_frame` such as `Directory Source-Host
+Submission Pack`. Use that Stitch/Figma frame to review the form payload before
+opening the external site. The operator performs the final submit; automation
+must not bypass login, CAPTCHA, or platform terms.
+
+Each feed package includes `platform_strategies` for ChatGPT, Claude, Grok, and Gemini.
 Use those entries to vary the feed surfaces without changing the measurement
 question: for example ChatGPT may prioritize Remote MCP custom-app metadata and
 the official MCP Registry, Claude may prioritize docs/GitHub/directory evidence,
@@ -225,7 +231,7 @@ Trusted Publisher for `SynapseNetworkAI/Synapse-Network-MCP-Server`
 `publish-mcp.yml` or provide a publish-capable `NPM_TOKEN`, run Publish MCP
 Server with `expected_version=0.1.4`, then refresh the official MCP Registry with
 `mcp-publisher`. It emits `*_live_validation` rows. These rows are useful
-blockers and readiness evidence, but they are not GPT/Claude/Grok answer
+blockers and readiness evidence, but they are not GPT/Claude/Grok/Gemini answer
 evidence and do not count toward external citation success. The brand feed row
 also includes
 `metadata.ai_crawler_policy`,
@@ -247,7 +253,7 @@ python scripts/growth/generate_ai_visibility_release_snapshot.py \
 ```
 
 The snapshot combines the release unblock plan, live feed readiness, GCloud
-project access checks, and GPT/Claude/Grok API-key readiness. It does not create
+project access checks, and GPT/Claude/Grok/Gemini API-key readiness. It does not create
 release tasks, deploy, or call paid answer-engine APIs.
 
 For operator handoff, export the full bundle. This writes `manifest.json`,
@@ -263,7 +269,7 @@ python scripts/growth/generate_ai_visibility_handoff_bundle.py \
 
 Use the bundle after `gcloud auth login` and before creating release tasks. The
 manifest is a recovery checklist: it records current blockers, release/readiness
-status, ready and missing GPT/Claude/Grok platforms, and the exact feed
+status, ready and missing GPT/Claude/Grok/Gemini platforms, and the exact feed
 validation, probe, record, and comparison commands. It remains read-only; it
 does not deploy and does not call paid model APIs.
 
@@ -286,7 +292,7 @@ python scripts/growth/record_ai_visibility_probe.py \
 ```
 
 Summarize a cycle before deciding the next feed. This works for local feed
-validation files and for external ChatGPT/Claude/Grok probe files:
+validation files and for external ChatGPT/Claude/Grok/Gemini probe files:
 
 ```bash
 python scripts/growth/summarize_ai_visibility_cycle.py \
@@ -307,7 +313,7 @@ The summary reports whether the cycle is `feed_blocked`,
 `ready_for_external_probe`, `partial_external_probe`, `citation_observed`,
 `mention_observed`, or `not_visible_yet`. Use `feed_blocked` as a hard stop for
 external answer-engine probes; fix the public feed first. The summary also
-copies the relevant ChatGPT, Claude, and Grok `platform_strategies` for the feed
+copies the relevant ChatGPT, Claude, Grok, and Gemini `platform_strategies` for the feed
 so the next operator sees exactly which surfaces to feed and which queries to
 rerun. When `--previous` is supplied, the summary includes mention and citation
 deltas plus `improved`, `flat`, or `regressed` comparison status. This is an
@@ -421,7 +427,7 @@ search.
 ## Browser Probe Fallback
 
 When provider API keys are unavailable, run the generated manual template in the
-logged-in ChatGPT, Claude, and Grok browser UIs. Capture a screenshot for each
+logged-in ChatGPT, Claude, Grok, and Gemini browser UIs. Capture a screenshot for each
 platform/query row and preserve the unchanged question text from
 `metadata.question_to_ask`.
 
@@ -478,7 +484,7 @@ python scripts/growth/record_ai_visibility_probe.py \
 
 These rows use platform `public_web_search`. They appear in comparisons and
 scorecards so the operator can see competitors and next actions, but they do not
-cover the target GPT/Claude/Grok platforms and cannot close the visibility goal.
+cover the target GPT/Claude/Grok/Gemini platforms and cannot close the visibility goal.
 
 ## Post-Probe Source-Host Diagnosis
 
@@ -525,6 +531,32 @@ the intended terms. It still does not prove ChatGPT, Claude, Grok, or Gemini
 used that surface; only the subsequent answer-engine probe can prove a mention
 or citation.
 
+For browser/form submissions where the directory has accepted a submission but
+no public listing is live yet, record a submission confirmation instead of a
+live source-host record:
+
+```bash
+python scripts/growth/record_ai_visibility_source_host_execution.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group 2026-06-18-after-directory-submission \
+  --surface aitoolnet \
+  --source-url https://www.aitoolnet.com/finish \
+  --evidence-mode submission-confirmation \
+  --submitted-payload-summary "Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt." \
+  --screenshot-url docs/archive/evidence/growth/ai-visibility/2026-06-18-aitoolnet-submission.png \
+  --design-handoff-frame "Directory Source-Host Submission Pack" \
+  --target-platform chatgpt \
+  --target-platform claude \
+  --target-query "Synapse vs paid MCP alternatives" \
+  --output docs/archive/evidence/growth/ai-visibility/2026-06-18-aitoolnet-submission-confirmation.json
+```
+
+Submission confirmation evidence is useful for operator continuity, but it is
+not a verified public listing and not an answer-engine citation. Once the
+listing URL is public, rerun the live source-host command above with required
+terms, then rerun the unchanged GPT/Claude/Grok/Gemini probe matrix.
+or citation.
+
 Example:
 
 ```jsonl
@@ -563,6 +595,34 @@ python scripts/growth/record_ai_visibility_probe.py probe.jsonl \
   --apply
 ```
 
+If the local Ops API ledger is unavailable, keep the optimization loop moving by
+generating the source-host handoff from the feed diagnosis JSON. This is an
+offline operator checklist only; it does not mark any listing submitted or live:
+
+```bash
+python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
+  docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-external-probes.jsonl \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --recommendations-output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-recommendations.jsonl
+
+python scripts/growth/generate_ai_visibility_source_host_feed_package.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group YYYY-MM-DD-after-probe \
+  --diagnosis-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-feed-package.json
+
+python scripts/growth/generate_ai_visibility_source_host_execution_checklist.py \
+  --feed-key mcp_paid_api_discovery \
+  --run-group YYYY-MM-DD-after-probe \
+  --diagnosis-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-feed-diagnosis.json \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-execution-checklist.json
+
+python scripts/growth/generate_ai_visibility_source_host_live_spot_check.py \
+  --checklist-file docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-execution-checklist.json \
+  --execute \
+  --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-source-host-live-spot-check.json
+```
+
 ## Compare Results
 
 Open `/growth?tab=ai-visibility` or use the API:
@@ -599,7 +659,7 @@ curl -fsS \
 The next-cycle package includes the recommended `feed_key`, run group,
 output path, validation commands, manual template command, optional API
 readiness and execute commands, apply command, comparison command, weekly report
-export command, blockers, and missing GPT/Claude/Grok platforms. Use it as the
+export command, blockers, and missing GPT/Claude/Grok/Gemini platforms. Use it as the
 operator checklist for the next feed/probe/compare loop.
 
 Do not mark the goal achieved unless the weekly report returns
