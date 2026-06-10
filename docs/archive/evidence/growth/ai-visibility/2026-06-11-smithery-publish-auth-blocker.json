@@ -1,0 +1,86 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "source_host_publish_blocker",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-smithery-publish-auth-blocker",
+  "generated_at": "2026-06-10T18:47:51Z",
+  "source_host": "smithery.ai",
+  "status": "blocked_on_operator_auth_and_namespace",
+  "summary": "Smithery publish is technically reachable through the CLI, and the Synapse Remote MCP target is ready, but the local environment is not authenticated to Smithery and has no selected namespace. No publish attempt was completed.",
+  "remote_mcp_target_validation": {
+    "publish_target_url": "https://mcp.synapse-network.ai/mcp",
+    "readyz": {
+      "url": "https://mcp.synapse-network.ai/readyz",
+      "http_status": 200,
+      "body_summary": {
+        "status": "ready",
+        "gatewayStatus": 404
+      }
+    },
+    "unauthenticated_mcp_probe": {
+      "url": "https://mcp.synapse-network.ai/mcp",
+      "method": "POST",
+      "http_status": 401,
+      "www_authenticate": "Bearer resource_metadata=\"https://mcp.synapse-network.ai/.well-known/oauth-protected-resource\"",
+      "error_code": "AUTH_REQUIRED"
+    },
+    "protected_resource_metadata": {
+      "url": "https://mcp.synapse-network.ai/.well-known/oauth-protected-resource",
+      "resource": "https://mcp.synapse-network.ai/mcp",
+      "bearer_methods_supported": [
+        "header"
+      ],
+      "scopes_supported": [
+        "synapse.discovery.read",
+        "synapse.invocations.write",
+        "synapse.receipts.read",
+        "offline_access"
+      ]
+    }
+  },
+  "smithery_cli_findings": {
+    "cli_version_observed": "SMITHERY CLI v1.2.0",
+    "publish_help": {
+      "command": "npx -y smithery mcp publish --help",
+      "supports_url_publish": true,
+      "target_name_option": "-n, --name <name>",
+      "example_shape": "smithery mcp publish https://my-mcp-server.com -n myorg/my-server"
+    },
+    "auth_status": {
+      "command": "npx -y smithery auth whoami --json",
+      "exit_code": 1,
+      "stderr_summary": "No token found; run smithery auth login to authenticate."
+    },
+    "namespace_status": {
+      "command": "npx -y smithery namespace show",
+      "exit_code": 1,
+      "stderr_summary": "No namespace set; run smithery namespace use <name> first."
+    },
+    "non_tty_login_check": {
+      "command": "npx -y smithery auth login --json",
+      "result": "Generated a one-time authorization URL and session token, but login was not completed in this non-interactive run. The one-time values are intentionally not stored in evidence.",
+      "authorization_url_redacted": true
+    }
+  },
+  "mcp_repo_publish_inputs": {
+    "repo_path": "/Users/cliff/workspace/agent/Synapse-Network-MCP-Server",
+    "branch": "codex/glama-well-known-tool-metadata",
+    "head": "ede1a786395eb9c462e258339656f9973f6f87ff",
+    "package_name": "@synapse-network-ai/mcp-server",
+    "mcp_registry_name": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+    "server_json_has_remote_endpoint": true,
+    "smithery_yaml_exists": false,
+    "note": "The current MCP repo has package.json/server.json metadata suitable for registry discovery, but no smithery.yaml was present during this audit."
+  },
+  "operator_unblock_commands": [
+    "npx -y smithery auth login --json",
+    "npx -y smithery namespace list",
+    "npx -y smithery namespace use SynapseNetworkAI",
+    "npx -y smithery mcp publish https://mcp.synapse-network.ai/mcp -n SynapseNetworkAI/synapse-network-mcp-server",
+    "npx -y smithery mcp search \"SynapseNetworkAI Synapse-Network-MCP-Server\""
+  ],
+  "completion_gate": "Do not count Smithery as live source-host evidence until a public Smithery server page or CLI search result includes SynapseNetworkAI, the Remote MCP endpoint, npm package, and tool names.",
+  "counts_as_external_citation": false,
+  "counts_as_source_host_success": false,
+  "counts_as_actionable_blocker_evidence": true
+}

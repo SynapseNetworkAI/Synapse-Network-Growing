@@ -1,0 +1,184 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "public_source_host_and_probe_recheck_summary",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-public-source-host-recheck",
+  "generated_at": "2026-06-10T19:00:02Z",
+  "status": "source_hosts_live_but_answer_engines_not_visible_yet",
+  "summary": "Official MCP Registry and mcpservers.org remain complete live source-host surfaces. Glama is partially refreshed with title, description, Remote MCP URL, and discover_services, but still misses invoke_and_pay and get_receipt. The latest API probe shows ChatGPT still does not mention/cite Synapse; Claude/Grok/Gemini remain bounded by provider credit/quota failures.",
+  "source_host_rechecks": [
+    {
+      "surface": "official_mcp_registry",
+      "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-official-registry-live-recheck.json",
+      "status": "live_verified",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "missing_terms": [],
+      "source_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+    },
+    {
+      "surface": "mcpservers",
+      "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-mcpservers-live-listing-recheck.json",
+      "status": "live_verified",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server"
+      ],
+      "missing_terms": [],
+      "source_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server"
+    },
+    {
+      "surface": "glama",
+      "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-glama-public-listing-recheck.json",
+      "status": "missing_required_terms",
+      "matched_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services"
+      ],
+      "missing_terms": [
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "source_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "visible_status_note": "Glama public page also reports connector status as Unhealthy in the fetched page; this should be fixed by deploying richer Remote MCP metadata/health evidence after GCloud auth is restored."
+    },
+    {
+      "surface": "mcp.directory",
+      "status": "not_live_in_search_recheck",
+      "source_urls_checked": [
+        "https://mcp.directory/?q=Synapse%20Network",
+        "https://mcp.directory/?q=SynapseNetworkAI%2FSynapse-Network-MCP-Server"
+      ],
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "Synapse-Network-MCP-Server",
+        "mcp.synapse-network.ai",
+        "discover_services"
+      ]
+    },
+    {
+      "surface": "mseep",
+      "status": "api_unavailable_or_not_indexed",
+      "source_urls_checked": [
+        "https://mseep.ai/api/search?q=Synapse%20Network%20MCP",
+        "https://mseep.ai/api/servers?q=Synapse%20Network%20MCP",
+        "https://mseep.ai/sitemap.xml"
+      ],
+      "http_status_summary": "API and sitemap probes returned HTTP/2 502; /mcp and /sitemap_index.xml returned generic HTML without Synapse terms.",
+      "counts_as_live_source_host_success": false
+    }
+  ],
+  "external_probe": {
+    "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-public-source-host-recheck-external-probes.jsonl",
+    "cycle_summary_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-public-source-host-recheck-cycle-summary.json",
+    "status": "not_visible_yet",
+    "record_count": 8,
+    "completed_external_probe_count": 2,
+    "provider_failure_count": 6,
+    "external_mentioned_count": 0,
+    "external_cited_count": 0,
+    "blockers": [
+      "claude API probe failed for 2 query(s): credit balance is too low.",
+      "gemini API probe failed for 2 query(s): quota exceeded.",
+      "grok API probe failed for 2 query(s): monthly spending limit or credits exhausted."
+    ],
+    "chatgpt_status": {
+      "platform": "chatgpt",
+      "status": "not_visible_yet",
+      "probe_count": 2,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [
+        {
+          "value": "docs.mcpay.tech",
+          "count": 2
+        },
+        {
+          "value": "agent402.dev",
+          "count": 1
+        },
+        {
+          "value": "crowcrowcrow.com",
+          "count": 1
+        },
+        {
+          "value": "developer.paddle.com",
+          "count": 1
+        },
+        {
+          "value": "docs.wanepia.com",
+          "count": 1
+        },
+        {
+          "value": "gmcp.dev",
+          "count": 1
+        },
+        {
+          "value": "mcp.paddle.com",
+          "count": 1
+        },
+        {
+          "value": "mcpgw.ai",
+          "count": 1
+        }
+      ],
+      "top_competitors": [
+        {
+          "value": "x402",
+          "count": 2
+        },
+        {
+          "value": "mcpay",
+          "count": 2
+        },
+        {
+          "value": "gapup",
+          "count": 1
+        },
+        {
+          "value": "mcpservers.org",
+          "count": 1
+        },
+        {
+          "value": "stripe",
+          "count": 1
+        },
+        {
+          "value": "teleport",
+          "count": 1
+        },
+        {
+          "value": "magpie",
+          "count": 1
+        }
+      ],
+      "next_action": "Feed or refresh source hosts observed by chatgpt: docs.mcpay.tech, agent402.dev, crowcrowcrow.com."
+    }
+  },
+  "decision": {
+    "counts_as_goal_complete": false,
+    "why_not_complete": "No GPT/Claude verified mention or citation exists. ChatGPT completed and still did not mention/cite Synapse; Claude/Grok/Gemini failed due provider quotas/credits.",
+    "next_actions": [
+      "Restore GCloud auth and deploy Glama rich metadata so Glama includes invoke_and_pay/get_receipt and stops showing Unhealthy.",
+      "Complete Smithery publish after operator auth/namespace setup.",
+      "Recheck AgentNDX after its 48-hour review window.",
+      "Keep feeding observed ChatGPT source hosts: docs.mcpay.tech, agent402.dev, crowcrowcrow.com, developer.paddle.com, gmcp.dev, and mcpgw.ai through truthful comparisons/outreach."
+    ]
+  }
+}

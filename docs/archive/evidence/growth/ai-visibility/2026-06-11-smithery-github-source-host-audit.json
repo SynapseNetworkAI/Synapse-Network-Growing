@@ -1,0 +1,365 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "source_host_gap_audit",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-tensorfeed-wantlist-github-smithery-audit",
+  "generated_at": "2026-06-10T18:44:12Z",
+  "status": "github_live_smithery_not_verified",
+  "summary": "GitHub raw README and server.json are live source-host surfaces with all required terms. Smithery search is reachable through CLI, but current results do not expose the official SynapseNetworkAI MCP server, npm package, Remote MCP endpoint, or tool loop.",
+  "github_live_evidence": [
+    {
+      "surface": "github_readme",
+      "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-github-readme-live-source-host-execution.json",
+      "source_url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/README.md",
+      "status": "live_verified",
+      "matched_required_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server"
+      ]
+    },
+    {
+      "surface": "github_server_json",
+      "evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-github-server-json-live-source-host-execution.json",
+      "source_url": "https://raw.githubusercontent.com/SynapseNetworkAI/Synapse-Network-MCP-Server/main/server.json",
+      "status": "live_verified",
+      "matched_required_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server"
+      ]
+    }
+  ],
+  "smithery_recheck": {
+    "web_search_observation": {
+      "url": "https://smithery.ai/search?q=Synapse%20Network%20MCP",
+      "http_status_observed_with_curl": "HTTP/2 308 then markdown search results",
+      "contains_generic_synapse_term": true,
+      "official_listing_verified": false,
+      "server_page_urls_checked": [
+        {
+          "url": "https://smithery.ai/server/@synapse-network-ai/mcp-server",
+          "result": "404 — Server Not Found"
+        },
+        {
+          "url": "https://smithery.ai/server/@SynapseNetworkAI/Synapse-Network-MCP-Server",
+          "result": "404 — Server Not Found"
+        }
+      ],
+      "scripted_fetch_result": "HTTP 429 Too Many Requests when using record_ai_visibility_source_host_execution.py user-agent; not counted as live listing evidence."
+    },
+    "cli_commands": [
+      "npx -y smithery mcp search \"Synapse Network MCP\"",
+      "npx -y smithery mcp search \"@synapse-network-ai/mcp-server\"",
+      "npx -y smithery mcp search \"SynapseNetworkAI Synapse-Network-MCP-Server\""
+    ],
+    "cli_exit_codes": {
+      "general_query": 0,
+      "package_query": 0,
+      "repo_query": 0
+    },
+    "official_result_found": false,
+    "false_positive_or_adjacent_results": [
+      {
+        "name": "Synapse — GEO Growth Layer",
+        "qualifiedName": "calvinling2021/synapse-geo",
+        "useCount": 296,
+        "contains_synapse_network_ai": false,
+        "contains_remote_endpoint": false,
+        "contains_npm_package": false,
+        "description_snippet": "**The GEO check every vibe coder runs before they launch.**\n\nSynapse is the GEO (Generative Engine Optimization) growth layer for new products. This MCP server gives any coding agent — Cursor, Claude Code, Windsurf, Cline, Continue, Zed — t"
+      }
+    ],
+    "top_results_by_query": {
+      "Synapse Network MCP": [
+        {
+          "name": "MCP Hive",
+          "qualifiedName": "mcp-hive/hive-servers",
+          "useCount": 127,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "MCP Clients Pay for Access to Commercial MCP Servers.\nAI applications pay per request. MCP server providers earn per response. MCP Hive handles discovery, metering, and billing. Connect AI agents to commercial-grade MCP servers, backed by t"
+        },
+        {
+          "name": "dominion-observatory",
+          "qualifiedName": "vdineshk/dominion-observatory",
+          "useCount": 618,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Behavioral trust scoring and MCP gateway proxy for 14,820+ MCP servers. Query real attestation data — interaction history, success rates, latency, uptime — before your agent executes sensitive operations.\n\n**8 tools** for trust evaluation, "
+        },
+        {
+          "name": "Synapse — GEO Growth Layer",
+          "qualifiedName": "calvinling2021/synapse-geo",
+          "useCount": 296,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "**The GEO check every vibe coder runs before they launch.**\n\nSynapse is the GEO (Generative Engine Optimization) growth layer for new products. This MCP server gives any coding agent — Cursor, Claude Code, Windsurf, Cline, Continue, Zed — t"
+        },
+        {
+          "name": "MCPpedia",
+          "qualifiedName": "bbeksh/mcppedia",
+          "useCount": 1721,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Search, evaluate, and compare 17,000+ MCP servers from the [MCPpedia](https://mcppedia.org) catalog. Every server is scored on **security, maintenance, efficiency, documentation, and compatibility** — with real CVE scanning and tool-poisoni"
+        },
+        {
+          "name": "AgentDM - Agent to Agent Messaging",
+          "qualifiedName": "github-6f8c/agentDM",
+          "useCount": 2296,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Agent to Agent communication Platforms, Allows every MCP compatible agent to connect "
+        },
+        {
+          "name": "preflight",
+          "qualifiedName": "evan-follis-u0ll/preflight",
+          "useCount": 350,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Check if your MCP server is ready to publish on the MCP Registry, Smithery, or npm.\n\nPreflight validates your server's actual artifacts — `server.json`, `package.json`, `smithery.yaml` — against the documented requirements of each directory"
+        },
+        {
+          "name": "mcp-forge",
+          "qualifiedName": "alexis-platon1307/mcp-forge",
+          "useCount": 0,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Generate production-ready MCP servers from any source: OpenAPI/Swagger specs, GraphQL APIs, codebases, CLI tools and websites. Powered by LLM enrichment. Requires a mcp-forge license key.\n"
+        },
+        {
+          "name": "xytara MCP Executor",
+          "qualifiedName": "naxytra/xytara-mcp-executor",
+          "useCount": 0,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Public MCP server for deterministic summarization and DNS zone lookup, powered by the naxytra xytara runtime."
+        },
+        {
+          "name": "Toolrank",
+          "qualifiedName": "imhiroki/toolrank",
+          "useCount": 421,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "# ToolRank MCP Server\n\nScore and optimize MCP tool definitions for AI agent discovery. The first ATO (Agent Tool Optimization) platform.\n\n## Tools\n\n### toolrank_score\nAnalyzes MCP tool definitions and returns a ToolRank Score (0-100) measur"
+        },
+        {
+          "name": "BasinVault",
+          "qualifiedName": "oilandgas/basinvault",
+          "useCount": 635,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "BasinVault Sales MCP gives AI assistants accurate, up-to-date facts about BasinVault—modules (Basin Intel, Company Vault, Equipment, free field tools), pricing tiers, differentiators, FAQs, and deep links—so recommendations stay aligned wit"
+        }
+      ],
+      "@synapse-network-ai/mcp-server": [
+        {
+          "name": "MCP Hive",
+          "qualifiedName": "mcp-hive/hive-servers",
+          "useCount": 127,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "MCP Clients Pay for Access to Commercial MCP Servers.\nAI applications pay per request. MCP server providers earn per response. MCP Hive handles discovery, metering, and billing. Connect AI agents to commercial-grade MCP servers, backed by t"
+        },
+        {
+          "name": "MCPpedia",
+          "qualifiedName": "bbeksh/mcppedia",
+          "useCount": 1721,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Search, evaluate, and compare 17,000+ MCP servers from the [MCPpedia](https://mcppedia.org) catalog. Every server is scored on **security, maintenance, efficiency, documentation, and compatibility** — with real CVE scanning and tool-poisoni"
+        },
+        {
+          "name": "dominion-observatory",
+          "qualifiedName": "vdineshk/dominion-observatory",
+          "useCount": 618,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Behavioral trust scoring and MCP gateway proxy for 14,820+ MCP servers. Query real attestation data — interaction history, success rates, latency, uptime — before your agent executes sensitive operations.\n\n**8 tools** for trust evaluation, "
+        },
+        {
+          "name": "MCPHero Meta-MCP Generator",
+          "qualifiedName": "mcphero/meta",
+          "useCount": 27,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "# MCPHero Meta-MCP\n\nLet your agent build its own tools. MCPHero Meta-MCP exposes an AI-powered wizard pipeline as MCP tools — describe what you need in plain English, and the agent generates, deploys, and hosts a production MCP server with "
+        },
+        {
+          "name": "mcp-forge",
+          "qualifiedName": "alexis-platon1307/mcp-forge",
+          "useCount": 0,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Generate production-ready MCP servers from any source: OpenAPI/Swagger specs, GraphQL APIs, codebases, CLI tools and websites. Powered by LLM enrichment. Requires a mcp-forge license key.\n"
+        },
+        {
+          "name": "agent-seo",
+          "qualifiedName": "web3signals/agent-seo",
+          "useCount": 525,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Score any AI agent before you use it. Score your own before you release it. Checks 5 trust dimensions — schema quality, reliability, docs, ecosystem, maintenance — and returns a 0-100 grade with prioritized fixes."
+        },
+        {
+          "name": "Synapse — GEO Growth Layer",
+          "qualifiedName": "calvinling2021/synapse-geo",
+          "useCount": 296,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "**The GEO check every vibe coder runs before they launch.**\n\nSynapse is the GEO (Generative Engine Optimization) growth layer for new products. This MCP server gives any coding agent — Cursor, Claude Code, Windsurf, Cline, Continue, Zed — t"
+        },
+        {
+          "name": "AgentNDX",
+          "qualifiedName": "jl-3044/agentndx",
+          "useCount": 185,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Search and discover MCP servers, A2A agents, and x402-enabled services. The agentic web's directory — add `https://agentndx.ai/mcp` to your MCP client to search 59+ servers by name, category, or capability. Pay $0.005 USDC per search via x4"
+        },
+        {
+          "name": "fusional",
+          "qualifiedName": "jrm-fusional/fusional",
+          "useCount": 0,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Unified MCP gateway that loads 150+ AI tools via a single Docker command. Execute Python code in sandboxed subprocesses, generate complete MCP server projects from natural language, and run AI-powered code generation — all through one endpo"
+        },
+        {
+          "name": "ClawGuard Shield",
+          "qualifiedName": "joergmichno/clawguard",
+          "useCount": 673,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "AI Agent Security Scanner — detect prompt injection, jailbreaks, and tool poisoning in real-time. 204+ attack patterns, 15 languages, EU AI Act compliance-ready. Scan text or MCP server configs for threats."
+        }
+      ],
+      "SynapseNetworkAI Synapse-Network-MCP-Server": [
+        {
+          "name": "MCP Hive",
+          "qualifiedName": "mcp-hive/hive-servers",
+          "useCount": 127,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "MCP Clients Pay for Access to Commercial MCP Servers.\nAI applications pay per request. MCP server providers earn per response. MCP Hive handles discovery, metering, and billing. Connect AI agents to commercial-grade MCP servers, backed by t"
+        },
+        {
+          "name": "MCPpedia",
+          "qualifiedName": "bbeksh/mcppedia",
+          "useCount": 1721,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Search, evaluate, and compare 17,000+ MCP servers from the [MCPpedia](https://mcppedia.org) catalog. Every server is scored on **security, maintenance, efficiency, documentation, and compatibility** — with real CVE scanning and tool-poisoni"
+        },
+        {
+          "name": "dominion-observatory",
+          "qualifiedName": "vdineshk/dominion-observatory",
+          "useCount": 618,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Behavioral trust scoring and MCP gateway proxy for 14,820+ MCP servers. Query real attestation data — interaction history, success rates, latency, uptime — before your agent executes sensitive operations.\n\n**8 tools** for trust evaluation, "
+        },
+        {
+          "name": "Synapse — GEO Growth Layer",
+          "qualifiedName": "calvinling2021/synapse-geo",
+          "useCount": 296,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "**The GEO check every vibe coder runs before they launch.**\n\nSynapse is the GEO (Generative Engine Optimization) growth layer for new products. This MCP server gives any coding agent — Cursor, Claude Code, Windsurf, Cline, Continue, Zed — t"
+        },
+        {
+          "name": "MCPHero Meta-MCP Generator",
+          "qualifiedName": "mcphero/meta",
+          "useCount": 27,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "# MCPHero Meta-MCP\n\nLet your agent build its own tools. MCPHero Meta-MCP exposes an AI-powered wizard pipeline as MCP tools — describe what you need in plain English, and the agent generates, deploys, and hosts a production MCP server with "
+        },
+        {
+          "name": "mcp-forge",
+          "qualifiedName": "alexis-platon1307/mcp-forge",
+          "useCount": 0,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Generate production-ready MCP servers from any source: OpenAPI/Swagger specs, GraphQL APIs, codebases, CLI tools and websites. Powered by LLM enrichment. Requires a mcp-forge license key.\n"
+        },
+        {
+          "name": "AgentNDX",
+          "qualifiedName": "jl-3044/agentndx",
+          "useCount": 185,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Search and discover MCP servers, A2A agents, and x402-enabled services. The agentic web's directory — add `https://agentndx.ai/mcp` to your MCP client to search 59+ servers by name, category, or capability. Pay $0.005 USDC per search via x4"
+        },
+        {
+          "name": "agent-seo",
+          "qualifiedName": "web3signals/agent-seo",
+          "useCount": 525,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Score any AI agent before you use it. Score your own before you release it. Checks 5 trust dimensions — schema quality, reliability, docs, ecosystem, maintenance — and returns a 0-100 grade with prioritized fixes."
+        },
+        {
+          "name": "Arclan Agent Tool Registry",
+          "qualifiedName": "arclan-ai/registry",
+          "useCount": 67,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Validated registry of MCP servers, OpenAPI tools, and AI plugins. Continuously tested via live handshake, scored on rolling reliability metrics, and monitored for uptime. Query by status, score, or capability before your agent connects."
+        },
+        {
+          "name": "preflight",
+          "qualifiedName": "evan-follis-u0ll/preflight",
+          "useCount": 350,
+          "contains_synapse_network_ai": false,
+          "contains_remote_endpoint": false,
+          "contains_npm_package": false,
+          "description_snippet": "Check if your MCP server is ready to publish on the MCP Registry, Smithery, or npm.\n\nPreflight validates your server's actual artifacts — `server.json`, `package.json`, `smithery.yaml` — against the documented requirements of each directory"
+        }
+      ]
+    }
+  },
+  "decision": {
+    "counts_as_source_host_success": false,
+    "counts_as_gap_evidence": true,
+    "next_action": "Prepare or execute Smithery registration/publish only after confirming the MCP repo has the required Smithery manifest/config. Do not rerun GPT/Claude probes from Smithery until a public Smithery server page includes SynapseNetworkAI, Remote MCP endpoint, npm package, and tool names."
+  }
+}

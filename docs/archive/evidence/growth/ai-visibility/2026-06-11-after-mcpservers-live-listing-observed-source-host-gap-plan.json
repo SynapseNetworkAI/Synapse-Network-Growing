@@ -1,0 +1,127 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "observed_source_host_gap_plan",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-mcpservers-live-listing",
+  "generated_at": "2026-06-10T18:24:00Z",
+  "status": "source_host_actions_required",
+  "summary": "Owned docs, www llms.txt, official MCP Registry, and mcpservers.org now contain the required Synapse paid-MCP facts, but ChatGPT still answers paid-MCP queries from MCPay, Paddle, agent402, and adjacent source hosts. The next feed should prioritize third-party comparison or mention paths on source hosts that ChatGPT already surfaces.",
+  "current_verified_assets": [
+    {
+      "surface": "docs.synapse-network.ai/mcp/paid-api-calls",
+      "status": "live_verified",
+      "evidence": "HTTP 200 and includes MCPay, x402, Paddle, agent402, paid API calls, ChatGPT MCP app for API payments, discover_services, invoke_and_pay, get_receipt, and mcp.synapse-network.ai."
+    },
+    {
+      "surface": "docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "status": "live_verified",
+      "evidence": "HTTP 200 and includes MCPay, x402, Paddle, agent402, paid API calls, ChatGPT MCP app for API payments, discover_services, invoke_and_pay, get_receipt, and mcp.synapse-network.ai."
+    },
+    {
+      "surface": "mcpservers.org",
+      "status": "live_verified",
+      "evidence": "The public detail page includes Synapse Network, SynapseNetworkAI, Synapse-Network-MCP-Server, mcp.synapse-network.ai, discover_services, invoke_and_pay, and get_receipt."
+    },
+    {
+      "surface": "mcp.synapse-network.ai/.well-known/glama.json",
+      "status": "stale_blocked_by_gcloud_reauth",
+      "evidence": "Live response remains maintainer-only metadata; deploying the rich metadata fix still requires interactive gcloud reauth."
+    }
+  ],
+  "post_feed_probe_result": {
+    "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-mcpservers-live-listing-external-probes.jsonl",
+    "status": "not_visible_yet",
+    "completed_external_probe_count": 2,
+    "external_mentioned_count": 0,
+    "external_cited_count": 0,
+    "provider_blockers": [
+      "Claude API credit balance is too low.",
+      "Grok/xAI account has used available credits or reached monthly spending limit.",
+      "Gemini API free-tier quota was exhausted."
+    ]
+  },
+  "observed_chatgpt_source_hosts": [
+    {
+      "host": "docs.mcpay.tech",
+      "observed_count": 2,
+      "live_status": "reachable",
+      "title": "Introduction",
+      "contains_synapse": false,
+      "source_type": "competitor_docs",
+      "crawl_notes": "robots.txt returned 404; homepage links to GitHub and X.",
+      "recommended_action": "Create a concise Synapse vs MCPay comparison block in owned docs and prepare a partner/community mention pitch that asks MCPay-adjacent lists to include Synapse as a separate AgentPay/USDC settlement alternative. Do not submit false claims into MCPay-owned docs."
+    },
+    {
+      "host": "agent402.dev",
+      "observed_count": 1,
+      "live_status": "reachable",
+      "title": "agent402.dev | MCP Gateway Documentation",
+      "contains_synapse": false,
+      "source_type": "competitor_or_adjacent_docs",
+      "crawl_notes": "robots.txt allows all and advertises https://agent402.dev/sitemap.xml plus MCP discovery endpoints.",
+      "recommended_action": "Target an 'Synapse vs agent402 / x402 MCP payments' source-host feed item and look for a truthful ecosystem comparison or GitHub issue/PR path. Prioritize this host because it has sitemap and MCP discovery metadata."
+    },
+    {
+      "host": "crowcrowcrow.com",
+      "observed_count": 1,
+      "live_status": "reachable",
+      "title": "CrowCrowCrow — Authentic USA Imports, Delivered to India",
+      "contains_synapse": false,
+      "source_type": "likely_irrelevant_search_noise",
+      "crawl_notes": "Homepage is unrelated commerce content despite payment/contact terms.",
+      "recommended_action": "Do not prioritize unless repeated probes confirm it is relevant; treat this as search noise from the current ChatGPT answer."
+    },
+    {
+      "host": "developer.paddle.com",
+      "observed_count": 1,
+      "live_status": "reachable",
+      "title": "Paddle Developer Docs",
+      "contains_synapse": false,
+      "source_type": "platform_docs",
+      "crawl_notes": "robots.txt allows search and ai-input, includes sitemap-index and sitemap-llm.",
+      "recommended_action": "Paddle is a comparison anchor, not a likely submission host. Keep Synapse vs Paddle MCP copy fresh on owned docs and third-party directories; avoid trying to edit Paddle-owned docs."
+    },
+    {
+      "host": "gmcp.dev",
+      "observed_count": 1,
+      "live_status": "reachable",
+      "title": "gMCP — Your entire API stack, one MCP server",
+      "contains_synapse": false,
+      "source_type": "adjacent_platform",
+      "crawl_notes": "robots.txt includes content-signal language and permits search in the visible snippet.",
+      "recommended_action": "Add gMCP to the comparison/source-host watchlist and create a Synapse vs MCP gateway positioning snippet for future docs/social feed."
+    },
+    {
+      "host": "tensorfeed.ai",
+      "observed_count": 1,
+      "live_status": "reachable",
+      "title": "TensorFeed: Real-time AI news, model tracking, and ecosystem data",
+      "contains_synapse": false,
+      "source_type": "ai_ecosystem_news_or_directory",
+      "crawl_notes": "robots.txt explicitly allows GPTBot, ChatGPT-User, ClaudeBot, OAI-SearchBot, anthropic-ai, PerplexityBot, and other AI crawlers.",
+      "recommended_action": "Prioritize a truthful TensorFeed/news submission or ecosystem mention path because it explicitly welcomes AI crawlers and appeared in ChatGPT source hosts."
+    }
+  ],
+  "next_feed_sequence": [
+    {
+      "priority": 1,
+      "action": "Resolve gcloud reauth and deploy rich Remote MCP metadata so Glama well-known exposes tool names and Remote MCP URL.",
+      "validation": "curl -fsS https://mcp.synapse-network.ai/.well-known/glama.json | grep -E 'discover_services|invoke_and_pay|get_receipt|serverUrl'"
+    },
+    {
+      "priority": 2,
+      "action": "Create an operator-approved source-host outreach pack for agent402.dev and TensorFeed with Synapse vs MCPay/x402/Paddle evidence, links to owned docs, GitHub, registry, and mcpservers.org live page.",
+      "validation": "Record the submitted issue/contact/listing URL or mark the host as no-submit-path after browser review."
+    },
+    {
+      "priority": 3,
+      "action": "Re-run the unchanged ChatGPT probe after the rich metadata deploy or one new third-party source-host evidence item is live.",
+      "validation": "Success requires Synapse Network mentioned and at least one official or verified source-host URL cited."
+    },
+    {
+      "priority": 4,
+      "action": "Re-run Claude only after Anthropic API credits are replenished; do not count provider-failure rows as visibility failures.",
+      "validation": "Claude probe must complete and cite or not cite Synapse from the same query set."
+    }
+  ]
+}

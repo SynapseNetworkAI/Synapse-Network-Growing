@@ -1,0 +1,56 @@
+{
+  "module_key": "ai_visibility_source_host_live_recheck",
+  "surface": "mcp_directory",
+  "generated_at": "2026-06-10T18:05:28.331876+00:00",
+  "status": "submitted_review_pending_not_live",
+  "summary": "mcp.directory submit API reports the SynapseNetworkAI MCP repository has already been submitted, but public search/listing pages still do not expose required Synapse terms.",
+  "submission_evidence_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-mcp-directory-duplicate-safe-review-pending-recheck.json",
+  "checks": [
+    {
+      "url": "https://mcp.directory/?q=Synapse%20Network",
+      "status_code": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "body_length": 400460
+    },
+    {
+      "url": "https://mcp.directory/servers?q=Synapse%20Network",
+      "status_code": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "body_length": 255508
+    },
+    {
+      "url": "https://mcp.directory/remote-mcp-servers",
+      "status_code": 200,
+      "matched_terms": [],
+      "missing_terms": [
+        "Synapse Network",
+        "SynapseNetworkAI",
+        "synapse-network-mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "https://mcp.synapse-network.ai/mcp"
+      ],
+      "body_length": 368443
+    }
+  ],
+  "next_action": "Do not submit duplicate entries. Recheck the public listing/search after the review window; if still absent, contact mcp.directory operator with the 409 review-pending evidence and the short listing metadata."
+}
