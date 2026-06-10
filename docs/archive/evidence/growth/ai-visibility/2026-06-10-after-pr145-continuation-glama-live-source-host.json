@@ -1,0 +1,40 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-pr145-continuation",
+  "surface": "glama",
+  "source_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+  "checked_at": "2026-06-10T06:48:58.560327+00:00",
+  "required_terms": [
+    "SynapseNetwork",
+    "synapse-network-mcp-server",
+    "io.github.SynapseNetworkAI"
+  ],
+  "matched_terms": [
+    "SynapseNetwork",
+    "synapse-network-mcp-server",
+    "io.github.SynapseNetworkAI"
+  ],
+  "missing_terms": [],
+  "content_sha256": "e6e2f2969a2a1534d08aa47ee7df18c8a8cc231e7d7f0d45325fb1734180df0e",
+  "content_bytes": 39431,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "SynapseNetwork MCP vs paid MCP alternatives"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "glama source host is live and matched 3 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-pr145-continuation-after-source-host --platforms chatgpt,claude,grok,gemini --execute"
+}
