@@ -8,6 +8,7 @@ MODEL_ENV_KEYS = {
     "chatgpt": "OPENAI_AI_VISIBILITY_MODEL",
     "claude": "ANTHROPIC_AI_VISIBILITY_MODEL",
     "grok": "XAI_AI_VISIBILITY_MODEL",
+    "gemini": "GEMINI_AI_VISIBILITY_MODEL",
 }
 
 
