@@ -1,4 +1,6 @@
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -99,6 +101,64 @@ def test_generate_ai_visibility_source_host_execution_checklist_cli_writes_json(
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert payload["checklist_type"] == "source_host_feed_execution"
     assert payload["items"][0]["host"] == "mcpservers.org"
+
+
+def test_offline_source_host_clis_do_not_require_ops_database_url(tmp_path: Path):
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    package_path = tmp_path / "source-host-feed.json"
+    checklist_path = tmp_path / "source-host-checklist.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-offline",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "mcpservers",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "MCPServers appeared in answer sources.",
+                        "validation_command": "Record MCPServers confirmation.",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.pop("OPS_DATABASE_URL", None)
+
+    for script, output_path in (
+        (
+            "scripts/growth/generate_ai_visibility_source_host_feed_package.py",
+            package_path,
+        ),
+        (
+            "scripts/growth/generate_ai_visibility_source_host_execution_checklist.py",
+            checklist_path,
+        ),
+    ):
+        result = subprocess.run(
+            [
+                sys.executable,
+                script,
+                "--diagnosis-file",
+                str(diagnosis_path),
+                "--output",
+                str(output_path),
+            ],
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
+
+    assert json.loads(package_path.read_text())["package_type"] == "source_host_feed"
+    assert (
+        json.loads(checklist_path.read_text())["checklist_type"]
+        == "source_host_feed_execution"
+    )
 
 
 def test_generate_ai_visibility_source_host_live_spot_check_cli_writes_json(

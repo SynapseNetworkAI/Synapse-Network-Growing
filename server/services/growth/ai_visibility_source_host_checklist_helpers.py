@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from server.config import PROJECT_ROOT
 from server.schemas_growth import (
     GrowthAIVisibilitySourceHostDraftOut,
     GrowthAIVisibilitySourceHostExecutionItemOut,
@@ -25,6 +24,7 @@ from server.services.growth.ai_visibility_source_host_surfaces import (
 from server.services.growth.ai_visibility_text import unique_strings
 
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 OFFICIAL_HOME = "https://www.synapse-network.ai/"
 OFFICIAL_DOCS = "https://docs.synapse-network.ai/mcp/paid-api-calls"
 CONTACT_EMAIL_NOTES = (
