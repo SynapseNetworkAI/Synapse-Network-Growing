@@ -1,0 +1,108 @@
+{
+  "run_id": "2026-06-11-mysynap-owned-feed-and-registry-refresh",
+  "recorded_at": "2026-06-11T04:30:00+08:00",
+  "status": "prs_clean_mergeable_pending_live_deploy",
+  "objective": "Close the ChatGPT-observed mysynap.com brand-collision feed gap before rerunning GPT/Claude/Grok/Gemini visibility probes.",
+  "source_evidence": {
+    "previous_review_file": "docs/archive/evidence/growth/ai-visibility/2026-06-11-mysynap-brand-collision-review.json",
+    "finding": "mysynap.com was reachable and lacked official SynapseNetworkAI terms; only the MCP GitHub README had domain-level disambiguation before this refresh.",
+    "decision": "Do not pursue direct outreach to mysynap.com. Treat it as a collision source and strengthen owned docs, www llms feed, and MCP Registry metadata first."
+  },
+  "implemented_changes": [
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network",
+      "worktree": "/private/tmp/synapse-ai-visibility-mysynap-feed",
+      "branch": "codex/mysynap-ai-visibility-feed",
+      "commit": "c11b6a1adce02787802d5ee20b54863963a67a1e",
+      "pull_request": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/229",
+      "merge_state": {
+        "mergeStateStatus": "CLEAN",
+        "mergeable": "MERGEABLE",
+        "isDraft": false
+      },
+      "surfaces": [
+        "services/docs-front/content/docs/mcp/brand-disambiguation.mdx",
+        "services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+        "services/docs-front/content/docs/mcp/registry.mdx",
+        "services/docs-front/src/app/llms.txt/route.ts",
+        "services/user-front/public/llms.txt",
+        "services/user-front/public/llms-full.txt",
+        "scripts/ci/ai_visibility_feed_asset_assertions.mjs"
+      ],
+      "summary": "Adds explicit mysynap.com domain-level disambiguation to docs-front, docs llms route, www llms.txt, llms-full.txt, paid MCP docs, registry copy, and CI feed assertions."
+    },
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "worktree": "/private/tmp/mcp-server-mysynap-metadata",
+      "branch": "codex/mysynap-registry-disambiguation",
+      "commit": "1080a5ea22ff0d20c2f05a381742f0f94cb5af5a",
+      "pull_request": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/38",
+      "merge_state": {
+        "mergeStateStatus": "CLEAN",
+        "mergeable": "MERGEABLE",
+        "isDraft": false
+      },
+      "surfaces": [
+        "server.json",
+        "scripts/ci/server_json_check.mjs",
+        "scripts/ci/directory_metadata_check.mjs"
+      ],
+      "summary": "Adds server.json publisher-provided answerEngine.nameCollisions metadata including mysynap.com and guards it in MCP Registry metadata CI."
+    }
+  ],
+  "validation": [
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network",
+      "commands": [
+        "npm run ci:ai-visibility-assets",
+        "npm run ci:seo-public-assets",
+        "npm run ci:docs",
+        "npm run ci:agent-lessons",
+        "git diff --check",
+        "git push origin codex/mysynap-ai-visibility-feed"
+      ],
+      "result": "passed",
+      "notable_output": [
+        "[ci:ai-visibility-assets] passed",
+        "[ci:seo-public-assets] passed",
+        "[ci:docs] documentation validation passed",
+        "pre-push fast gate passed ci_meta_checks, local_runtime_guard_scan, security_secret_scan, quality_budget_check, format_check, docs_checks, release_go_no_go_checks, and frontend_checks",
+        "frontend_checks completed Next build and TypeScript validation successfully"
+      ]
+    },
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "commands": [
+        "npm run ci:server-json",
+        "npm run ci:directory-metadata",
+        "npm run ci:quality",
+        "git diff --check",
+        "git push origin codex/mysynap-registry-disambiguation"
+      ],
+      "result": "passed",
+      "notable_output": [
+        "[server-json-check] passed",
+        "[directory-metadata-check] passed",
+        "[source-quality] passed public raw-map return check",
+        "[quality-budget] passed 2 changed file(s)"
+      ]
+    }
+  ],
+  "probe_gate": {
+    "state": "blocked_until_prs_are_merged_and_live_content_is_verified",
+    "reason": "GPT/Claude/Grok/Gemini probes before the docs/www/registry refresh is live would still measure the pre-refresh source set.",
+    "required_next_evidence": [
+      "Synapse-Network PR #229 merged",
+      "Synapse-Network-MCP-Server PR #38 merged",
+      "Production docs page https://docs.synapse-network.ai/mcp/brand-disambiguation contains mysynap.com",
+      "Production docs llms route https://docs.synapse-network.ai/llms.txt contains mysynap.com",
+      "Production www llms https://www.synapse-network.ai/llms.txt contains mysynap.com",
+      "MCP server.json metadata is published through the official MCP Registry refresh path or recorded as pending manual publish",
+      "Then rerun external GPT, Claude, Grok, and Gemini probes with the same query set for apples-to-apples comparison"
+    ]
+  },
+  "secrets_policy": {
+    "contains_secrets": false,
+    "notes": "No API keys, tokens, cookies, Agent Credentials, or private values are stored in this evidence."
+  }
+}
