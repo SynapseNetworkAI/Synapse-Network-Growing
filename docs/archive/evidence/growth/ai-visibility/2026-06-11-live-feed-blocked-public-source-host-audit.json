@@ -1,0 +1,119 @@
+{
+  "module_key": "ai_visibility",
+  "evidence_type": "public_source_host_audit_while_live_feed_blocked",
+  "generated_at": "2026-06-10T22:42:57Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "status": "actionable_partial_source_host_coverage",
+  "summary": "Canonical docs/www live feeds are still stale and local gcloud auth blocks release task 278 execution, but public non-GCloud source-host surfaces can still be audited. The strongest live source hosts are MCPServers direct listing, npm, GitHub, and the official MCP Registry exact search. Glama has a visible candidate page but needs metadata refresh so endpoint, npm package, and tool names are present in the indexed listing.",
+  "blocked_release_context": {
+    "docs_front_staging_release_task_id": 278,
+    "target_commit_sha": "ddd98cc0659f366b040c9ae850898f29c1ad45c2",
+    "gcloud_auth_status": "failed_reauthentication_required",
+    "live_feed_status": "stale",
+    "model_probe_policy": "Do not rerun GPT/Claude/Grok/Gemini answer probes until docs/www live feed freshness is proven."
+  },
+  "source_host_spot_check": {
+    "path": "docs/archive/evidence/growth/ai-visibility/2026-06-11-live-feed-blocked-source-host-spot-check.json",
+    "status": "candidate_incomplete_needs_metadata_refresh",
+    "notable_findings": [
+      {
+        "host": "mcpservers.org",
+        "surface": "search_page",
+        "status": "not_found",
+        "interpretation": "The directory search URL did not expose the Synapse terms in the fetched HTML, but the direct listing URL is live and strong. Treat search-page freshness separately from direct-listing existence."
+      },
+      {
+        "host": "glama.ai",
+        "surface": "search_page",
+        "status": "candidate_incomplete",
+        "interpretation": "Glama search exposes SynapseNetwork/Synapse Network title candidates, but the fetched listing metadata is missing Remote MCP endpoint, npm package, and tool names."
+      },
+      {
+        "host": "mcp.so",
+        "surface": "submission_page",
+        "status": "not_found",
+        "interpretation": "mcp.so still requires operator login/submission before it can become source-host citation evidence."
+      }
+    ]
+  },
+  "public_surface_checks": [
+    {
+      "surface": "official_mcp_registry",
+      "url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.synapsenetworkai/synapse-network-mcp-server",
+      "status": "exact_search_found",
+      "matched_facts": [
+        "io.github.SynapseNetworkAI/synapse-network-mcp-server",
+        "version 0.1.5",
+        "@synapse-network-ai/mcp-server",
+        "https://mcp.synapse-network.ai/mcp",
+        "Authorization header marked secret"
+      ],
+      "gap": "Broad search for 'synapse' still surfaces LocalSynapse and SynapseLayer before SynapseNetworkAI, so disambiguation remains necessary."
+    },
+    {
+      "surface": "npm",
+      "url": "https://www.npmjs.com/package/@synapse-network-ai/mcp-server",
+      "status": "live",
+      "matched_facts": [
+        "@synapse-network-ai/mcp-server",
+        "version 0.1.5",
+        "Official stateless MCP server for SynapseNetwork agent payments",
+        "keywords include mcp, model-context-protocol, synapse-network, synapsenetwork, agentpay, chatgpt, claude-desktop, mcp-registry, smithery, pulsemcp, glama, openai-apps-sdk, llms-txt"
+      ],
+      "gap": "Repository URL is SSH-form git+ssh in npm metadata; keep GitHub/public docs surfaces strong so crawlers do not depend on npm repository field parsing."
+    },
+    {
+      "surface": "github",
+      "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "status": "public",
+      "matched_facts": [
+        "visibility PUBLIC",
+        "description mentions hosted Remote MCP, stdio server, SynapseNetwork agent payments, paid API discovery, receipts, and ChatGPT/Claude-compatible MCP clients",
+        "topics include mcp, model-context-protocol, remote-mcp, chatgpt, claude, paid-api, api-monetization, agentpay, agent-payments, ai-agent-payments, usdc, synapse-network"
+      ],
+      "gap": "GitHub is ready as an authority source; continue using it as the canonical non-docs source when docs live feed is stale."
+    },
+    {
+      "surface": "mcpservers",
+      "url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "status": "direct_listing_live",
+      "matched_facts": [
+        "SynapseNetwork MCP Server",
+        "Remote MCP for paid API discovery, API invocation, USDC agent payments, and receipts",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "https://mcp.synapse-network.ai/mcp",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt",
+        "@synapse-network-ai/mcp-server",
+        "brand disambiguation against SynapseLayer and other Synapse collisions"
+      ],
+      "gap": "Directory search pages did not surface the required terms in the fetched HTML; direct listing is live but search/index freshness should be monitored."
+    },
+    {
+      "surface": "glama",
+      "url": "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
+      "status": "candidate_incomplete",
+      "matched_facts": [
+        "SynapseNetwork MCP Server title candidate"
+      ],
+      "missing_facts": [
+        "https://mcp.synapse-network.ai/mcp",
+        "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+        "@synapse-network-ai/mcp-server",
+        "discover_services",
+        "invoke_and_pay",
+        "get_receipt"
+      ],
+      "gap": "Refresh or resubmit Glama metadata so the indexed listing carries enough facts for answer engines to cite it confidently."
+    }
+  ],
+  "next_actions": [
+    "After local gcloud reauth, execute Growing release task 278 to publish docs-front staging for Synapse-Network commit ddd98cc0659f366b040c9ae850898f29c1ad45c2.",
+    "Promote docs-front production only after staging smoke proves the 2026-06-11 feed terms are live.",
+    "Submit or refresh Glama metadata with the Remote MCP endpoint, GitHub URL, npm package, and tool names.",
+    "Monitor MCPServers direct listing and search-page freshness separately.",
+    "Use official MCP Registry exact search, npm, GitHub, and MCPServers direct listing as current source-host anchors until docs/www live feed catches up.",
+    "Rerun unchanged GPT/Claude/Grok/Gemini answer probes only after the owned docs/www feed is live."
+  ]
+}
