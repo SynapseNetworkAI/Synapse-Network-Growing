@@ -16,7 +16,13 @@ def _create_release(client, version: str = "0.1.0"):
     return response.json()
 
 
-def _write_mcp_repo(path, version: str):
+def _write_mcp_repo(
+    path,
+    version: str,
+    *,
+    server_version: str | None = None,
+    package_artifact_version: str | None = None,
+):
     path.mkdir()
     (path / "package.json").write_text(
         json.dumps(
@@ -32,8 +38,14 @@ def _write_mcp_repo(path, version: str):
         json.dumps(
             {
                 "name": "io.github.SynapseNetworkAI/synapse-network-mcp-server",
-                "version": version,
-                "packages": [{"registryType": "npm"}],
+                "version": server_version or version,
+                "packages": [
+                    {
+                        "registryType": "npm",
+                        "identifier": "@synapse-network-ai/mcp-server",
+                        "version": package_artifact_version or version,
+                    }
+                ],
             }
         ),
         encoding="utf-8",
@@ -482,6 +494,42 @@ def test_mcp_runner_records_step_failure(
     assert "runner_failed" in {event["action"] for event in events}
 
 
+def test_failed_readiness_release_can_retry_readiness(synced_client, db_session):
+    created = _create_release(synced_client)
+    row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
+    row.status = "failed"
+    row.failure_summary = "server_json_version_mismatch"
+    row.metadata_json = json.dumps({"last_failed_runner_state": "readiness_running"})
+    db_session.commit()
+
+    retried = synced_client.post(
+        f"/api/releases/mcp-servers/{created['id']}/readiness",
+        json={"actor": "operator", "note": "Retry after runner fix."},
+    )
+
+    assert retried.status_code == 200
+    assert retried.json()["status"] == "readiness_running"
+
+
+def test_failed_non_readiness_release_cannot_retry_readiness(
+    synced_client, db_session
+):
+    created = _create_release(synced_client)
+    row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
+    row.status = "failed"
+    row.failure_summary = "remote deploy failed"
+    row.metadata_json = json.dumps({"last_failed_runner_state": "remote_prod_deploying"})
+    db_session.commit()
+
+    retried = synced_client.post(
+        f"/api/releases/mcp-servers/{created['id']}/readiness",
+        json={"actor": "operator"},
+    )
+
+    assert retried.status_code == 400
+    assert "Terminal MCP server releases cannot run readiness" in retried.json()["detail"]
+
+
 def test_mcp_runner_manifest_failures(synced_client, db_session, tmp_path, monkeypatch):
     _write_mcp_repo(tmp_path / "mcp", "0.2.0")
     monkeypatch.setattr(mcp_server_runner, "MCP_REPO", tmp_path / "mcp")
@@ -502,6 +550,111 @@ def test_mcp_runner_manifest_failures(synced_client, db_session, tmp_path, monke
     row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
     assert row.status == "failed"
     assert "manifest_version_mismatch" in row.failure_summary
+
+
+def test_mcp_runner_allows_metadata_only_server_json_version(
+    synced_client, db_session, tmp_path, monkeypatch
+):
+    _write_mcp_repo(
+        tmp_path / "mcp",
+        "0.1.5",
+        server_version="0.1.7",
+        package_artifact_version="0.1.5",
+    )
+    monkeypatch.setattr(mcp_server_runner, "MCP_REPO", tmp_path / "mcp")
+    monkeypatch.setattr(mcp_server_runner, "_run_step", lambda *_args, **_kwargs: None)
+    created = _create_release(synced_client, version="0.1.5")
+    _point_release_server_to_repo(db_session, created["id"], tmp_path / "mcp")
+
+    synced_client.post(
+        f"/api/releases/mcp-servers/{created['id']}/readiness",
+        json={"actor": "operator"},
+    )
+
+    assert (
+        mcp_server_runner.process_mcp_server_release(
+            db_session, release_id=created["id"]
+        )
+        == 1
+    )
+    row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
+    assert row.status == "ready_to_publish"
+    assert row.failure_summary is None
+
+
+def test_mcp_runner_blocks_server_json_package_version_mismatch(
+    synced_client, db_session, tmp_path, monkeypatch
+):
+    _write_mcp_repo(
+        tmp_path / "mcp",
+        "0.1.5",
+        server_version="0.1.7",
+        package_artifact_version="0.1.4",
+    )
+    monkeypatch.setattr(mcp_server_runner, "MCP_REPO", tmp_path / "mcp")
+    created = _create_release(synced_client, version="0.1.5")
+    _point_release_server_to_repo(db_session, created["id"], tmp_path / "mcp")
+
+    synced_client.post(
+        f"/api/releases/mcp-servers/{created['id']}/readiness",
+        json={"actor": "operator"},
+    )
+
+    assert (
+        mcp_server_runner.process_mcp_server_release(
+            db_session, release_id=created["id"]
+        )
+        == 1
+    )
+    row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
+    assert row.status == "failed"
+    assert "server_json_package_version_mismatch" in row.failure_summary
+
+
+def test_mcp_runner_legacy_server_json_version_mismatch_fails(
+    synced_client, db_session, tmp_path, monkeypatch
+):
+    repo_path = tmp_path / "mcp"
+    _write_mcp_repo(repo_path, "0.1.5")
+    server_json_path = repo_path / "server.json"
+    payload = json.loads(server_json_path.read_text(encoding="utf-8"))
+    payload["version"] = "0.1.7"
+    payload["packages"] = [{"registryType": "npm"}]
+    server_json_path.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(mcp_server_runner, "MCP_REPO", repo_path)
+    created = _create_release(synced_client, version="0.1.5")
+    _point_release_server_to_repo(db_session, created["id"], repo_path)
+
+    synced_client.post(
+        f"/api/releases/mcp-servers/{created['id']}/readiness",
+        json={"actor": "operator"},
+    )
+
+    assert (
+        mcp_server_runner.process_mcp_server_release(
+            db_session, release_id=created["id"]
+        )
+        == 1
+    )
+    row = db_session.query(McpServerReleaseRow).filter_by(id=created["id"]).one()
+    assert row.status == "failed"
+    assert "server_json_version_mismatch" in row.failure_summary
+
+
+def test_server_json_package_version_parser_handles_non_npm_shapes():
+    assert mcp_server_runner._server_json_package_version({"packages": "bad"}) == ""
+    assert (
+        mcp_server_runner._server_json_package_version(
+            {"packages": ["bad", {"registryType": "pypi", "version": "1.0.0"}]}
+        )
+        == ""
+    )
+    assert (
+        mcp_server_runner._server_json_package_version(
+            {"packages": [{"registryType": "npm", "version": "0.1.5"}]}
+        )
+        == "0.1.5"
+    )
 
 
 def test_mcp_server_status_sync_projects_running_states(synced_client, db_session):

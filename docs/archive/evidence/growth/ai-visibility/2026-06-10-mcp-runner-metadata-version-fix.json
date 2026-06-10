@@ -1,0 +1,34 @@
+{
+  "status": "runner_fix_ready",
+  "surface": "remote_mcp_glama_verification",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-mcp-runner-metadata-version-fix",
+  "problem": "Growing MCP release runner treated server.json.version as the npm package artifact version. That blocked Remote MCP production deploy when the official MCP Registry metadata version advanced to 0.1.7 while the npm package artifact remained 0.1.5.",
+  "live_facts": {
+    "npm_latest": "0.1.5",
+    "official_mcp_registry_latest_metadata_version": "0.1.7",
+    "official_mcp_registry_latest_package_version": "0.1.5",
+    "remote_mcp_readyz_status": 200,
+    "remote_mcp_unauthenticated_mcp_status": 401,
+    "glama_well_known_status": 404
+  },
+  "fix": {
+    "repo": "SynapseNetworkAI/Synapse-Network-Growing",
+    "branch": "codex/fix-ai-visibility-api-url-normalization",
+    "behavior": "MCP release runner now validates package.json.version and server.json.packages[0].version against the release ledger package artifact version, while allowing server.json.version to advance as Registry metadata version. Older server.json files without a package version still use the prior server.json.version fallback. Failed releases whose last failed runner state was readiness_running can retry readiness after a runner fix; other terminal releases remain blocked."
+  },
+  "validation": [
+    {
+      "command": "python3 -m pytest tests/test_mcp_server_releases_api.py tests/test_release_tasks_api.py -q",
+      "status": "passed",
+      "summary": "42 passed in 37.84s"
+    }
+  ],
+  "next_steps": [
+    "Retry release 3 readiness with package_version 0.1.5 while accepting server.json.version 0.1.7 as metadata.",
+    "Deploy the already-merged Glama well-known endpoint through the Growing MCP prod-only bridge.",
+    "Verify https://mcp.synapse-network.ai/.well-known/glama.json returns 200 JSON.",
+    "Refresh Glama and rerun GPT/Claude source-host probes."
+  ],
+  "recorded_at": "2026-06-10T09:07:00Z"
+}
