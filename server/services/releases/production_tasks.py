@@ -61,9 +61,23 @@ def _local_branch_commit_sha(
     repo_path = _local_repo_path_for_project(project_key)
     if not repo_path:
         return None, "Local production gate has no registered repository path."
+    remote_ref = f"refs/remotes/origin/{branch_name}"
     try:
+        fetch_result = subprocess.run(
+            ["git", "-C", repo_path, "fetch", "--quiet", "origin", branch_name],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if fetch_result.returncode != 0:
+            return None, (
+                fetch_result.stderr
+                or fetch_result.stdout
+                or "Unable to refresh origin branch."
+            ).strip()
         result = subprocess.run(
-            ["git", "-C", repo_path, "rev-parse", f"{branch_name}^{{commit}}"],
+            ["git", "-C", repo_path, "rev-parse", f"{remote_ref}^{{commit}}"],
             check=False,
             capture_output=True,
             text=True,
