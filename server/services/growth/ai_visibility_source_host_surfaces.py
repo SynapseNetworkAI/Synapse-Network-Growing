@@ -11,9 +11,13 @@ SOURCE_HOST_SURFACES = {
     "mcp.directory": "mcp_directory",
     "mcpfind.org": "mcpfind",
     "mcp-marketplace.io": "mcp_marketplace",
+    "mcp.so": "mcp_so",
     "mcpservers.org": "mcpservers",
+    "mysynap.com": "mysynap_com",
     "protodex.io": "protodex",
     "pulsemcp.com": "pulsemcp",
+    "synapbus.dev": "synapbus_dev",
+    "ubos.tech": "ubos_tech",
 }
 
 

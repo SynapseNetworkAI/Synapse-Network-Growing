@@ -316,3 +316,61 @@ def test_offline_source_host_package_marks_live_and_review_pending_items(
     assert item_by_host["protodex.io"].required_evidence == [
         "existing_live_source_host_evidence"
     ]
+
+
+def test_offline_source_host_package_maps_exact_query_collision_surfaces(
+    tmp_path: Path,
+):
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+        source_host_feed_package_from_diagnosis,
+    )
+
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-exact",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "mcp_so",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "mcp.so appeared in exact SynapseNetwork answers.",
+                    },
+                    {
+                        "surface": "ubos_tech",
+                        "draft_type": "brand_collision_source_host_review",
+                        "rationale": "UBOS returned unrelated Synapse MCP content.",
+                    },
+                    {
+                        "surface": "mysynap_com",
+                        "draft_type": "brand_collision_source_host_review",
+                        "rationale": "mysynap.com appeared as a collision source.",
+                    },
+                    {
+                        "surface": "synapbus_dev",
+                        "draft_type": "brand_collision_source_host_review",
+                        "rationale": "SynapBus appeared as a collision source.",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    package = source_host_feed_package_from_diagnosis(diagnosis_path)
+    draft_by_host = {draft.host: draft for draft in package.drafts}
+    assert set(draft_by_host) == {
+        "mcp.so",
+        "ubos.tech",
+        "mysynap.com",
+        "synapbus.dev",
+    }
+    assert draft_by_host["mcp.so"].draft_type == "contextual_partner_or_guest_pitch"
+    assert draft_by_host["ubos.tech"].status == "needs_operator_review"
+
+    checklist = source_host_execution_checklist_from_diagnosis(diagnosis_path)
+    item_by_host = {item.host: item for item in checklist.items}
+    assert item_by_host["mcp.so"].execution_status == "pending_operator_review"
+    assert "truthful partner" in item_by_host["ubos.tech"].action_required

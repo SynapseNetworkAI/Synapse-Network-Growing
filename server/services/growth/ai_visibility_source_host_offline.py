@@ -44,8 +44,12 @@ SURFACE_HOSTS = {
     "lobehub": "lobehub.com",
     "mcpservers": "mcpservers.org",
     "mcp_marketplace": "mcp-marketplace.io",
+    "mcp_so": "mcp.so",
     "protodex": "protodex.io",
     "pulsemcp": "pulsemcp.com",
+    "mysynap_com": "mysynap.com",
+    "synapbus_dev": "synapbus.dev",
+    "ubos_tech": "ubos.tech",
     "x_citation_thread": "x.com",
     "docs_disambiguation_links": "docs.synapse-network.ai",
 }

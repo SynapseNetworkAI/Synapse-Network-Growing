@@ -1,0 +1,665 @@
+{
+  "module_key": "ai_visibility",
+  "checklist_type": "source_host_feed_execution",
+  "generated_at": "2026-06-10T13:26:46.946441Z",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-live-owned-docs-exact-chatgpt",
+  "status": "ready_for_operator_execution",
+  "items": [
+    {
+      "key": "01-mcp.directory-directory_submission",
+      "host": "mcp.directory",
+      "priority": 1,
+      "draft_type": "directory_submission",
+      "execution_status": "review_pending_live_recheck",
+      "target_url": "https://mcp.directory/submit",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Do not resubmit; recheck the review-pending listing until the public source-host page includes the required Synapse terms.",
+      "submission_fields": [
+        {
+          "label": "GitHub repository URL",
+          "value": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+          "notes": "Use the public SynapseNetworkAI MCP repository."
+        },
+        {
+          "label": "NPM package",
+          "value": "@synapse-network-ai/mcp-server",
+          "notes": "Leave unchanged unless the published package name changes."
+        },
+        {
+          "label": "PyPI package",
+          "value": "",
+          "notes": "Use blank or not applicable if the form supports it."
+        },
+        {
+          "label": "Short description",
+          "value": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+          "notes": "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts."
+        },
+        {
+          "label": "Contact email",
+          "value": "support@synapse-network.ai",
+          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
+        },
+        {
+          "label": "Remote MCP endpoint",
+          "value": "https://mcp.synapse-network.ai/mcp",
+          "notes": "If the form lacks this field, include it in the description."
+        },
+        {
+          "label": "Tools",
+          "value": "discover_services, invoke_and_pay, get_receipt",
+          "notes": "If the form lacks this field, include these in the description."
+        }
+      ],
+      "submission_steps": [
+        "Do not submit the form again while the directory review is pending.",
+        "Open the live listing search URLs on a fixed cadence.",
+        "Record live-listing evidence only after a public page includes the required Synapse terms."
+      ],
+      "evidence_recording_steps": [
+        "Use evidence-mode live-listing only after the public listing URL is accessible.",
+        "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists."
+      ],
+      "live_listing_search_urls": [
+        "https://mcp.directory/?q=Synapse%20Network",
+        "https://mcp.directory/?q=SynapseNetwork%20MCP%20Server"
+      ],
+      "live_listing_validation_steps": [
+        "Open the search URLs and confirm a public listing page, not only a submitted form receipt.",
+        "Verify the public page includes Synapse Network, the Remote MCP endpoint, GitHub or npm, and at least one tool name.",
+        "Record the public listing with record_ai_visibility_source_host_execution.py --surface mcp_directory --evidence-mode live-listing --source-url <public-listing-url>.",
+        "Rerun the unchanged answer-engine probe matrix only after live-listing evidence is recorded."
+      ],
+      "latest_live_evidence_status": "missing_required_terms",
+      "latest_live_missing_terms": [
+        "SynapseNetwork",
+        "mcp.synapse-network.ai",
+        "Synapse-Network-MCP-Server"
+      ],
+      "latest_live_evidence_url": "https://mcp.directory/?q=Synapse%20Network",
+      "latest_live_validation_summary": "mcp_directory source host is missing required terms: SynapseNetwork, mcp.synapse-network.ai, Synapse-Network-MCP-Server.",
+      "required_evidence": [
+        "public_listing_url",
+        "live_curl_or_browser_validation"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record MCP Directory browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "02-mcpservers.org-directory_submission",
+      "host": "mcpservers.org",
+      "priority": 2,
+      "draft_type": "directory_submission",
+      "execution_status": "already_live",
+      "target_url": "https://mcpservers.org/submit",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "No submission action required; source-host evidence is already live.",
+      "submission_fields": [
+        {
+          "label": "Server or product name",
+          "value": "Synapse Network MCP Server",
+          "notes": "Use this for name/title fields."
+        },
+        {
+          "label": "Short description",
+          "value": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+          "notes": "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts."
+        },
+        {
+          "label": "Link",
+          "value": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+          "notes": "Use this for MCPServers' required GitHub or docs URL field."
+        },
+        {
+          "label": "Category",
+          "value": "finance",
+          "notes": "Use the closest directory taxonomy if the exact category is unavailable."
+        },
+        {
+          "label": "Contact email",
+          "value": "support@synapse-network.ai",
+          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
+        },
+        {
+          "label": "Plan",
+          "value": "free",
+          "notes": "Use the free listing path unless the operator explicitly approves a paid listing."
+        },
+        {
+          "label": "Remote MCP endpoint",
+          "value": "https://mcp.synapse-network.ai/mcp",
+          "notes": "If the form lacks this field, include it in the description."
+        },
+        {
+          "label": "Tools",
+          "value": "discover_services, invoke_and_pay, get_receipt",
+          "notes": "If the form lacks this field, include these in the description."
+        },
+        {
+          "label": "Docs URL",
+          "value": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "notes": "Use as the documentation/reference URL when available."
+        }
+      ],
+      "submission_steps": [],
+      "evidence_recording_steps": [
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+      ],
+      "live_listing_search_urls": [
+        "https://mcpservers.org/?q=Synapse%20Network",
+        "https://mcpservers.org/?q=SynapseNetwork%20MCP%20Server"
+      ],
+      "live_listing_validation_steps": [
+        "Open the search URLs and confirm a public listing page, not only a submitted form receipt.",
+        "Verify the public page includes Synapse Network, the Remote MCP endpoint, GitHub or npm, and at least one tool name.",
+        "Record the public listing with record_ai_visibility_source_host_execution.py --surface mcpservers --evidence-mode live-listing --source-url <public-listing-url>.",
+        "Rerun the unchanged answer-engine probe matrix only after live-listing evidence is recorded."
+      ],
+      "latest_live_evidence_status": "live_verified",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "https://mcpservers.org/servers/synapsenetworkai/synapse-network-mcp-server",
+      "latest_live_validation_summary": "mcpservers source host is live and matched 6 required terms.",
+      "required_evidence": [
+        "existing_live_source_host_evidence"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record MCPServers browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "03-mcpfind.org-directory_submission",
+      "host": "mcpfind.org",
+      "priority": 3,
+      "draft_type": "directory_submission",
+      "execution_status": "pending_submission",
+      "target_url": "https://mcpfind.org/submit",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Submit the directory form using the non-secret payload.",
+      "submission_fields": [
+        {
+          "label": "Server or product name",
+          "value": "Synapse Network MCP Server",
+          "notes": "Use this for name/title fields."
+        },
+        {
+          "label": "Short description",
+          "value": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+          "notes": "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts."
+        },
+        {
+          "label": "GitHub repository URL",
+          "value": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+          "notes": "Use the public SynapseNetworkAI MCP repository."
+        },
+        {
+          "label": "NPM package",
+          "value": "@synapse-network-ai/mcp-server",
+          "notes": "Leave unchanged unless the published package name changes."
+        },
+        {
+          "label": "Remote MCP endpoint",
+          "value": "https://mcp.synapse-network.ai/mcp",
+          "notes": "If the form lacks this field, include it in the description."
+        },
+        {
+          "label": "Tools",
+          "value": "discover_services, invoke_and_pay, get_receipt",
+          "notes": "If the form lacks this field, include these in the description."
+        },
+        {
+          "label": "Docs URL",
+          "value": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "notes": "Use as the documentation/reference URL when available."
+        },
+        {
+          "label": "Contact email",
+          "value": "support@synapse-network.ai",
+          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
+        },
+        {
+          "label": "Category",
+          "value": "payments",
+          "notes": "Use the closest directory taxonomy if the exact category is unavailable."
+        }
+      ],
+      "submission_steps": [
+        "Open https://mcpfind.org/submit in an operator-owned browser session.",
+        "Fill only the non-secret submission fields from this checklist.",
+        "Add the Remote MCP endpoint and tool list to the description if the form has no dedicated fields.",
+        "Submit or save draft only after the browser preview matches the Synapse Remote MCP facts.",
+        "Capture a screenshot or public receipt URL before marking the item submitted."
+      ],
+      "evidence_recording_steps": [
+        "Record submission confirmation with --surface mcpfind.",
+        "Use evidence-mode submission-confirmation for a submitted-but-not-listed form receipt.",
+        "Use evidence-mode live-listing only after the public listing URL is accessible.",
+        "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists."
+      ],
+      "live_listing_search_urls": [
+        "https://mcpfind.org/?q=Synapse%20Network",
+        "https://mcpfind.org/?q=SynapseNetwork%20MCP%20Server"
+      ],
+      "live_listing_validation_steps": [
+        "Open the search URLs and confirm a public listing page, not only a submitted form receipt.",
+        "Verify the public page includes Synapse Network, the Remote MCP endpoint, GitHub or npm, and at least one tool name.",
+        "Record the public listing with record_ai_visibility_source_host_execution.py --surface mcpfind --evidence-mode live-listing --source-url <public-listing-url>.",
+        "Rerun the unchanged answer-engine probe matrix only after live-listing evidence is recorded."
+      ],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "submission_url_or_receipt",
+        "submitted_payload_summary",
+        "screenshot"
+      ],
+      "submission_confirmation_command": "python scripts/growth/record_ai_visibility_source_host_execution.py --feed-key mcp_paid_api_discovery --run-group YYYY-MM-DD-after-directory-submission --surface mcpfind --source-url https://mcpfind.org/submit --evidence-mode submission-confirmation --submitted-payload-summary \"Submitted SynapseNetwork MCP Server with Remote MCP endpoint, GitHub, npm package, discover_services, invoke_and_pay, and get_receipt.\" --screenshot-url docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcpfind-submission.png --design-handoff-frame \"Directory Source-Host Submission Pack\" --target-platform chatgpt --target-platform claude --target-query \"Synapse vs paid MCP alternatives\" --output docs/archive/evidence/growth/ai-visibility/YYYY-MM-DD-mcpfind-submission-confirmation.json",
+      "validation_command": "Record MCPFind browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "04-pulsemcp.com-contextual_partner_or_guest_pitch",
+      "host": "pulsemcp.com",
+      "priority": 4,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "already_live",
+      "target_url": "https://pulsemcp.com/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "No submission action required; source-host evidence is already live.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+      ],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "live_verified",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "https://www.pulsemcp.com/servers/synapse-network",
+      "latest_live_validation_summary": "pulsemcp source host is live and matched 2 required terms.",
+      "required_evidence": [
+        "existing_live_source_host_evidence"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record the PulseMCP public listing URL and matched canonical terms; do not count source-host intent as external citation evidence.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "05-mcp.so-contextual_partner_or_guest_pitch",
+      "host": "mcp.so",
+      "priority": 5,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://mcp.so/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record the mcp.so public listing URL, correction request, or collision evidence; rerun exact SynapseNetworkAI identifier probes after it changes.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "06-ubos.tech-contextual_partner_or_guest_pitch",
+      "host": "ubos.tech",
+      "priority": 6,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://ubos.tech/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record UBOS collision evidence or a correction URL, then rerun exact identifier probes.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "07-mysynap.com-contextual_partner_or_guest_pitch",
+      "host": "mysynap.com",
+      "priority": 7,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://mysynap.com/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record the mysynap.com collision evidence and confirm official source hosts carry the disambiguation block.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "08-synapbus.dev-contextual_partner_or_guest_pitch",
+      "host": "synapbus.dev",
+      "priority": 8,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://synapbus.dev/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record SynapBus collision evidence and rerun exact identifier probes after owned disambiguation refresh.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "09-docs.synapse-network.ai-owned_brand_disambiguation_refresh",
+      "host": "docs.synapse-network.ai",
+      "priority": 9,
+      "draft_type": "owned_brand_disambiguation_refresh",
+      "execution_status": "pending_owned_publish",
+      "target_url": "https://docs.synapse-network.ai/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Review the draft and decide the next safe action.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Verify official docs, GitHub README, and MCP Registry metadata carry the disambiguation block, then rerun exact identifier probes.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "10-registry.modelcontextprotocol.io-contextual_partner_or_guest_pitch",
+      "host": "registry.modelcontextprotocol.io",
+      "priority": 10,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "already_live",
+      "target_url": "https://registry.modelcontextprotocol.io/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "No submission action required; source-host evidence is already live.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+      ],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "live_verified",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "latest_live_validation_summary": "registry_modelcontextprotocol_io source host is live and matched 3 required terms.",
+      "required_evidence": [
+        "existing_live_source_host_evidence"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "mcp-publisher publish && curl 'https://registry.modelcontextprotocol.io/v0.1/servers?search=synapse'",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "11-github.com-contextual_partner_or_guest_pitch",
+      "host": "github.com",
+      "priority": 11,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://github.com/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "git grep -n 'MCP server for paid API calls' README.md server.json",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "12-smithery.ai-contextual_partner_or_guest_pitch",
+      "host": "smithery.ai",
+      "priority": 12,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://smithery.ai/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "smithery inspect @synapse-network-ai/mcp-server",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "13-glama.ai-directory_submission",
+      "host": "glama.ai",
+      "priority": 13,
+      "draft_type": "directory_submission",
+      "execution_status": "already_live",
+      "target_url": "https://glama.ai/mcp/servers",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "No submission action required; source-host evidence is already live.",
+      "submission_fields": [
+        {
+          "label": "Server or product name",
+          "value": "Synapse Network MCP Server",
+          "notes": "Use this for name/title fields."
+        },
+        {
+          "label": "Website URL",
+          "value": "https://www.synapse-network.ai/",
+          "notes": "Prefer the canonical www homepage."
+        },
+        {
+          "label": "Short description",
+          "value": "Synapse Network Remote MCP lets AI agents discover payable APIs, invoke approved paid tools with bounded USDC spend, and retrieve receipts.",
+          "notes": "Include Remote MCP, paid API discovery, spend bounds, USDC settlement, and receipts."
+        },
+        {
+          "label": "GitHub repository URL",
+          "value": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server",
+          "notes": "Use the public SynapseNetworkAI MCP repository."
+        },
+        {
+          "label": "NPM package",
+          "value": "@synapse-network-ai/mcp-server",
+          "notes": "Leave unchanged unless the published package name changes."
+        },
+        {
+          "label": "Remote MCP endpoint",
+          "value": "https://mcp.synapse-network.ai/mcp",
+          "notes": "If the form lacks this field, include it in the description."
+        },
+        {
+          "label": "Tools",
+          "value": "discover_services, invoke_and_pay, get_receipt",
+          "notes": "If the form lacks this field, include these in the description."
+        },
+        {
+          "label": "Docs URL",
+          "value": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "notes": "Use as the documentation/reference URL when available."
+        },
+        {
+          "label": "Contact email",
+          "value": "support@synapse-network.ai",
+          "notes": "Operator-owned email only; required when the directory form asks for contact or account email; do not enter API keys or bearer tokens."
+        }
+      ],
+      "submission_steps": [],
+      "evidence_recording_steps": [
+        "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+      ],
+      "live_listing_search_urls": [
+        "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
+        "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server"
+      ],
+      "live_listing_validation_steps": [
+        "Open the search URLs and confirm a public listing page, not only a submitted form receipt.",
+        "Verify the public page includes Synapse Network, the Remote MCP endpoint, GitHub or npm, and at least one tool name.",
+        "Record the public listing with record_ai_visibility_source_host_execution.py --surface glama_ai --evidence-mode live-listing --source-url <public-listing-url>.",
+        "Rerun the unchanged answer-engine probe matrix only after live-listing evidence is recorded."
+      ],
+      "latest_live_evidence_status": "missing_required_terms",
+      "latest_live_missing_terms": [
+        "Synapse Network MCP Server"
+      ],
+      "latest_live_evidence_url": "https://glama.ai/mcp/connectors/io.github.SynapseNetworkAI/synapse-network-mcp-server",
+      "latest_live_validation_summary": "glama_ai source host is missing required terms: Synapse Network MCP Server.",
+      "required_evidence": [
+        "existing_live_source_host_evidence"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -fsS 'https://glama.ai/search?q=Synapse%20Network%20MCP'",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "14-x.com-contextual_partner_or_guest_pitch",
+      "host": "x.com",
+      "priority": 14,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://x.com/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "Record the published X URL as source-host evidence after human approval.",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    },
+    {
+      "key": "15-docs.synapse-network.ai-contextual_partner_or_guest_pitch",
+      "host": "docs.synapse-network.ai",
+      "priority": 15,
+      "draft_type": "contextual_partner_or_guest_pitch",
+      "execution_status": "pending_operator_review",
+      "target_url": "https://docs.synapse-network.ai/",
+      "design_handoff_frame": "Directory Source-Host Submission Pack",
+      "action_required": "Inspect the host and create a truthful partner, roundup, or guest-post opportunity.",
+      "submission_fields": [],
+      "submission_steps": [],
+      "evidence_recording_steps": [],
+      "live_listing_search_urls": [],
+      "live_listing_validation_steps": [],
+      "latest_live_evidence_status": "",
+      "latest_live_missing_terms": [],
+      "latest_live_evidence_url": "",
+      "latest_live_validation_summary": "",
+      "required_evidence": [
+        "review_notes",
+        "target_contact_or_surface",
+        "decision_or_published_url"
+      ],
+      "submission_confirmation_command": "",
+      "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -i 'Azure Synapse'",
+      "re_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+      "completion_gate": "Do not mark complete until operator evidence proves the listing, owned page, or partner mention is live; then rerun unchanged probes."
+    }
+  ],
+  "blockers": [],
+  "commands": {
+    "export_feed_package": "python scripts/growth/generate_ai_visibility_source_host_feed_package.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt",
+    "after_feed_probe": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-after-live-owned-docs-exact-chatgpt-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-10-after-live-owned-docs-exact-chatgpt\""
+  }
+}
