@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 def test_source_host_cli_can_build_from_offline_diagnosis(tmp_path: Path):
@@ -252,3 +253,66 @@ def test_offline_source_host_package_supports_mcpfind_surface(tmp_path: Path):
     assert item.live_listing_search_urls[0] == (
         "https://mcpfind.org/?q=Synapse%20Network"
     )
+
+
+def test_offline_source_host_package_marks_live_and_review_pending_items(
+    tmp_path: Path,
+):
+    from server.services.growth.ai_visibility_source_host_offline import (
+        source_host_execution_checklist_from_diagnosis,
+        source_host_feed_package_from_diagnosis,
+    )
+
+    diagnosis_path = tmp_path / "feed-diagnosis.json"
+    diagnosis_path.write_text(
+        json.dumps(
+            {
+                "feed_key": "mcp_paid_api_discovery",
+                "run_group": "2026-06-10-layered",
+                "recommended_source_host_executions": [
+                    {
+                        "surface": "mcp_directory",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "MCP Directory appeared in answer sources.",
+                    },
+                    {
+                        "surface": "protodex",
+                        "draft_type": "mcp_directory_listing",
+                        "rationale": "Protodex appeared in public search.",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    facts = SimpleNamespace(
+        review_pending_surfaces=["mcp_directory"],
+        live_surfaces=["protodex"],
+    )
+
+    package = source_host_feed_package_from_diagnosis(
+        diagnosis_path,
+        audit_facts=facts,
+    )
+    draft_by_host = {draft.host: draft for draft in package.drafts}
+    assert draft_by_host["mcp.directory"].status == "review_pending_live_recheck"
+    assert draft_by_host["protodex.io"].status == "already_live"
+    assert (
+        draft_by_host["mcp.directory"].submission_payload["source_host_audit_status"]
+        == "review_pending_live_recheck"
+    )
+
+    checklist = source_host_execution_checklist_from_diagnosis(
+        diagnosis_path,
+        audit_facts=facts,
+    )
+    item_by_host = {item.host: item for item in checklist.items}
+    assert item_by_host["mcp.directory"].execution_status == (
+        "review_pending_live_recheck"
+    )
+    assert item_by_host["mcp.directory"].submission_confirmation_command == ""
+    assert "Do not resubmit" in item_by_host["mcp.directory"].action_required
+    assert item_by_host["protodex.io"].execution_status == "already_live"
+    assert item_by_host["protodex.io"].required_evidence == [
+        "existing_live_source_host_evidence"
+    ]

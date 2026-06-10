@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 
 from server.schemas_growth import (
@@ -18,10 +15,12 @@ from server.services.growth.ai_visibility_source_host_live_listing import (
     live_listing_search_urls,
     live_listing_validation_steps,
 )
+from server.services.growth.ai_visibility_source_host_live_evidence import (
+    latest_live_evidence,
+)
 from server.services.growth.ai_visibility_source_host_surfaces import (
     source_host_surface,
 )
-from server.services.growth.ai_visibility_text import unique_strings
 
 REMOTE_MCP_ENDPOINT = "https://mcp.synapse-network.ai/mcp"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -112,19 +111,11 @@ SUBMISSION_FIELD_KEYS_BY_HOST = {
 }
 
 
-@dataclass(frozen=True)
-class LatestLiveEvidence:
-    status: str = ""
-    missing_terms: list[str] = field(default_factory=list)
-    source_url: str = ""
-    validation_summary: str = ""
-
-
 def source_host_execution_item(
     draft: GrowthAIVisibilitySourceHostDraftOut,
     commands: dict[str, str],
 ) -> GrowthAIVisibilitySourceHostExecutionItemOut:
-    latest_live = _latest_live_evidence(draft.host)
+    latest_live = latest_live_evidence(draft.host)
     return GrowthAIVisibilitySourceHostExecutionItemOut(
         key=f"{draft.priority:02d}-{draft.host}-{draft.draft_type}",
         host=draft.host,
@@ -188,6 +179,10 @@ def source_host_execution_checklist_from_package(
 
 
 def _execution_status(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
+    if draft.status == "already_live":
+        return "already_live"
+    if draft.status == "review_pending_live_recheck":
+        return "review_pending_live_recheck"
     if draft.status == "ready_to_submit":
         return "pending_submission"
     if draft.status == "ready_to_publish_on_owned_channels":
@@ -198,6 +193,13 @@ def _execution_status(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
 
 
 def _action_required(draft: GrowthAIVisibilitySourceHostDraftOut) -> str:
+    if draft.status == "already_live":
+        return "No submission action required; source-host evidence is already live."
+    if draft.status == "review_pending_live_recheck":
+        return (
+            "Do not resubmit; recheck the review-pending listing until the public "
+            "source-host page includes the required Synapse terms."
+        )
     if draft.status == "operator_login_required":
         return (
             "Use an operator-owned account or contact path to complete the "
@@ -355,6 +357,14 @@ def _field(
 
 
 def _submission_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
+    if draft.status == "already_live":
+        return []
+    if draft.status == "review_pending_live_recheck":
+        return [
+            "Do not submit the form again while the directory review is pending.",
+            "Open the live listing search URLs on a fixed cadence.",
+            "Record live-listing evidence only after a public page includes the required Synapse terms.",
+        ]
     if draft.draft_type != "directory_submission":
         return []
     return [
@@ -367,6 +377,15 @@ def _submission_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
 
 
 def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
+    if draft.status == "already_live":
+        return [
+            "Keep the existing live source-host evidence; rerun unchanged probes after the next new feed asset is live."
+        ]
+    if draft.status == "review_pending_live_recheck":
+        return [
+            "Use evidence-mode live-listing only after the public listing URL is accessible.",
+            "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists.",
+        ]
     if draft.draft_type != "directory_submission":
         return []
     surface = source_host_surface(draft.host)
@@ -376,7 +395,7 @@ def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> li
         "Use evidence-mode live-listing only after the public listing URL is accessible.",
         "Rerun unchanged ChatGPT/Claude/Grok/Gemini probes after live listing evidence exists.",
     ]
-    latest_live = _latest_live_evidence(draft.host)
+    latest_live = latest_live_evidence(draft.host)
     if latest_live.status == "missing_required_terms":
         missing = ", ".join(latest_live.missing_terms) or "required terms"
         steps.insert(
@@ -390,6 +409,10 @@ def _evidence_recording_steps(draft: GrowthAIVisibilitySourceHostDraftOut) -> li
 
 
 def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]:
+    if draft.status == "already_live":
+        return ["existing_live_source_host_evidence"]
+    if draft.status == "review_pending_live_recheck":
+        return ["public_listing_url", "live_curl_or_browser_validation"]
     if draft.draft_type == "directory_submission":
         return ["submission_url_or_receipt", "submitted_payload_summary", "screenshot"]
     if draft.draft_type == "owned_comparison_refresh":
@@ -400,6 +423,8 @@ def _required_evidence(draft: GrowthAIVisibilitySourceHostDraftOut) -> list[str]
 def _submission_confirmation_command(
     draft: GrowthAIVisibilitySourceHostDraftOut,
 ) -> str:
+    if draft.status in {"already_live", "review_pending_live_recheck"}:
+        return ""
     if draft.draft_type != "directory_submission":
         return ""
     surface = source_host_surface(draft.host)
@@ -422,69 +447,3 @@ def _submission_confirmation_command(
         "--output docs/archive/evidence/growth/ai-visibility/"
         f"YYYY-MM-DD-{surface}-submission-confirmation.json"
     )
-
-
-def _latest_live_evidence(host: str) -> LatestLiveEvidence:
-    surface = source_host_surface(host)
-    root = PROJECT_ROOT / "docs/archive/evidence/growth/ai-visibility"
-    candidates = list(_live_evidence_candidates(root, surface=surface))
-    if not candidates:
-        return LatestLiveEvidence()
-    latest = max(candidates, key=lambda candidate: candidate[:2])
-    return _latest_live_evidence_from_payload(latest[2])
-
-
-def _live_evidence_candidates(
-    root: Path, *, surface: str
-) -> list[tuple[datetime, str, dict[str, object]]]:
-    if not root.exists():
-        return []
-    candidates = []
-    for path in sorted(root.glob("*.json")):
-        payload = _read_json(path)
-        if _is_live_evidence_payload(payload, surface=surface):
-            candidates.append((_evidence_timestamp(payload), path.name, payload))
-    return candidates
-
-
-def _is_live_evidence_payload(payload: dict[str, object], *, surface: str) -> bool:
-    status = str(payload.get("status") or "")
-    return (
-        payload.get("module_key") == "ai_visibility_source_host_execution"
-        and str(payload.get("surface") or "") == surface
-        and status in {"live_verified", "missing_required_terms"}
-    )
-
-
-def _latest_live_evidence_from_payload(
-    payload: dict[str, object],
-) -> LatestLiveEvidence:
-    return LatestLiveEvidence(
-        status=str(payload.get("status") or ""),
-        missing_terms=unique_strings(
-            [str(item) for item in payload.get("missing_terms", []) or []]
-        ),
-        source_url=str(payload.get("source_url") or ""),
-        validation_summary=str(payload.get("validation_summary") or ""),
-    )
-
-
-def _read_json(path) -> dict[str, object]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _evidence_timestamp(payload: dict[str, object]) -> datetime:
-    value = str(payload.get("checked_at") or payload.get("verified_at") or "").strip()
-    if not value:
-        return datetime.min.replace(tzinfo=UTC)
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return datetime.min.replace(tzinfo=UTC)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)

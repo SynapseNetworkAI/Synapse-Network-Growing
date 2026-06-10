@@ -1,7 +1,7 @@
 {
   "module_key": "ai_visibility",
   "package_type": "source_host_feed",
-  "generated_at": "2026-06-10T11:48:22.158113Z",
+  "generated_at": "2026-06-10T12:16:49.832980Z",
   "feed_key": "mcp_paid_api_discovery",
   "run_group": "2026-06-10-source-host-layered",
   "status": "ready_for_operator_feed",
@@ -21,7 +21,7 @@
       "host": "mcp.directory",
       "priority": 1,
       "draft_type": "directory_submission",
-      "status": "ready_to_submit",
+      "status": "review_pending_live_recheck",
       "target_url": "https://mcp.directory/submit",
       "submit_url": "https://mcp.directory/submit",
       "title": "Synapse Network MCP Server",
@@ -51,7 +51,8 @@
           "PyPI package",
           "Short description",
           "Email"
-        ]
+        ],
+        "source_host_audit_status": "review_pending_live_recheck"
       },
       "validation_command": "Record MCP Directory browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -64,7 +65,7 @@
       "host": "mcpservers.org",
       "priority": 2,
       "draft_type": "directory_submission",
-      "status": "ready_to_submit",
+      "status": "already_live",
       "target_url": "https://mcpservers.org/submit",
       "submit_url": "https://mcpservers.org/submit",
       "title": "Synapse Network MCP Server",
@@ -100,7 +101,8 @@
           "plan"
         ],
         "submission_method": "Submit the free MCPServers form at https://mcpservers.org/submit; use category=finance and include the Remote MCP endpoint plus tool names in the description when the form has no dedicated fields.",
-        "premium_listing": false
+        "premium_listing": false,
+        "source_host_audit_status": "already_live"
       },
       "validation_command": "Record MCPServers browser/form confirmation or public listing URL; do not count source-host intent as external citation evidence.",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -136,7 +138,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "ready_to_publish_on_owned_channels"
       },
       "validation_command": "Verify official docs, GitHub README, and MCP Registry metadata carry the disambiguation block, then rerun exact identifier probes.",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -148,7 +151,7 @@
       "host": "registry.modelcontextprotocol.io",
       "priority": 4,
       "draft_type": "contextual_partner_or_guest_pitch",
-      "status": "needs_operator_review",
+      "status": "already_live",
       "target_url": "https://registry.modelcontextprotocol.io/",
       "submit_url": "",
       "title": "Synapse Network source-host opportunity for registry.modelcontextprotocol.io",
@@ -171,7 +174,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "already_live"
       },
       "validation_command": "mcp-publisher publish && curl 'https://registry.modelcontextprotocol.io/v0.1/servers?search=synapse'",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -206,7 +210,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
       },
       "validation_command": "git grep -n 'MCP server for paid API calls' README.md server.json",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -241,7 +246,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
       },
       "validation_command": "smithery inspect @synapse-network-ai/mcp-server",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -253,7 +259,7 @@
       "host": "glama.ai",
       "priority": 7,
       "draft_type": "directory_submission",
-      "status": "ready_to_submit",
+      "status": "already_live",
       "target_url": "https://glama.ai/mcp/servers",
       "submit_url": "https://glama.ai/mcp/servers",
       "title": "Synapse Network MCP Server",
@@ -292,7 +298,8 @@
           "invoke_and_pay",
           "get_receipt"
         ],
-        "browser_submission_required": true
+        "browser_submission_required": true,
+        "source_host_audit_status": "already_live"
       },
       "validation_command": "curl -fsS 'https://glama.ai/search?q=Synapse%20Network%20MCP'",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -328,7 +335,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
       },
       "validation_command": "Record the published X URL as source-host evidence after human approval.",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
@@ -363,7 +371,8 @@
         "contact_email": "support@synapse-network.ai",
         "stitch_figma_frame": "Directory Source-Host Submission Pack",
         "evidence_status": "pending_submission_not_external_citation",
-        "login_required": false
+        "login_required": false,
+        "source_host_audit_status": "needs_operator_review"
       },
       "validation_command": "curl -fsS https://docs.synapse-network.ai/mcp/paid-api-calls | grep -i 'Azure Synapse'",
       "probe_followup": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-10-source-host-layered-after-source-hosts --platforms chatgpt,claude,grok,gemini --execute",
