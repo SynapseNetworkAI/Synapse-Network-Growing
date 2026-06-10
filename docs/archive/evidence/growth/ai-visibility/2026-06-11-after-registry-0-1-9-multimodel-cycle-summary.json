@@ -1,0 +1,345 @@
+{
+  "module_key": "ai_visibility",
+  "status": "mention_observed",
+  "generated_at": "2026-06-10T22:04:13.844949+00:00",
+  "source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel-probes.jsonl",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-registry-0-1-9-multimodel",
+  "feed_keys": [
+    "mcp_paid_api_discovery"
+  ],
+  "run_groups": [
+    "2026-06-11-after-registry-0-1-9-multimodel"
+  ],
+  "record_count": 12,
+  "local_validation_count": 0,
+  "external_probe_count": 12,
+  "completed_external_probe_count": 4,
+  "provider_failure_count": 8,
+  "api_probe_blocker_count": 0,
+  "external_mentioned_count": 1,
+  "external_cited_count": 0,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "covered_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini",
+    "grok"
+  ],
+  "missing_platforms": [],
+  "blockers": [
+    "claude API probe failed for 3 query(s): credit balance is too low.",
+    "gemini API probe failed for 2 query(s): quota exceeded.",
+    "grok API probe failed for 3 query(s): monthly spending limit or credits exhausted."
+  ],
+  "feed_improvements": [],
+  "platform_results": [
+    {
+      "platform": "chatgpt",
+      "status": "not_visible_yet",
+      "probe_count": 3,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [
+        {
+          "value": "docs.mcpay.tech",
+          "count": 3
+        },
+        {
+          "value": "dock0.dev",
+          "count": 2
+        },
+        {
+          "value": "glama.ai",
+          "count": 2
+        },
+        {
+          "value": "mcpservers.org",
+          "count": 2
+        },
+        {
+          "value": "docs.omni.dev",
+          "count": 1
+        },
+        {
+          "value": "docs.synapse.sh",
+          "count": 1
+        },
+        {
+          "value": "helius.dev",
+          "count": 1
+        },
+        {
+          "value": "mcp.so",
+          "count": 1
+        }
+      ],
+      "top_competitors": [
+        {
+          "value": "x402",
+          "count": 3
+        },
+        {
+          "value": "mcpay",
+          "count": 3
+        },
+        {
+          "value": "dock0",
+          "count": 2
+        },
+        {
+          "value": "mcpservers.org",
+          "count": 2
+        },
+        {
+          "value": "docs.synapse.sh",
+          "count": 1
+        },
+        {
+          "value": "stripe",
+          "count": 1
+        },
+        {
+          "value": "magpie",
+          "count": 1
+        },
+        {
+          "value": "gapup",
+          "count": 1
+        }
+      ],
+      "next_action": "Feed or refresh source hosts observed by chatgpt: docs.mcpay.tech, dock0.dev, glama.ai."
+    },
+    {
+      "platform": "claude",
+      "status": "not_visible_yet",
+      "probe_count": 3,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [],
+      "top_competitors": [],
+      "next_action": "Run another unchanged claude probe after the next feed asset is live."
+    },
+    {
+      "platform": "grok",
+      "status": "not_visible_yet",
+      "probe_count": 3,
+      "mentioned_count": 0,
+      "cited_count": 0,
+      "source_hosts": [],
+      "top_competitors": [],
+      "next_action": "Run another unchanged grok probe after the next feed asset is live."
+    },
+    {
+      "platform": "gemini",
+      "status": "mention_observed",
+      "probe_count": 3,
+      "mentioned_count": 1,
+      "cited_count": 0,
+      "source_hosts": [
+        {
+          "value": "vertexaisearch.cloud.google.com",
+          "count": 1
+        },
+        {
+          "value": "w3.org",
+          "count": 1
+        }
+      ],
+      "top_competitors": [],
+      "next_action": "Strengthen official citations for gemini answer sources."
+    }
+  ],
+  "top_source_hosts": [
+    {
+      "value": "docs.mcpay.tech",
+      "count": 3,
+      "surface": "docs_mcpay_tech"
+    },
+    {
+      "value": "dock0.dev",
+      "count": 2,
+      "surface": "dock0_dev"
+    },
+    {
+      "value": "glama.ai",
+      "count": 2,
+      "surface": "glama"
+    },
+    {
+      "value": "mcpservers.org",
+      "count": 2,
+      "surface": "mcpservers"
+    },
+    {
+      "value": "docs.omni.dev",
+      "count": 1,
+      "surface": "docs_omni_dev"
+    },
+    {
+      "value": "docs.synapse.sh",
+      "count": 1,
+      "surface": "docs_synapse_sh"
+    },
+    {
+      "value": "helius.dev",
+      "count": 1,
+      "surface": "helius_dev"
+    },
+    {
+      "value": "mcp.so",
+      "count": 1,
+      "surface": "mcp_so"
+    },
+    {
+      "value": "mysynap.com",
+      "count": 1,
+      "surface": "mysynap_com"
+    },
+    {
+      "value": "playbooks.com",
+      "count": 1,
+      "surface": "playbooks_com"
+    },
+    {
+      "value": "ubos.tech",
+      "count": 1,
+      "surface": "ubos_tech"
+    },
+    {
+      "value": "whopmcp.com",
+      "count": 1,
+      "surface": "whopmcp_com"
+    }
+  ],
+  "top_competitors": [
+    {
+      "value": "x402",
+      "count": 3
+    },
+    {
+      "value": "mcpay",
+      "count": 3
+    },
+    {
+      "value": "dock0",
+      "count": 2
+    },
+    {
+      "value": "mcpservers.org",
+      "count": 2
+    },
+    {
+      "value": "docs.synapse.sh",
+      "count": 1
+    },
+    {
+      "value": "stripe",
+      "count": 1
+    },
+    {
+      "value": "magpie",
+      "count": 1
+    },
+    {
+      "value": "gapup",
+      "count": 1
+    }
+  ],
+  "next_actions": [
+    "Deploy/refresh feed assets and rerun the same API probe.",
+    "Fix provider/API probe failure and rerun the same query.",
+    "Compare against previous run group and keep feeding cited surfaces.",
+    "Compare this run against the previous run group and schedule the next weekly stability probe."
+  ],
+  "platform_strategies": [
+    {
+      "platform": "chatgpt",
+      "feed_focus": "Remote MCP custom app discovery and web citations.",
+      "preferred_surfaces": [
+        "docs",
+        "mcp_registry",
+        "www_llms",
+        "github"
+      ],
+      "probe_queries": [
+        "MCP server for paid API calls",
+        "ChatGPT MCP app for API payments",
+        "SynapseNetwork MCP vs paid MCP alternatives"
+      ],
+      "success_signal": "ChatGPT scan/search surfaces Synapse Remote MCP and cites docs or MCP registry.",
+      "fallback_action": "Ship OAuth/custom app docs, refresh MCP Registry metadata, then rerun ChatGPT scan."
+    },
+    {
+      "platform": "claude",
+      "feed_focus": "Remote connector compatibility and docs citation.",
+      "preferred_surfaces": [
+        "docs",
+        "github",
+        "glama",
+        "www_llms"
+      ],
+      "probe_queries": [
+        "Claude MCP connector for paid API calls",
+        "MCP server that lets agents pay for APIs"
+      ],
+      "success_signal": "Claude web search mentions Synapse and cites docs, GitHub, or a directory listing.",
+      "fallback_action": "Add Claude connector setup block and directory evidence, then rerun Claude web search."
+    },
+    {
+      "platform": "grok",
+      "feed_focus": "Public web plus X-facing MCP discovery language.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "x_profile",
+        "smithery",
+        "glama"
+      ],
+      "probe_queries": [
+        "MCP server for paid API calls",
+        "AI agents paying for APIs with MCP"
+      ],
+      "success_signal": "Grok search returns Synapse or the Remote MCP endpoint among cited/source results.",
+      "fallback_action": "Publish social/distribution copy linking the docs page, then rerun Grok web/X search."
+    },
+    {
+      "platform": "gemini",
+      "feed_focus": "Google-grounded MCP and agent-payment discovery.",
+      "preferred_surfaces": [
+        "www",
+        "docs",
+        "github",
+        "mcp_registry"
+      ],
+      "probe_queries": [
+        "Gemini MCP server for paid API calls",
+        "AI agents pay for API calls with MCP"
+      ],
+      "success_signal": "Gemini mentions Synapse and cites www, docs, GitHub, or MCP Registry.",
+      "fallback_action": "Refresh Google-indexable docs, sitemap, and llms.txt terms, then rerun Gemini search."
+    }
+  ],
+  "comparison": {
+    "previous_source_path": "docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-chatgpt-probe.jsonl",
+    "previous_external_probe_count": 1,
+    "previous_mentioned_count": 0,
+    "previous_cited_count": 0,
+    "mentioned_delta": 1,
+    "cited_delta": 0,
+    "comparison_status": "improved"
+  },
+  "commands": {
+    "feed_validation": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-registry-0-1-9-multimodel --output docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel-feed-validation.jsonl",
+    "manual_probe_template": "python scripts/growth/generate_ai_visibility_probe_template.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-registry-0-1-9-multimodel --mode after-feed --output docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel.jsonl",
+    "api_readiness": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-registry-0-1-9-multimodel --platforms chatgpt,claude,grok,gemini",
+    "public_web_search_import": "python scripts/growth/import_ai_visibility_public_search_snapshot.py docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel-public-web-search-snapshot.json --output docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel-public-web-search.jsonl",
+    "record_evidence": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-11-after-registry-0-1-9-multimodel.jsonl --apply",
+    "compare": "curl -fsS \"http://localhost:9700/api/growth/ai-visibility/comparisons?feed_key=mcp_paid_api_discovery&run_group=2026-06-11-after-registry-0-1-9-multimodel\" | python -m json.tool"
+  }
+}
