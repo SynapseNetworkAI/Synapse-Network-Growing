@@ -273,7 +273,7 @@ def ai_visibility_next_cycle(db: Session) -> GrowthAIVisibilityNextCycleOut:
         "python scripts/growth/run_ai_visibility_api_probe.py "
         f"--feed-key {feed_key} "
         f"--run-group {run_group} "
-        "--platforms chatgpt,claude,grok,gemini"
+        f"--platforms {','.join(AI_VISIBILITY_TARGET_PLATFORMS)}"
     )
     return GrowthAIVisibilityNextCycleOut(
         feed_key=feed_key,

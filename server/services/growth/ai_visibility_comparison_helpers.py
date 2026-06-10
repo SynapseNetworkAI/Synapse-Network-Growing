@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 from collections import Counter
 from datetime import datetime, timezone
+import json
 
 from sqlalchemy.orm import Session
 
@@ -11,8 +11,18 @@ from server.schemas_growth import (
     GrowthAIVisibilityComparisonOut,
     GrowthAIVisibilityFeedReportOut,
 )
+from server.services.growth.ai_visibility_collision_policy import (
+    known_collision_mentions,
+)
+from server.services.growth.ai_visibility_comparison_status import (
+    comparison_status_from_counts,
+)
 from server.services.growth.ai_visibility_official_sources import (
     is_official_citation_url,
+)
+from server.services.growth.ai_visibility_probe_failures import (
+    has_provider_failure_missing_fact,
+    is_external_api_key_setup_blocker,
 )
 from server.services.growth.ai_visibility_source_host_ranking import (
     source_hosts_for_actions,
@@ -20,12 +30,7 @@ from server.services.growth.ai_visibility_source_host_ranking import (
 from server.services.growth.ai_visibility_text import unique_strings
 
 AI_VISIBILITY_REQUIRED_STABLE_RUNS = 3
-KNOWN_BRAND_COLLISION_COMPETITORS = {
-    "docs.synapse.sh", "getdrio.com", "mcp.synapse.org",
-    "mcp.synapse.sh", "python-docs.synapse.org", "synapse.network",
-    "synapse.org", "synapseproto.com", "synapsenetwork.xyz",
-    "forbes.com/digital-assets/assets/synapse-network-zksnp",
-}
+AI_VISIBILITY_TARGET_PLATFORMS = ["chatgpt", "claude", "grok", "gemini"]
 
 
 def _comparison_out(
@@ -38,21 +43,29 @@ def _comparison_out(
     external_rows = [
         row for row in rows if _is_external_visibility_platform(row.platform)
     ]
+    provider_failure_rows = [
+        row for row in external_rows if _is_provider_failure_row(row)
+    ]
+    completed_external_rows = [
+        row for row in external_rows if not _is_provider_failure_row(row)
+    ]
     external_platforms = sorted({row.platform for row in external_rows if row.platform})
     aggregate = _comparison_row_aggregate(rows)
-    counts = _comparison_counts(external_rows, previous)
-    official_cited_urls = _official_cited_urls(external_rows)
-    known_collision_competitors = _known_collision_mentions(
-        [*aggregate["top_competitors"], *aggregate["source_hosts"]]
+    counts = _comparison_counts(completed_external_rows, previous)
+    official_cited_urls = _official_cited_urls(completed_external_rows)
+    known_collision_competitors = known_collision_mentions(
+        aggregate["top_competitors"] + aggregate["source_hosts"]
     )
-    comparison_status = _comparison_status(
+    comparison_status = comparison_status_from_counts(
         external_checks_count=len(external_rows),
-        previous=previous,
+        completed_external_count=len(completed_external_rows),
+        previous_exists=previous is not None,
         mentioned_delta=counts["mentioned_delta"],
         cited_delta=counts["cited_delta"],
+        provider_failure_count=len(provider_failure_rows),
     )
     citation_quality_status = _citation_quality_status(
-        external_checks_count=len(external_rows),
+        external_checks_count=len(completed_external_rows),
         official_cited_urls=official_cited_urls,
         known_collision_competitors=known_collision_competitors,
     )
@@ -82,10 +95,25 @@ def _comparison_out(
         source_hosts=aggregate["source_hosts"],
         known_collision_competitors=known_collision_competitors,
         official_cited_urls=official_cited_urls,
-        next_actions=aggregate["next_actions"],
+        next_actions=_comparison_next_actions(
+            aggregate["next_actions"],
+            known_collision_competitors=known_collision_competitors,
+        ),
         evidence_urls=aggregate["evidence_urls"],
         latest_run_at=aggregate["latest_run_at"],
     )
+
+
+def _comparison_next_actions(
+    actions: list[str], *, known_collision_competitors: list[str]
+) -> list[str]:
+    if known_collision_competitors:
+        actions = [
+            "Add or strengthen disambiguation copy for known collision domains: "
+            f"{', '.join(known_collision_competitors)}.",
+            *actions,
+        ]
+    return unique_strings(actions)[:5]
 
 
 def _comparison_counts(
@@ -111,9 +139,10 @@ def _previous_run_group(previous: GrowthAIVisibilityComparisonOut | None) -> str
 
 
 def _missing_platforms(external_platforms: list[str]) -> list[str]:
-    target_platforms = ["chatgpt", "claude", "grok", "gemini"]
     return [
-        platform for platform in target_platforms if platform not in external_platforms
+        platform
+        for platform in AI_VISIBILITY_TARGET_PLATFORMS
+        if platform not in external_platforms
     ]
 
 
@@ -127,7 +156,7 @@ def _comparison_row_aggregate(rows: list[GrowthAIVisibilityCheckRow]) -> dict:
         competitors.update(_json_list(row.competitor_mentions_json))
         source_hosts.update(_metadata_source_hosts(row.metadata_json))
         latest_run_at = _latest_run_at(latest_run_at, row.run_at)
-        if not _is_external_api_key_setup_blocker(row.next_action):
+        if not is_external_api_key_setup_blocker(row.next_action):
             _append_unique(next_actions, row.next_action)
         _append_unique(evidence_urls, row.evidence_url)
     _append_source_host_next_action(next_actions, source_hosts)
@@ -172,24 +201,6 @@ def _previous_comparison_by_key(
                 previous[key] = last
             last = _comparison_out(key, rows, previous=None)
     return previous
-
-
-def _comparison_status(
-    *,
-    external_checks_count: int,
-    previous: GrowthAIVisibilityComparisonOut | None,
-    mentioned_delta: int,
-    cited_delta: int,
-) -> str:
-    if external_checks_count <= 0:
-        return "needs_external_probe"
-    if previous is None:
-        return "baseline"
-    if mentioned_delta > 0 or cited_delta > 0:
-        return "improved"
-    if mentioned_delta < 0 or cited_delta < 0:
-        return "regressed"
-    return "flat"
 
 
 def _latest_comparison_by_feed(
@@ -240,6 +251,8 @@ def _stable_positive_runs(comparisons: list[GrowthAIVisibilityComparisonOut]) ->
     )
     streak = 0
     for item in latest_external_runs:
+        if item.comparison_status == "inconclusive_provider_failure":
+            continue
         if not _is_positive_external_run(item):
             break
         streak += 1
@@ -255,6 +268,7 @@ def _is_positive_external_run(item: GrowthAIVisibilityComparisonOut) -> bool:
         and item.cited_count >= 1
         and item.comparison_status in {"baseline", "improved", "flat"}
         and not item.known_collision_competitors
+        and not known_collision_mentions(item.top_competitors)
     )
 
 
@@ -309,7 +323,12 @@ def _weekly_next_actions(
             f"Run and record missing platform probes: {', '.join(missing_platforms)}."
         )
     for report in feed_reports:
-        if report.comparison_status in {"needs_external_probe", "regressed", "flat"}:
+        if report.comparison_status in {
+            "needs_external_probe",
+            "inconclusive_provider_failure",
+            "regressed",
+            "flat",
+        }:
             actions.extend(report.next_actions[:2])
     if collision_mentions:
         actions.append(
@@ -329,6 +348,7 @@ def _comparison_collision_mentions(
     collisions: set[str] = set()
     for item in comparisons:
         collisions.update(item.known_collision_competitors)
+        collisions.update(known_collision_mentions(item.top_competitors))
     return sorted(collisions)
 
 
@@ -336,11 +356,7 @@ def _official_cited_urls(rows: list[GrowthAIVisibilityCheckRow]) -> list[str]:
     urls: list[str] = []
     for row in rows:
         urls.extend(_json_list(row.cited_urls_json))
-    return sorted({url for url in urls if _is_official_citation(url)})
-
-
-def _is_official_citation(url: str) -> bool:
-    return is_official_citation_url(url)
+    return sorted({url for url in urls if is_official_citation_url(url)})
 
 
 def _citation_quality_status(
@@ -356,20 +372,6 @@ def _citation_quality_status(
     if not official_cited_urls:
         return "missing_official_citation"
     return "official_citation_verified"
-
-
-def _known_collision_mentions(values: list[str]) -> list[str]:
-    collisions: set[str] = set()
-    for value in values:
-        normalized = str(value or "").strip().lower()
-        matches = [
-            collision
-            for collision in KNOWN_BRAND_COLLISION_COMPETITORS
-            if collision in normalized
-        ]
-        if matches:
-            collisions.add(max(matches, key=len))
-    return sorted(collisions)
 
 
 def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:
@@ -405,28 +407,25 @@ def _latest_validation_blockers(db: Session, *, limit: int = 200) -> list[str]:
         blockers.extend(
             blocker
             for blocker in _json_list(row.missing_facts_json)
-            if not _is_external_api_key_setup_blocker(blocker)
+            if not is_external_api_key_setup_blocker(blocker)
         )
         if row.next_action:
-            if not _is_external_api_key_setup_blocker(row.next_action):
+            if not is_external_api_key_setup_blocker(row.next_action):
                 blockers.append(row.next_action)
     return unique_strings(blockers)[:8]
 
 
-def _is_external_api_key_setup_blocker(value: str) -> bool:
-    text = str(value or "")
-    api_key_markers = (
-        "OPENAI_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "XAI_API_KEY",
-        "GEMINI_API_KEY",
-        "GENIMI_API_KEY",
-    )
-    return any(marker in text for marker in api_key_markers)
+def _is_provider_failure_row(row: GrowthAIVisibilityCheckRow) -> bool:
+    return has_provider_failure_missing_fact(_json_list(row.missing_facts_json))
 
 
 def _recommended_feed_key(feed_reports: list[GrowthAIVisibilityFeedReportOut]) -> str:
-    for status in ("needs_external_probe", "regressed", "flat"):
+    for status in (
+        "needs_external_probe",
+        "inconclusive_provider_failure",
+        "regressed",
+        "flat",
+    ):
         for report in feed_reports:
             if report.comparison_status == status:
                 return report.feed_key

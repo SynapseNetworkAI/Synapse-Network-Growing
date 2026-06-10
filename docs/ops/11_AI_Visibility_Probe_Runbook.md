@@ -87,12 +87,14 @@ Examples:
 
 1. `brand_disambiguation_www`: homepage metadata, About answer block, GitHub
    org README, X profile bio, and canonical `llms.txt`. Treat
-   `synapsenetwork.xyz` and unrelated `synapse.network` results as
-   brand-collision competitors in `competitor_mentions` until ChatGPT, Claude,
-   and Grok prefer `https://www.synapse-network.ai/`.
+   `synapsenetwork.xyz`, unrelated `synapse.network`, Sage Synapse
+   `synapse.org`, `mcp.synapse.org`, `python-docs.synapse.org`, and Synapse
+   Protocol results as brand-collision competitors in `competitor_mentions`
+   until ChatGPT, Claude, Grok, and Gemini prefer
+   `https://www.synapse-network.ai/`.
 2. `agent_payment_category_pages`: AI Agent Payments docs category, `/ai-agent-payments`,
    `/agent-payment-api`, FAQ, schema, and sitemap.
-3. `mcp_paid_api_discovery`: MCP Registry, Smithery, Glama, GitHub README,
+3. `mcp_paid_api_discovery`: MCP Registry, MCP Marketplace, Smithery, Glama, GitHub README,
    and Remote MCP docs.
 
 Do not mark a feed effective just because local validation passed. It is
@@ -159,7 +161,10 @@ curl -fsS \
 After a real answer-engine probe captures `source_hosts`, export the source-host
 feed package. This converts the hosts that ChatGPT, Claude, Grok, or Gemini
 actually cited into operator-reviewed directory submissions, owned comparison
-updates, and contextual partner/guest-post drafts:
+updates, owned brand-disambiguation refreshes, and contextual partner/guest-post
+drafts. Synapse.org/Sage collision hosts must publish only owned docs,
+`llms.txt`, or README disambiguation copy; do not submit to or edit unrelated
+Synapse.org properties:
 
 ```bash
 python scripts/growth/generate_ai_visibility_source_host_feed_package.py \
@@ -495,8 +500,8 @@ python scripts/growth/generate_ai_visibility_feed_diagnosis.py \
 ```
 
 The diagnosis emits `recommended_source_host_executions` for source hosts such as
-the Official MCP Registry, GitHub README, Smithery, Glama, X citation threads,
-and docs disambiguation pages. These rows are operator intent and planning
+the Official MCP Registry, MCP Marketplace, GitHub README, Smithery, Glama, X
+citation threads, and docs / `llms.txt` disambiguation pages. These rows are operator intent and planning
 evidence only; they are not external answer-engine citations. After the selected
 source hosts are actually live and independently verifiable, rerun the same
 four-platform API probe and compare the new run group against the prior one.

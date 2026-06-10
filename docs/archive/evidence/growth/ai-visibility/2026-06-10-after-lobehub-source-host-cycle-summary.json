@@ -1,0 +1,317 @@
+{
+  "module_key": "ai_visibility_cycle_summary",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-lobehub-source-host",
+  "status": "not_visible_yet",
+  "success_decision": "not_achieved",
+  "probe_file": "docs/archive/evidence/growth/ai-visibility/2026-06-10-after-lobehub-source-host-api-probe.jsonl",
+  "probe_count": 12,
+  "platform_results": {
+    "chatgpt": {
+      "total": 3,
+      "mentioned": 0,
+      "cited": 0,
+      "queries": [
+        {
+          "query": "MCP server for paid API calls",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [
+            "x402",
+            "stripe",
+            "mcpay",
+            "gapup",
+            "mcpservers.org"
+          ],
+          "source_hosts": [
+            "agent402.dev",
+            "crowcrowcrow.com",
+            "developer.paddle.com",
+            "docs.mcpay.tech",
+            "docs.opensearch.org",
+            "glama.ai",
+            "gmcp.dev",
+            "mcpservers.org",
+            "skywork.ai",
+            "speakai.co",
+            "support.xilnex.com",
+            "tensorfeed.ai"
+          ]
+        },
+        {
+          "query": "ChatGPT MCP app for API payments",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [
+            "x402",
+            "stripe",
+            "mcpay",
+            "teleport",
+            "magpie"
+          ],
+          "source_hosts": [
+            "cashfree.com",
+            "docs-dev.seamless.ai",
+            "docs.cdp.coinbase.com",
+            "docs.hyperline.co",
+            "docs.latchmcp.app",
+            "docs.mcp.run",
+            "docs.mcpay.tech",
+            "github.com",
+            "mcp.directory",
+            "mcp.magpie.im",
+            "mcpay.tech",
+            "teleport.ltd"
+          ]
+        },
+        {
+          "query": "SynapseNetwork MCP vs paid MCP alternatives",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [
+            "python-docs.synapse.org",
+            "mcp.synapse.org",
+            "synapse.org"
+          ],
+          "source_hosts": [
+            "anythingmcp.com",
+            "coincodecap.com",
+            "dev.to",
+            "findingwise.com",
+            "mcp-marketplace.io",
+            "mcp.directory",
+            "mcp.so",
+            "mcp.synapse.org",
+            "mcpplaygroundonline.com",
+            "python-docs.synapse.org",
+            "settlegrid.ai",
+            "syntermedia.ai"
+          ]
+        }
+      ]
+    },
+    "claude": {
+      "total": 3,
+      "mentioned": 0,
+      "cited": 0,
+      "queries": [
+        {
+          "query": "MCP server for paid API calls",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        },
+        {
+          "query": "ChatGPT MCP app for API payments",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        },
+        {
+          "query": "SynapseNetwork MCP vs paid MCP alternatives",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        }
+      ]
+    },
+    "grok": {
+      "total": 3,
+      "mentioned": 0,
+      "cited": 0,
+      "queries": [
+        {
+          "query": "MCP server for paid API calls",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        },
+        {
+          "query": "ChatGPT MCP app for API payments",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        },
+        {
+          "query": "SynapseNetwork MCP vs paid MCP alternatives",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        }
+      ]
+    },
+    "gemini": {
+      "total": 3,
+      "mentioned": 0,
+      "cited": 0,
+      "queries": [
+        {
+          "query": "MCP server for paid API calls",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": [
+            "vertexaisearch.cloud.google.com",
+            "w3.org"
+          ]
+        },
+        {
+          "query": "ChatGPT MCP app for API payments",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        },
+        {
+          "query": "SynapseNetwork MCP vs paid MCP alternatives",
+          "synapse_mentioned": false,
+          "synapse_cited": false,
+          "competitor_mentions": [],
+          "source_hosts": []
+        }
+      ]
+    }
+  },
+  "top_source_hosts": [
+    [
+      "docs.mcpay.tech",
+      2
+    ],
+    [
+      "mcp.directory",
+      2
+    ],
+    [
+      "agent402.dev",
+      1
+    ],
+    [
+      "crowcrowcrow.com",
+      1
+    ],
+    [
+      "developer.paddle.com",
+      1
+    ],
+    [
+      "docs.opensearch.org",
+      1
+    ],
+    [
+      "glama.ai",
+      1
+    ],
+    [
+      "gmcp.dev",
+      1
+    ],
+    [
+      "mcpservers.org",
+      1
+    ],
+    [
+      "skywork.ai",
+      1
+    ],
+    [
+      "speakai.co",
+      1
+    ],
+    [
+      "support.xilnex.com",
+      1
+    ]
+  ],
+  "top_competitors": [
+    [
+      "x402",
+      2
+    ],
+    [
+      "stripe",
+      2
+    ],
+    [
+      "mcpay",
+      2
+    ],
+    [
+      "gapup",
+      1
+    ],
+    [
+      "mcpservers.org",
+      1
+    ],
+    [
+      "teleport",
+      1
+    ],
+    [
+      "magpie",
+      1
+    ],
+    [
+      "python-docs.synapse.org",
+      1
+    ],
+    [
+      "mcp.synapse.org",
+      1
+    ],
+    [
+      "synapse.org",
+      1
+    ]
+  ],
+  "diagnosis_status": "source_host_actions_required",
+  "diagnosis_issues": [
+    "platform_missing_official_identity",
+    "platform_missing_official_citation",
+    "api_monetization_competitors_returned"
+  ],
+  "next_source_host_surfaces": [
+    "mcp_directory",
+    "mcpservers",
+    "docs_disambiguation_links",
+    "official_mcp_registry",
+    "github_readme",
+    "smithery",
+    "glama",
+    "x_citation_thread",
+    "docs_disambiguation_links"
+  ],
+  "live_spot_check_status": "candidate_found_needs_live_listing_evidence",
+  "live_candidates": [
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
+      "matched_terms": [
+        "synapse network",
+        "synapsenetwork",
+        "synapse-network-mcp-server",
+        "io.github.synapsenetworkai/synapse-network-mcp-server"
+      ]
+    },
+    {
+      "host": "glama.ai",
+      "search_url": "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
+      "matched_terms": [
+        "synapsenetwork",
+        "synapsenetwork mcp server"
+      ]
+    }
+  ],
+  "operator_next_actions": [
+    "Merge and publish the MCP metadata refresh PR so the official MCP Registry can advance beyond stale metadata.",
+    "Refresh MCP Directory and MCPServers listings with spaced Synapse Network identity, Remote MCP URL, npm package, and tool names.",
+    "Keep Glama/LobeHub live listings as source-host evidence, but do not count them as answer-engine success until GPT or Claude mentions Synapse.",
+    "Rerun the unchanged GPT/Claude/Grok/Gemini probe matrix after official Registry and directory metadata refreshes are live."
+  ]
+}

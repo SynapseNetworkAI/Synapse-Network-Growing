@@ -1,0 +1,132 @@
+{
+  "blockers": [
+    "Directory submission is not enough; live listing evidence is missing for mcp.directory. Review pending after submission: mcp_directory. Already live source-hosts: registry_modelcontextprotocol_io, docs_brand_disambiguation, github_readme, glama_ai, mcp_marketplace, glama, mcpservers, lobehub, pulsemcp, protodex; do not repeat completed hosts.",
+    "Missing real external GPT/Claude/Grok/Gemini evidence: claude, grok, gemini.",
+    "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
+    "Fewer than three stable positive external runs have been recorded.",
+    "Known Synapse brand collision results still appear in external probe evidence: python-docs.synapse.org, synapse.org."
+  ],
+  "completed_count": 8,
+  "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py --output docs/archive/evidence/growth/ai-visibility/goal-audit.json",
+  "generated_at": "2026-06-10T11:49:26.365961Z",
+  "goal_achieved": false,
+  "module_key": "ai_visibility",
+  "next_actions": [
+    "Recheck review-pending directory listings on a fixed cadence; only rerun unchanged GPT/Claude/Grok/Gemini probes after public listing evidence is live.",
+    "Run full external probes and record evidence.",
+    "Repeat feed, probe, compare, and weekly report cycles.",
+    "Add or strengthen disambiguation copy for known collision domains: python-docs.synapse.org, synapse.org.",
+    "Deploy/refresh feed assets and rerun the same API probe.",
+    "Fix provider/API probe failure and rerun the same query."
+  ],
+  "official_homepage": "https://www.synapse-network.ai/",
+  "requirements": [
+    {
+      "blocker": "",
+      "evidence": "3 feed experiments and 4 success criteria are defined.",
+      "key": "strategy",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Agent optimization strategy"
+    },
+    {
+      "blocker": "",
+      "evidence": "AI Agent Payments blueprint has 7 page(s).",
+      "key": "product_docs",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Product docs design"
+    },
+    {
+      "blocker": "",
+      "evidence": "Synapse AI Agent Payments Docs - AI Visibility has 6 frame prompt(s).",
+      "key": "stitch_figma",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Stitch to Figma handoff"
+    },
+    {
+      "blocker": "",
+      "evidence": "3 feed cycle(s) and 3 score row(s).",
+      "key": "growing_module",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Growing AI Visibility module"
+    },
+    {
+      "blocker": "",
+      "evidence": "brand_disambiguation_www, agent_payment_category_pages, mcp_paid_api_discovery",
+      "key": "feed_experiments",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Different feed experiments"
+    },
+    {
+      "blocker": "",
+      "evidence": "Directory Source-Host Submission Pack covers mcp.directory, mcpservers.org.",
+      "key": "source_host_handoff",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Directory source-host handoff"
+    },
+    {
+      "blocker": "",
+      "evidence": "Submitted or live surfaces: mcp_directory, mcpfind, mcpservers, protodex, registry_modelcontextprotocol_io, docs_brand_disambiguation, github_readme, glama_ai, mcp_marketplace, glama, lobehub, pulsemcp.",
+      "key": "source_host_submission_evidence",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Directory submission evidence"
+    },
+    {
+      "blocker": "Directory submission is not enough; live listing evidence is missing for mcp.directory. Review pending after submission: mcp_directory. Already live source-hosts: registry_modelcontextprotocol_io, docs_brand_disambiguation, github_readme, glama_ai, mcp_marketplace, glama, mcpservers, lobehub, pulsemcp, protodex; do not repeat completed hosts.",
+      "evidence": "Live source-host listings verified: registry_modelcontextprotocol_io, docs_brand_disambiguation, github_readme, glama_ai, mcp_marketplace, glama, mcpservers, lobehub, pulsemcp, protodex.",
+      "key": "source_host_live_evidence",
+      "next_action": "Recheck review-pending directory listings on a fixed cadence; only rerun unchanged GPT/Claude/Grok/Gemini probes after public listing evidence is live.",
+      "required": true,
+      "status": "blocked",
+      "title": "Directory live listing evidence"
+    },
+    {
+      "blocker": "",
+      "evidence": "Ready feeds: live/external gate ready",
+      "key": "feed_readiness",
+      "next_action": "",
+      "required": true,
+      "status": "completed",
+      "title": "Live feed readiness"
+    },
+    {
+      "blocker": "Missing real external GPT/Claude/Grok/Gemini evidence: claude, grok, gemini.",
+      "evidence": "",
+      "key": "external_search_evidence",
+      "next_action": "Run full external probes and record evidence.",
+      "required": true,
+      "status": "blocked",
+      "title": "GPT/Claude/Grok/Gemini search evidence"
+    },
+    {
+      "blocker": "Stable positive runs 0/3; keep optimizing until the weekly gate passes.",
+      "evidence": "",
+      "key": "stable_positive_runs",
+      "next_action": "Repeat feed, probe, compare, and weekly report cycles.",
+      "required": true,
+      "status": "blocked",
+      "title": "Continuous optimization proof"
+    }
+  ],
+  "status": "incomplete",
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "total_required": 11
+}

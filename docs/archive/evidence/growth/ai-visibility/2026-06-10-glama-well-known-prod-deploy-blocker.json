@@ -1,0 +1,59 @@
+{
+  "status": "blocked_until_mcp_manifest_fix_merges",
+  "surface": "glama_ai",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-10-after-registry-017-glama-prod-deploy",
+  "target_endpoint": "https://mcp.synapse-network.ai/.well-known/glama.json",
+  "target_remote_mcp_url": "https://mcp.synapse-network.ai/mcp",
+  "target_commit_sha": "6b82545a97a07d3f923124a81f6997411c067f0f",
+  "initial_public_probe": {
+    "readyz_status": 200,
+    "readyz_body": {
+      "status": "ready",
+      "gatewayStatus": 404
+    },
+    "glama_well_known_status": 404
+  },
+  "growing_release_attempt": {
+    "mcp_server_release_id": 3,
+    "package_version": "0.1.5",
+    "runner_status": "failed",
+    "failure_summary": "server_json_version_mismatch: server.json has 0.1.7, expected 0.1.5",
+    "fail_closed_reason": "Growing MCP release runner requires package.json and server.json versions to match the release ledger before production deploy."
+  },
+  "root_cause": {
+    "package_json_version": "0.1.5",
+    "package_lock_version": "0.1.5",
+    "server_json_version": "0.1.7"
+  },
+  "fix_pr": {
+    "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network-MCP-Server/pull/35",
+    "branch": "codex/fix-mcp-manifest-version-017",
+    "commit": "9f1f3aae73f1b30ed673b7dab5e53f388e0f78fa",
+    "merge_state": "CLEAN",
+    "mergeable": "MERGEABLE"
+  },
+  "validation": [
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-MCP-Server",
+      "command": "npm run release:readiness",
+      "status": "passed",
+      "summary": "typecheck, Vitest 26 tests, build, mock MCP E2E, source quality, quality budget, server.json check, directory metadata check, CLI smoke, and npm pack dry-run passed after manifest version alignment."
+    }
+  ],
+  "bug_list": {
+    "status": "intake_blocked_by_local_auth",
+    "fingerprint": "mcp-release-manifest-version-mismatch-017",
+    "summary": "Bug List intake was attempted but local OPS_AGENT_BUG_API_TOKEN was rejected with 401 by the running Ops API; no secret values were recorded."
+  },
+  "next_steps": [
+    "Merge MCP repo PR #35.",
+    "Update local MCP main to the merged commit.",
+    "Create a new MCP release ledger for version 0.1.7.",
+    "Run Growing MCP release readiness and prod-only Remote MCP deploy bridge.",
+    "Verify https://mcp.synapse-network.ai/.well-known/glama.json returns 200 JSON.",
+    "Refresh/claim the Glama listing and rerun ChatGPT/Claude source-host probes."
+  ],
+  "recorded_at": "2026-06-10T08:46:15Z"
+}

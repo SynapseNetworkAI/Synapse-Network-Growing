@@ -23,6 +23,11 @@ DIRECTORY_LIVE_SEARCH_URLS = {
         "https://glama.ai/mcp/servers?query=Synapse%20Network%20MCP",
         "https://glama.ai/mcp/servers?query=SynapseNetwork%20MCP%20Server",
     ],
+    "lobehub.com": [
+        "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server",
+        "https://lobehub.com/mcp?search=Synapse%20Network%20MCP",
+        "https://lobehub.com/mcp?search=SynapseNetwork%20MCP%20Server",
+    ],
     "mcpservers.org": [
         "https://mcpservers.org/?q=Synapse%20Network",
         "https://mcpservers.org/?q=SynapseNetwork%20MCP%20Server",

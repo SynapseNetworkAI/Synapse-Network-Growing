@@ -2,7 +2,7 @@
 """Generate manual answer-engine probe templates for AI visibility checks.
 
 The template is intentionally blank evidence: operators run ChatGPT, Claude,
-Grok, or another answer engine, then fill the generated rows before applying
+Grok, Gemini, or another answer engine, then fill the generated rows before applying
 them with scripts/growth/record_ai_visibility_probe.py.
 """
 
@@ -35,12 +35,12 @@ from server.services.growth.ai_visibility_plan import (  # noqa: E402
 
 CANONICAL_HOMEPAGE = "https://www.synapse-network.ai/"
 KNOWN_COLLISION_DOMAINS = [
+    "docs.synapse.sh",
+    "getdrio.com",
+    "mcp.synapse.sh",
     "mcp.synapse.org",
     "python-docs.synapse.org",
     "synapse.org",
-    "docs.synapse.sh",
-    "mcp.synapse.sh",
-    "getdrio.com",
     "synapseproto.com",
     "synapsenetwork.xyz",
     "synapse.network",
@@ -155,9 +155,7 @@ def official_source_urls_for_feed(feed_key: str) -> list[str]:
     safe_feed_key = (feed_key or "").strip()
     sources = ai_visibility_official_sources().items
     matched = [
-        source.canonical_url
-        for source in sources
-        if safe_feed_key in source.feed_keys
+        source.canonical_url for source in sources if safe_feed_key in source.feed_keys
     ]
     if matched:
         return sorted(set(matched))

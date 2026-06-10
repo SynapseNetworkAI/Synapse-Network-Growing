@@ -243,12 +243,16 @@ def test_generate_probe_template_defaults_to_feed_queries_and_sources(tmp_path: 
     assert [record.query for record in parsed] == [
         "MCP server for paid API calls",
         "ChatGPT MCP app for API payments",
-        "Synapse vs paid MCP alternatives",
+        "SynapseNetwork MCP vs paid MCP alternatives",
     ]
     source_urls = official_source_urls_for_feed("mcp_paid_api_discovery")
     assert "https://www.synapse-network.ai/" in source_urls
     assert "https://mcp.synapse-network.ai/mcp" in source_urls
     assert "https://docs.synapse-network.ai/mcp/paid-api-calls" in source_urls
+    assert (
+        "https://mcp-marketplace.io/server/"
+        "io-github-synapsenetworkai-synapse-network-mcp-server"
+    ) in source_urls
     assert parsed[0].metadata["official_source_urls"] == source_urls
     assert validate_records(parsed) == []
 
@@ -312,7 +316,7 @@ def test_generate_probe_template_cli_defaults_to_feed_queries(tmp_path: Path):
     assert [record.query for record in records] == [
         "MCP server for paid API calls",
         "ChatGPT MCP app for API payments",
-        "Synapse vs paid MCP alternatives",
+        "SynapseNetwork MCP vs paid MCP alternatives",
     ]
     assert records[0].metadata["official_source_urls"] == official_source_urls_for_feed(
         "mcp_paid_api_discovery"
@@ -857,7 +861,7 @@ def test_answer_payload_tracks_known_brand_collision_domains():
         request_id="req-1",
     )
 
-    assert payload["synapse_mentioned"] is True
+    assert payload["synapse_mentioned"] is False
     assert payload["synapse_cited"] is False
     assert payload["cited_urls"] == []
     assert "synapsenetwork.xyz" in payload["competitor_mentions"]

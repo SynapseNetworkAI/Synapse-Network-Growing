@@ -68,9 +68,7 @@ def test_probe_template_includes_official_sources_and_collision_domains():
     assert metadata["canonical_homepage"] == "https://www.synapse-network.ai/"
     assert "https://www.synapse-network.ai/" in metadata["official_source_urls"]
     assert "https://github.com/SynapseNetworkAI" in metadata["official_source_urls"]
-    assert "https://www.synapse-network.ai/llms.txt" in metadata[
-        "official_source_urls"
-    ]
+    assert "https://www.synapse-network.ai/llms.txt" in metadata["official_source_urls"]
     assert "synapsenetwork.xyz" in metadata["known_collision_domains"]
     assert "synapse.network" in metadata["known_collision_domains"]
     assert "known collision domains" in metadata["evidence_capture"]
@@ -312,14 +310,14 @@ def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
                         },
                     }
                 )
-                    for platform, env_key in (
-                        ("chatgpt", "OPENAI_API_KEY"),
-                        ("claude", "ANTHROPIC_API_KEY"),
-                        ("grok", "XAI_API_KEY"),
-                        ("gemini", "GEMINI_API_KEY"),
-                    )
-                ]
-            ),
+                for platform, env_key in (
+                    ("chatgpt", "OPENAI_API_KEY"),
+                    ("claude", "ANTHROPIC_API_KEY"),
+                    ("grok", "XAI_API_KEY"),
+                    ("gemini", "GEMINI_API_KEY"),
+                )
+            ]
+        ),
         encoding="utf-8",
     )
 
@@ -333,16 +331,14 @@ def test_cycle_summary_treats_api_readiness_rows_as_blockers(tmp_path: Path):
     assert payload["external_cited_count"] == 0
     assert payload["covered_platforms"] == []
     assert payload["missing_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
-    assert "OPENAI_API_KEY missing; no paid chatgpt probe executed." in payload[
-        "blockers"
-    ]
+    assert (
+        "OPENAI_API_KEY missing; no paid chatgpt probe executed." in payload["blockers"]
+    )
     assert (
         "External API probes are blocked by missing provider credentials."
         in payload["blockers"]
     )
-    assert (
-        "Configure missing answer-engine API keys" in payload["next_actions"][-1]
-    )
+    assert "Configure missing answer-engine API keys" in payload["next_actions"][-1]
 
 
 def test_cycle_summary_surfaces_explicit_crawler_policy_improvement(tmp_path: Path):
@@ -532,16 +528,17 @@ def test_release_unblock_plan_generates_safe_release_commands():
         for item in payload["deployment_gaps"]
     )
     assert payload["pending_publication_gaps"] == []
-    assert {
-        item["url"] for item in payload["verified_publication_surfaces"]
-    } == {
+    assert {item["url"] for item in payload["verified_publication_surfaces"]} == {
         "https://www.synapse-network.ai/mcp-server-for-paid-api-calls",
         "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments",
     }
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
-    assert payload["deploy_readiness_status"] == "ready_for_release_runner_after_gcloud_auth"
+    assert (
+        payload["deploy_readiness_status"]
+        == "ready_for_release_runner_after_gcloud_auth"
+    )
     assert any(
         fact == "Official homepage canonical is https://www.synapse-network.ai/."
         for fact in payload["confirmed_facts"]
@@ -583,10 +580,14 @@ def test_release_unblock_plan_blocks_stale_target_commit():
 
     assert payload["status"] == "blocked_until_target_commit_matches"
     assert payload["deploy_readiness_status"] == "blocked_until_target_commit_matches"
-    assert any("Target commit d8b5371e11fe" in blocker for blocker in payload["known_blockers"])
+    assert any(
+        "Target commit d8b5371e11fe" in blocker for blocker in payload["known_blockers"]
+    )
 
 
-def test_release_unblock_plan_predeploy_evidence_fail_closed(monkeypatch, tmp_path: Path):
+def test_release_unblock_plan_predeploy_evidence_fail_closed(
+    monkeypatch, tmp_path: Path
+):
     missing_path = tmp_path / "missing-predeploy.json"
     monkeypatch.setattr(
         release_unblock_service,
@@ -653,7 +654,10 @@ def test_release_unblock_plan_cli_writes_json(tmp_path: Path):
     assert payload["predeploy_evidence"]["status"] == (
         "target_branch_ready_live_prod_blocked"
     )
-    assert payload["deploy_readiness_status"] == "ready_for_release_runner_after_gcloud_auth"
+    assert (
+        payload["deploy_readiness_status"]
+        == "ready_for_release_runner_after_gcloud_auth"
+    )
     assert any(
         group["key"] == "production_validation" for group in payload["command_groups"]
     )
@@ -738,7 +742,7 @@ def test_external_probe_gate_cli_writes_redacted_json(monkeypatch, tmp_path: Pat
                 "api_keys_ready": False,
                 "target_platforms": ["chatgpt", "claude", "grok", "gemini"],
                 "ready_platforms": ["chatgpt"],
-        "missing_platforms": ["claude", "grok", "gemini"],
+                "missing_platforms": ["claude", "grok", "gemini"],
                 "provider_readiness": [
                     {
                         "platform": "chatgpt",

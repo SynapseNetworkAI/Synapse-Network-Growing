@@ -40,6 +40,27 @@ def test_answer_payload_rejects_synapse_protocol_collision_without_official_iden
     assert "synapse protocol" in payload["competitor_mentions"]
 
 
+def test_answer_payload_rejects_synapse_org_docs_collision_without_official_identity():
+    payload = scoring.answer_payload(
+        platform="chatgpt",
+        model="gpt-test",
+        text=(
+            "SynapseNetwork's MCP server lets clients inspect datasets and "
+            "entity metadata through Python docs."
+        ),
+        urls=[
+            "https://python-docs.synapse.org/tutorials/mcp/",
+            "https://mcp.synapse.org/",
+        ],
+        request_id="req-1",
+    )
+
+    assert payload["synapse_mentioned"] is False
+    assert payload["synapse_cited"] is False
+    assert "python-docs.synapse.org" in payload["competitor_mentions"]
+    assert "mcp.synapse.org" in payload["competitor_mentions"]
+
+
 def test_competitor_mentions_do_not_flag_official_synapsenetwork_text():
     payload = scoring.answer_payload(
         platform="grok",

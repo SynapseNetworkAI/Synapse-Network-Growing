@@ -48,32 +48,30 @@ def test_ai_visibility_comparison_surfaces_source_hosts(synced_client):
     assert "docs.mcpay.tech" in report["source_hosts"]
 
 
-def test_ai_visibility_comparison_flags_collision_source_hosts(synced_client):
+def test_ai_visibility_comparison_flags_synapse_org_source_host_collision(
+    synced_client,
+):
     response = synced_client.post(
         "/api/growth/ai-visibility/checks",
         json={
-            "query": "SynapseNetworkAI/Synapse-Network-MCP-Server paid API calls",
+            "query": "SynapseNetwork MCP vs paid MCP alternatives",
             "platform": "chatgpt",
-            "answer_summary": "ChatGPT cited the wrong Synapse MCP source host.",
-            "synapse_mentioned": True,
+            "answer_summary": "ChatGPT surfaced an unrelated Synapse MCP source.",
+            "synapse_mentioned": False,
             "synapse_cited": False,
-            "competitor_mentions": [],
             "metadata": {
-                "source_hosts": [
-                    "github.com",
-                    "mcp.synapse.org",
-                    "python-docs.synapse.org",
-                ]
+                "source_hosts": ["python-docs.synapse.org", "mcp.synapse.org"]
             },
             "feed_key": "mcp_paid_api_discovery",
-            "run_group": "2026-06-10-synapse-org-collision",
+            "run_group": "2026-06-08-synapse-org-source-collision",
         },
     )
     assert response.status_code == 201
 
     comparison = synced_client.get(
         "/api/growth/ai-visibility/comparisons"
-        "?feed_key=mcp_paid_api_discovery&run_group=2026-06-10-synapse-org-collision"
+        "?feed_key=mcp_paid_api_discovery"
+        "&run_group=2026-06-08-synapse-org-source-collision"
     )
 
     assert comparison.status_code == 200
@@ -82,14 +80,19 @@ def test_ai_visibility_comparison_flags_collision_source_hosts(synced_client):
     assert payload["known_collision_competitors"] == [
         "mcp.synapse.org",
         "python-docs.synapse.org",
+        "synapse.org",
     ]
+    assert payload["next_actions"][0] == (
+        "Add or strengthen disambiguation copy for known collision domains: "
+        "mcp.synapse.org, python-docs.synapse.org, synapse.org."
+    )
     assert payload["feed_effective"] is False
 
     weekly = synced_client.get("/api/growth/ai-visibility/weekly-report")
     assert weekly.status_code == 200
     weekly_payload = weekly.json()
     assert any(
-        "mcp.synapse.org, python-docs.synapse.org" in blocker
+        "mcp.synapse.org, python-docs.synapse.org, synapse.org" in blocker
         for blocker in weekly_payload["blockers"]
     )
 
@@ -97,6 +100,7 @@ def test_ai_visibility_comparison_flags_collision_source_hosts(synced_client):
 def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     for host in (
         "mcpservers.org",
+        "lobehub.com",
         "mcpfind.org",
         "protodex.io",
         "pulsemcp.com",
@@ -132,6 +136,7 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
     assert payload["status"] == "ready_for_presence_work"
     assert set(payload["source_hosts"]) == {
         "mcpservers.org",
+        "lobehub.com",
         "mcpfind.org",
         "protodex.io",
         "pulsemcp.com",
@@ -158,6 +163,19 @@ def test_ai_visibility_presence_plan_api_uses_source_hosts(synced_client):
         action_by_host["mcpservers.org"]["submission_payload"]["category"] == "finance"
     )
     assert action_by_host["mcpservers.org"]["submission_payload"]["plan"] == "free"
+    assert action_by_host["lobehub.com"]["action_type"] == "directory_listing"
+    assert action_by_host["lobehub.com"]["submit_url"] == ("https://lobehub.com/mcp")
+    assert (
+        action_by_host["lobehub.com"]["submission_payload"]["remote_mcp_endpoint"]
+        == "https://mcp.synapse-network.ai/mcp"
+    )
+    assert (
+        action_by_host["lobehub.com"]["submission_payload"]["public_listing_url"]
+        == "https://lobehub.com/mcp/synapsenetworkai-synapse-network-mcp-server"
+    )
+    assert "Directory Source-Host Submission Pack" in " ".join(
+        action_by_host["lobehub.com"]["operator_notes"]
+    )
     assert action_by_host["mcpfind.org"]["action_type"] == "directory_listing"
     assert action_by_host["mcpfind.org"]["submit_url"] == ("https://mcpfind.org/submit")
     assert (

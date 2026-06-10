@@ -169,7 +169,7 @@ def _directory_action(host: str, index: int) -> GrowthAIVisibilityPresenceAction
         operator_notes.append(
             "Login appears required before submission; use the operator-owned directory account."
         )
-    if host in {"aitoolnet.com", "alternativeto.net", "glama.ai"}:
+    if host in {"aitoolnet.com", "alternativeto.net", "glama.ai", "lobehub.com"}:
         operator_notes.extend(
             [
                 "Use the Directory Source-Host Submission Pack Stitch/Figma frame before filling the browser form.",

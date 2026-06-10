@@ -38,6 +38,7 @@ SURFACE_HOSTS = {
     "github_readme": "github.com",
     "smithery": "smithery.ai",
     "glama": "glama.ai",
+    "lobehub": "lobehub.com",
     "mcpservers": "mcpservers.org",
     "mcp_marketplace": "mcp-marketplace.io",
     "protodex": "protodex.io",

@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 SOURCE_HOST_SURFACES = {
     "aitoolnet.com": "aitoolnet",
     "alternativeto.net": "alternativeto",
+    "lobehub.com": "lobehub",
     "mcp.directory": "mcp_directory",
     "mcpfind.org": "mcpfind",
     "mcp-marketplace.io": "mcp_marketplace",

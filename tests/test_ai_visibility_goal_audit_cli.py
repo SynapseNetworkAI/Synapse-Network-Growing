@@ -1,53 +1,60 @@
 import json
 import sys
-from pathlib import Path
 
-from scripts.growth import generate_ai_visibility_goal_audit as goal_audit_cli
+from scripts.growth import generate_ai_visibility_goal_audit as cli
 
 
-def test_generate_goal_audit_cli_writes_fail_closed_evidence(
-    monkeypatch, tmp_path: Path
-):
+def test_goal_audit_cli_binds_live_readiness_and_external_gate(monkeypatch, tmp_path):
+    live_path = tmp_path / "live-readiness.json"
+    gate_path = tmp_path / "external-gate.json"
     output_path = tmp_path / "goal-audit.json"
+    live_path.write_text(json.dumps({"status": "ready_for_external_probe"}))
+    gate_path.write_text(
+        json.dumps({"status": "ready_to_execute_external_probes", "feed_ready": True})
+    )
+
+    class FakeDb:
+        def close(self):
+            pass
 
     class FakeAudit:
-        def model_dump(self, mode: str):  # noqa: ARG002
+        def model_dump(self, *, mode: str):
+            assert mode == "json"
             return {
                 "module_key": "ai_visibility",
                 "status": "incomplete",
                 "goal_achieved": False,
-                "target_platforms": ["chatgpt", "claude", "grok", "gemini"],
-                "completed_count": 5,
-                "total_required": 8,
-                "blockers": ["Missing real external GPT/Claude/Grok/Gemini evidence."],
-                "export_command": "python scripts/growth/generate_ai_visibility_goal_audit.py",
+                "bound_live_status": "ready_for_external_probe",
+                "bound_gate_status": "ready_to_execute_external_probes",
             }
 
-    class FakeSession:
-        def close(self):
-            return None
+    def fake_goal_audit(db, *, live_readiness=None, external_gate=None):
+        assert isinstance(db, FakeDb)
+        assert live_readiness == {"status": "ready_for_external_probe"}
+        assert external_gate == {
+            "status": "ready_to_execute_external_probes",
+            "feed_ready": True,
+        }
+        return FakeAudit()
 
-    monkeypatch.setattr(goal_audit_cli, "init_db", lambda: None)
-    monkeypatch.setattr(goal_audit_cli, "SessionLocal", lambda: FakeSession())
-    monkeypatch.setattr(
-        goal_audit_cli,
-        "ai_visibility_goal_audit",
-        lambda _db: FakeAudit(),
-    )
+    monkeypatch.setattr(cli, "init_db", lambda: None)
+    monkeypatch.setattr(cli, "SessionLocal", FakeDb)
+    monkeypatch.setattr(cli, "ai_visibility_goal_audit", fake_goal_audit)
     monkeypatch.setattr(
         sys,
         "argv",
         [
             "generate_ai_visibility_goal_audit.py",
+            "--live-readiness-json",
+            str(live_path),
+            "--external-gate-json",
+            str(gate_path),
             "--output",
             str(output_path),
         ],
     )
 
-    assert goal_audit_cli.main() == 0
+    assert cli.main() == 0
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["status"] == "incomplete"
-    assert payload["goal_achieved"] is False
-    assert payload["target_platforms"] == ["chatgpt", "claude", "grok", "gemini"]
-    assert payload["completed_count"] < payload["total_required"]
-    assert "Missing real external GPT/Claude/Grok/Gemini evidence." in payload["blockers"]
+    assert payload["bound_live_status"] == "ready_for_external_probe"
+    assert payload["bound_gate_status"] == "ready_to_execute_external_probes"

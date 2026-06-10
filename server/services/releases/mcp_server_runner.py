@@ -305,10 +305,30 @@ def _assert_manifest_version(row: McpServerReleaseRow, repo_path: Path) -> None:
         raise RuntimeError(
             "mcp_name_mismatch: package.json mcpName must match release registry name"
         )
-    if server_json.get("version") != expected:
+    server_package_version = _server_json_package_version(server_json)
+    if server_package_version and server_package_version != expected:
         raise RuntimeError(
-            f"server_json_version_mismatch: server.json has {server_json.get('version')}, expected {expected}"
+            "server_json_package_version_mismatch: "
+            f"server.json package has {server_package_version}, expected {expected}"
         )
+    if not server_package_version and server_json.get("version") != expected:
+        raise RuntimeError(
+            "server_json_version_mismatch: "
+            f"server.json has {server_json.get('version')}, expected {expected}"
+        )
+
+
+def _server_json_package_version(server_json: dict[str, object]) -> str:
+    packages = server_json.get("packages")
+    if not isinstance(packages, list):
+        return ""
+    for package in packages:
+        if not isinstance(package, dict):
+            continue
+        if clean(package.get("registryType")) != "npm":
+            continue
+        return clean(package.get("version"))
+    return ""
 
 
 def _apply_success_metadata(
