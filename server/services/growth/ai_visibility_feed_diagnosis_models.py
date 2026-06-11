@@ -73,6 +73,7 @@ class FeedDiagnosis(BaseModel):
     record_count: int
     external_probe_count: int
     api_probe_blocker_count: int
+    provider_failure_count: int = 0
     external_mentioned_count: int
     external_cited_count: int
     target_platforms: list[str]

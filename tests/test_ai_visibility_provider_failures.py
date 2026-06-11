@@ -72,6 +72,7 @@ def test_cycle_summary_marks_provider_failure_comparison_inconclusive(
 
     assert payload["provider_failure_count"] == 2
     assert payload["completed_external_probe_count"] == 1
+    assert payload["status"] == "partial_external_probe"
     assert payload["comparison"]["comparison_status"] == "inconclusive_provider_failure"
     assert (
         "claude API probe failed for 1 query(s): provider request failed."
@@ -121,6 +122,7 @@ def test_cycle_summary_marks_flat_provider_failure_run_inconclusive(
 
     assert payload["comparison"]["mentioned_delta"] == 0
     assert payload["comparison"]["cited_delta"] == 0
+    assert payload["status"] == "partial_external_probe"
     assert payload["provider_failure_count"] == 2
     assert payload["comparison"]["comparison_status"] == "inconclusive_provider_failure"
 

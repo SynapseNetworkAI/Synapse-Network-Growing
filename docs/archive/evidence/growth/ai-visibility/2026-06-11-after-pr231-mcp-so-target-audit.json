@@ -1,0 +1,36 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "missing_required_terms",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-after-pr231-source-host-target-audit",
+  "surface": "mcp_so",
+  "source_url": "https://mcp.so/?q=SynapseNetwork",
+  "checked_at": "2026-06-10T23:29:39.523751+00:00",
+  "required_terms": [
+    "SynapseNetworkAI",
+    "Synapse-Network-MCP-Server",
+    "mcp.synapse-network.ai"
+  ],
+  "matched_terms": [],
+  "missing_terms": [
+    "SynapseNetworkAI",
+    "Synapse-Network-MCP-Server",
+    "mcp.synapse-network.ai"
+  ],
+  "content_sha256": "6fe06c92bd8704c5b43ca2a3693b34045baccf7c5902a6065f3c2ed1f748c1d3",
+  "content_bytes": 757551,
+  "target_platforms": [
+    "chatgpt",
+    "claude"
+  ],
+  "target_queries": [
+    "SynapseNetwork MCP Server for paid API calls"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "mcp_so source host is missing required terms: SynapseNetworkAI, Synapse-Network-MCP-Server, mcp.synapse-network.ai.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-after-pr231-source-host-target-audit-after-source-host --platforms chatgpt,claude --execute"
+}

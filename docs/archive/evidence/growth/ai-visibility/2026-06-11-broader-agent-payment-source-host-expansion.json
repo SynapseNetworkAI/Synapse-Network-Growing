@@ -1,0 +1,150 @@
+{
+  "module_key": "ai_visibility",
+  "artifact_type": "broader_agent_payment_source_host_expansion",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-broader-agent-payment-source-host-expansion",
+  "checked_at": "2026-06-10T23:41:47Z",
+  "status": "source_host_context_expanded_not_live_visibility",
+  "goal_complete": false,
+  "synapse_network_pr": {
+    "repo": "SynapseNetworkAI/Synapse-Network",
+    "pr_number": 231,
+    "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/231",
+    "head_commit": "d6182d857ab5f4292eaed62f94ce08eb6cdfeb91",
+    "merge_state_at_recording": "CLEAN",
+    "mergeable_at_recording": "MERGEABLE",
+    "state_at_recording": "OPEN"
+  },
+  "summary": "A current web scan showed that answer engines can learn the paid-MCP and agent-payment category from API monetization and agentic-commerce source hosts, not only MCP directories. PR #231 adds those source-host names and links to Synapse owned docs and llms feeds. This artifact records the expansion as feed context only; it is not evidence that GPT or Claude can already discover SynapseNetworkAI.",
+  "target_queries": [
+    "MCP server for paid API calls",
+    "ChatGPT MCP app for API payments",
+    "agents paying for APIs",
+    "monetized MCP",
+    "agent payments MCP"
+  ],
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "grok",
+    "gemini"
+  ],
+  "source_host_context": [
+    {
+      "surface": "moesif",
+      "source_url": "https://www.moesif.com/blog/api-strategy/model-context-protocol/Monetizing-MCP-Model-Context-Protocol-Servers-With-Moesif/",
+      "observed_role": "api_monetization_and_mcp_metering_source_host",
+      "matched_category_terms": [
+        "MCP server usage",
+        "usage-based pricing",
+        "meter agent access",
+        "monetize MCP"
+      ],
+      "synapse_feed_action": "Position Synapse as the MCP-facing paid API rail with Agent Credentials, bounded USDC spend, provider settlement, and receipts rather than a generic metering platform.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "nevermined",
+      "source_url": "https://nevermined.ai/blog/mcp-monetization-tool-calling",
+      "observed_role": "mcp_monetization_and_agent_payment_source_host",
+      "matched_category_terms": [
+        "MCP monetization",
+        "tool calling",
+        "agent-to-agent transactions",
+        "micropayments"
+      ],
+      "synapse_feed_action": "Include Nevermined in adjacent-source comparisons so answer engines group Synapse with monetized MCP and agent-payment queries.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "google_ap2",
+      "source_url": "https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-payments-ap2-protocol",
+      "observed_role": "agentic_commerce_protocol_source_host",
+      "matched_category_terms": [
+        "Agent Payments Protocol",
+        "AP2",
+        "A2A",
+        "MCP",
+        "agentic commerce"
+      ],
+      "synapse_feed_action": "Use AP2 as adjacent protocol context while keeping Synapse positioned as the concrete paid API call runtime for discover_services -> invoke_and_pay -> get_receipt.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "google_ucp",
+      "source_url": "https://developers.googleblog.com/under-the-hood-universal-commerce-protocol-ucp/",
+      "observed_role": "agentic_commerce_context_source_host",
+      "matched_category_terms": [
+        "Universal Commerce Protocol",
+        "agentic commerce",
+        "MCP",
+        "AP2"
+      ],
+      "synapse_feed_action": "Connect Synapse paid API calls to the broader agentic-commerce source graph without claiming Synapse implements UCP.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "visa_mcp",
+      "source_url": "https://corporate.visa.com/en/sites/visa-perspectives/innovation/visa-mcp-server-agent-acceptance-toolkit.html",
+      "observed_role": "payment_enabled_mcp_source_host",
+      "matched_category_terms": [
+        "Visa MCP Server",
+        "AI agents",
+        "large language models",
+        "payment-enabled experiences"
+      ],
+      "synapse_feed_action": "Use Visa MCP as high-authority adjacent evidence that payment-enabled MCP surfaces are part of the answer-engine category.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "agentpay",
+      "source_url": "https://docs.agentpay.me/",
+      "observed_role": "mcp_billing_and_access_source_host",
+      "matched_category_terms": [
+        "MCP Servers",
+        "bill for usage",
+        "MCP Clients",
+        "payments"
+      ],
+      "synapse_feed_action": "Compare against AgentPay as an adjacent MCP access and billing source while keeping Synapse differentiated by Agent Credentials, USDC settlement, and receipts.",
+      "counts_as_synapse_visibility": false
+    },
+    {
+      "surface": "lemoncake_evidai",
+      "source_url": "https://github.com/evidai/agent-payment-mcp",
+      "observed_role": "pay_per_call_mcp_and_http_api_source_host",
+      "matched_category_terms": [
+        "Pay-per-call",
+        "HTTP API",
+        "MCP servers",
+        "Pay Token"
+      ],
+      "synapse_feed_action": "Track LemonCake/evidai as an adjacent pay-per-call MCP source host and reinforce Synapse's discover_services -> invoke_and_pay -> get_receipt runtime wording.",
+      "counts_as_synapse_visibility": false
+    }
+  ],
+  "owned_feed_updates": [
+    "services/docs-front/content/docs/mcp/paid-api-calls.mdx",
+    "services/docs-front/content/docs/mcp/synapse-vs-paid-mcp.mdx",
+    "services/user-front/public/llms.txt",
+    "services/user-front/public/llms-full.txt",
+    "scripts/ci/ai_visibility_feed_asset_assertions.mjs"
+  ],
+  "validation_from_pr231": [
+    "node scripts/ci/ai_visibility_assets_check.mjs",
+    "npm run ci:docs",
+    "npm run ci:agent-lessons",
+    "git diff --check",
+    "pre-push fast gate passed, including user-front production build"
+  ],
+  "decision": {
+    "counts_as_goal_complete": false,
+    "why_not_complete": "The source-host feed expansion is still in open PR #231 and has not been verified live on docs.synapse-network.ai or www.synapse-network.ai. GPT/Claude success probes must wait until the new feed is merged, deployed, and visible on canonical public URLs.",
+    "next_actions": [
+      "Wait for PR #231 to merge or continue operator review; do not auto-merge from this evidence artifact.",
+      "After merge, publish docs/www through Growing release flow and verify the broader source-host terms are live.",
+      "Rerun ChatGPT and Claude probes for the target paid-MCP queries only after the canonical feed is live.",
+      "Compare before/after source-host sets and count official SynapseNetworkAI mentions and citations."
+    ]
+  }
+}

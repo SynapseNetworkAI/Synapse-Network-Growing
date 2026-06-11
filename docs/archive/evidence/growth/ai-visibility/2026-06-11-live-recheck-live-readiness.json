@@ -1,0 +1,110 @@
+{
+  "module_key": "ai_visibility",
+  "generated_at": "2026-06-10T22:55:46.280176Z",
+  "run_group": "2026-06-11-live-recheck",
+  "canonical_homepage": "https://www.synapse-network.ai/",
+  "status": "ready_for_external_probe",
+  "ready_count": 1,
+  "blocked_count": 0,
+  "validation_command": "python scripts/growth/run_ai_visibility_feed_validation.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-live-recheck --output docs/archive/evidence/growth/ai-visibility/2026-06-11-live-recheck-feed-validation.jsonl",
+  "apply_command": "python scripts/growth/record_ai_visibility_probe.py docs/archive/evidence/growth/ai-visibility/2026-06-11-live-recheck-feed-validation.jsonl --allow-local-validation --apply",
+  "items": [
+    {
+      "feed_key": "mcp_paid_api_discovery",
+      "status": "ready",
+      "feed_ready": true,
+      "external_probe_ready": true,
+      "run_group": "2026-06-11-live-recheck",
+      "platform": "mcp_live_validation",
+      "query": "Remote MCP live readiness",
+      "answer_summary": "Live feed validation passed: www_homepage=200; docs_mcp_paid_api_calls=200; docs_robots=200; www_llms_mcp=200; mcp_readyz=200; mcp_unauth_post=401; mcp_npm_package=200; mcp_registry=200",
+      "checked_urls": [
+        "https://www.synapse-network.ai/",
+        "https://docs.synapse-network.ai/mcp/paid-api-calls",
+        "https://docs.synapse-network.ai/robots.txt",
+        "https://www.synapse-network.ai/llms.txt",
+        "https://mcp.synapse-network.ai/readyz",
+        "https://mcp.synapse-network.ai/mcp",
+        "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+        "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+      ],
+      "missing_facts": [],
+      "next_action": "Run MCP discovery probes and ChatGPT/Claude connector checks.",
+      "checks": [
+        {
+          "label": "www_homepage",
+          "url": "https://www.synapse-network.ai/",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://www.synapse-network.ai/",
+          "error": "",
+          "contains_synapse": true
+        },
+        {
+          "label": "docs_mcp_paid_api_calls",
+          "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "error": "",
+          "contains_synapse": true
+        },
+        {
+          "label": "docs_robots",
+          "url": "https://docs.synapse-network.ai/robots.txt",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://docs.synapse-network.ai/robots.txt",
+          "error": "",
+          "contains_synapse": false
+        },
+        {
+          "label": "www_llms_mcp",
+          "url": "https://www.synapse-network.ai/llms.txt",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://www.synapse-network.ai/llms.txt",
+          "error": "",
+          "contains_synapse": true
+        },
+        {
+          "label": "mcp_readyz",
+          "url": "https://mcp.synapse-network.ai/readyz",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://mcp.synapse-network.ai/readyz",
+          "error": "",
+          "contains_synapse": false
+        },
+        {
+          "label": "mcp_unauth_post",
+          "url": "https://mcp.synapse-network.ai/mcp",
+          "status": 401,
+          "ok": true,
+          "final_url": "https://mcp.synapse-network.ai/mcp",
+          "error": "",
+          "contains_synapse": false
+        },
+        {
+          "label": "mcp_npm_package",
+          "url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+          "error": "",
+          "contains_synapse": true
+        },
+        {
+          "label": "mcp_registry",
+          "url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+          "status": 200,
+          "ok": true,
+          "final_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+          "error": "",
+          "contains_synapse": true
+        }
+      ]
+    }
+  ],
+  "total": 1
+}

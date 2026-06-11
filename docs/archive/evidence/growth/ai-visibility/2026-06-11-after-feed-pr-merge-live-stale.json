@@ -1,0 +1,124 @@
+{
+  "module_key": "ai_visibility",
+  "evidence_type": "post_merge_live_publication_check",
+  "generated_at": "2026-06-10T22:33:18Z",
+  "status": "blocked_until_live_feed_published",
+  "goal_achieved": false,
+  "summary": "The AI visibility source-feed work is merged, but the canonical public docs/www surfaces still do not expose the 2026-06-11 source-host feed updates. New GPT/Claude/Grok/Gemini probes should wait until the live feed is current so the comparison measures the intended input.",
+  "merged_prs": [
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network-Growing",
+      "pr": 158,
+      "url": "https://github.com/SynapseNetworkAI/Synapse-Network-Growing/pull/158",
+      "merged_at": "2026-06-10T22:29:24Z",
+      "merge_commit": "2a53a1128b97d8ec2c0c691379f86a02027c513c",
+      "purpose": "Recorded current AI visibility live probe evidence and source-host follow-up package."
+    },
+    {
+      "repo": "SynapseNetworkAI/Synapse-Network",
+      "pr": 230,
+      "url": "https://github.com/SynapseNetworkAI/Synapse-Network/pull/230",
+      "merged_at": "2026-06-10T22:29:23Z",
+      "merge_commit": "ddd98cc0659f366b040c9ae850898f29c1ad45c2",
+      "purpose": "Refreshed owned docs and www llms source-host feed content for AI visibility."
+    }
+  ],
+  "live_checks": [
+    {
+      "url": "https://docs.synapse-network.ai/llms.txt",
+      "expected_terms": [
+        "2026-06-11 current probe update",
+        "mcp_paid_api_discovery",
+        "crowcrowcrow.com",
+        "mcpgw.ai",
+        "tensorfeed.ai",
+        "docs.wanepia.com"
+      ],
+      "matched": false
+    },
+    {
+      "url": "https://www.synapse-network.ai/llms.txt",
+      "expected_terms": [
+        "2026-06-11 current probe update",
+        "mcp_paid_api_discovery",
+        "crowcrowcrow.com",
+        "mcpgw.ai",
+        "tensorfeed.ai",
+        "docs.wanepia.com"
+      ],
+      "matched": false
+    },
+    {
+      "url": "https://www.synapse-network.ai/llms-full.txt",
+      "expected_terms": [
+        "2026-06-11 current probe update",
+        "mcp_paid_api_discovery",
+        "ChatGPT returned 0"
+      ],
+      "matched": false
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+      "expected_terms": [
+        "2026-06-11 current probe update",
+        "mcp_paid_api_discovery",
+        "ChatGPT returned 0"
+      ],
+      "matched": false
+    },
+    {
+      "url": "https://docs.synapse-network.ai/mcp/synapse-vs-paid-mcp",
+      "expected_terms": [
+        "2026-06-11 current probe update",
+        "mcp_paid_api_discovery",
+        "ChatGPT returned 0"
+      ],
+      "matched": false
+    }
+  ],
+  "probe_policy": {
+    "do_not_probe_until": "The canonical docs/www live surfaces include the 2026-06-11 source-host feed terms.",
+    "reason": "Running external model probes against stale public feeds would create weak comparison evidence and could hide whether the source-host refresh changed discoverability."
+  },
+  "gcloud_auth_check": {
+    "command": "gcloud auth print-access-token",
+    "status": "failed_reauthentication_required",
+    "exit_code": 1,
+    "stderr_summary": "Reauthentication failed during non-interactive execution. gcloud asked the operator to run: gcloud auth login"
+  },
+  "release_preparation": {
+    "checked_at": "2026-06-10T22:38:27Z",
+    "target_repo": "SynapseNetworkAI/Synapse-Network",
+    "target_branch": "main",
+    "target_commit_sha": "ddd98cc0659f366b040c9ae850898f29c1ad45c2",
+    "latest_completed_docs_front_production_commit_sha": "436f159d7fdb076aec528c711bde85c0a1a95735",
+    "staging_release_task": {
+      "id": 278,
+      "project_key": "synapse-network",
+      "service_key": "docs-front",
+      "environment": "staging",
+      "branch_name": "main",
+      "status": "requested",
+      "created_at": "2026-06-10T22:38:06.338488",
+      "note": "Publish Synapse-Network #230 AI visibility source-host feed to staging after gcloud reauth; target origin/main ddd98cc0659f366b040c9ae850898f29c1ad45c2."
+    },
+    "gate_status": {
+      "branch_exists": true,
+      "checks_status": "success",
+      "checks_summary": "main 分支可直接发布 staging，不需要 PR gate。",
+      "can_deploy_staging": true,
+      "can_deploy_production": false
+    },
+    "deploy_action": {
+      "status": "not_triggered",
+      "reason": "The local environment still fails gcloud token refresh, so triggering deploy-staging now would create a known-bad local runner attempt instead of useful release evidence."
+    }
+  },
+  "next_actions": [
+    "Run gcloud auth login or select an already authenticated account with gcloud config set account ACCOUNT.",
+    "Use release task 278 to request docs-front staging deploy after gcloud auth is refreshed.",
+    "Publish the merged Synapse-Network docs-front and user-front changes through the approved release/deploy flow.",
+    "Recheck docs.synapse-network.ai and www.synapse-network.ai live surfaces for the 2026-06-11 feed terms.",
+    "After live feed freshness is proven, rerun unchanged GPT/Claude/Grok/Gemini AI visibility probes and compare citation/mention deltas."
+  ]
+}

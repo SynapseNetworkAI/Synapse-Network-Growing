@@ -11,6 +11,10 @@ from server.schemas_growth import (
     GrowthAIVisibilityPresencePlanOut,
 )
 from server.services.growth import ai_visibility_discovery
+from server.services.growth.ai_visibility_agent_payment_context import (
+    agent_payment_context_action,
+    is_agent_payment_context_host,
+)
 from server.services.growth.ai_visibility_directory_submission_payloads import (
     directory_submission_payload,
 )
@@ -90,8 +94,6 @@ COMPETITOR_COMPARISON_TERMS = {
     "rapid-mcp.com": ["Rapid MCP", "paid MCP alternatives"],
     "teleport.ltd": ["Teleport", "MCP app payments"],
 }
-
-
 def ai_visibility_presence_plan(
     db: Session,
     *,
@@ -157,6 +159,14 @@ def _action_for_host(
         return _controlled_action(normalized, index)
     if normalized in COMPETITOR_HOSTS:
         return _competitor_action(normalized, index)
+    if is_agent_payment_context_host(normalized):
+        return agent_payment_context_action(
+            host=normalized,
+            priority=index,
+            official_docs_url=OFFICIAL_DOCS_URL,
+            comparison_docs_url=COMPARISON_DOCS_URL,
+            remote_mcp_endpoint=REMOTE_MCP_ENDPOINT,
+        )
     if normalized in BRAND_COLLISION_HOSTS:
         return _brand_collision_action(normalized, index)
     return _monitor_action(normalized, index)

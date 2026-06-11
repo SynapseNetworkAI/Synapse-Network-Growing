@@ -133,6 +133,7 @@ def summarize_cycle(
         external_records=external_records,
         missing_platforms=missing_platforms,
         api_probe_blockers=api_probe_blockers,
+        provider_failure_records=provider_failure_records,
     )
     strategy_platforms = missing_platforms if missing_platforms else target_platforms
     platform_strategies = platform_strategies_for(
@@ -327,6 +328,7 @@ def cycle_status(
     external_records: list[ProbeRecord],
     missing_platforms: list[str],
     api_probe_blockers: list[ProbeRecord],
+    provider_failure_records: list[ProbeRecord],
 ) -> str:
     if failed_validation:
         return "feed_blocked"
@@ -334,6 +336,8 @@ def cycle_status(
         return "external_probe_blocked"
     if not external_records:
         return "ready_for_external_probe"
+    if provider_failure_records:
+        return "partial_external_probe"
     if missing_platforms:
         return "partial_external_probe"
     if any(record_has_official_citation(record) for record in external_records):
@@ -356,7 +360,13 @@ def recommended_actions(
             "Run the generated ChatGPT, Claude, Grok, and Gemini probe template with unchanged questions."
         ]
     if status == "partial_external_probe":
-        return [f"Complete missing external probes for {', '.join(missing_platforms)}."]
+        if missing_platforms:
+            return [
+                f"Complete missing external probes for {', '.join(missing_platforms)}."
+            ]
+        return [
+            "Resolve provider/API probe failures and rerun the unchanged external probe matrix."
+        ]
     if status == "external_probe_blocked":
         return [
             "Configure missing answer-engine API keys and rerun external probes with --execute."

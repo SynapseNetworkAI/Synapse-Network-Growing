@@ -1,0 +1,47 @@
+{
+  "module_key": "ai_visibility_source_host_execution",
+  "status": "live_verified",
+  "evidence_type": "live_source_host",
+  "feed_key": "mcp_paid_api_discovery",
+  "run_group": "2026-06-11-api-probe",
+  "surface": "www_llms",
+  "source_url": "https://www.synapse-network.ai/llms.txt",
+  "checked_at": "2026-06-10T23:09:40.777589+00:00",
+  "required_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "Synapse.org",
+    "Sage Bionetworks",
+    "mcp.synapse-network.ai",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "matched_terms": [
+    "Synapse Network",
+    "SynapseNetworkAI",
+    "Synapse.org",
+    "Sage Bionetworks",
+    "mcp.synapse-network.ai",
+    "discover_services",
+    "invoke_and_pay",
+    "get_receipt"
+  ],
+  "missing_terms": [],
+  "content_sha256": "ce0cd066c9f74925c6dee9876b5267289e70273424cee0b65261f5e107ad50d0",
+  "content_bytes": 9546,
+  "target_platforms": [
+    "chatgpt",
+    "claude",
+    "gemini"
+  ],
+  "target_queries": [
+    "MCP server for paid API calls"
+  ],
+  "evidence_role": "source_host_live_evidence_not_external_citation",
+  "design_handoff_frame": "",
+  "submitted_payload_summary": "",
+  "screenshot_url": "",
+  "validation_summary": "www_llms source host is live and matched 8 required terms.",
+  "next_probe_command": "python scripts/growth/run_ai_visibility_api_probe.py --feed-key mcp_paid_api_discovery --run-group 2026-06-11-api-probe-after-source-host --platforms chatgpt,claude,gemini --execute"
+}
