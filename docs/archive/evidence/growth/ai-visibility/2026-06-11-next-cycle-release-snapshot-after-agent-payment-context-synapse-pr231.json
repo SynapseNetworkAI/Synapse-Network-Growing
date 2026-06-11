@@ -1,0 +1,243 @@
+{
+  "blockers": [
+    "GCloud auth fails non-interactively until a human runs gcloud auth login.",
+    "Target commit d6182d857ab5 does not match current predeploy evidence commit b0fab9bcdfae.",
+    "Production source-host feed terms agent402, mcpay.fun, and Cashfree are not live on docs/www yet.",
+    "External GPT/Claude/Grok/Gemini probe evidence is not valid until production source-host feed validation passes.",
+    "staging GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "production GCloud project check failed: ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use.",
+    "Remote MCP public metadata gate failed (stale or incomplete): https://mcp.synapse-network.ai/.well-known/glama.json missing name, serverUrl, repository, tools.discover_services, tools.invoke_and_pay, tools.get_receipt. Merge and deploy Synapse-Network-MCP-Server metadata refresh, then run npm run test:e2e:remote:metadata before rerunning AI visibility probes."
+  ],
+  "confirmed_facts": [
+    "Official homepage canonical is https://www.synapse-network.ai/.",
+    "Synapse-Network main is pinned to merged PR #223 commit d6182d857ab5f4292eaed62f94ce08eb6cdfeb91.",
+    "Remote MCP endpoint is https://mcp.synapse-network.ai/mcp; live readiness expects /readyz=200 and unauthenticated /mcp=401.",
+    "Growing release runner remains the deployment path; direct gcloud run deploy is out of bounds.",
+    "Production user-front release task #253 deployed commit 09a8e5fcb151 with Cloud Run revision synapse-prod-user-front-00032-2z5.",
+    "The MCP paid API and ChatGPT MCP app pages include application/ld+json, FAQPage, and SoftwareApplication in production HTML.",
+    "Synapse-Network PR #223 adds the next source-host feed terms; those terms must be published before external answer-engine probes."
+  ],
+  "deploy_readiness_status": "blocked_until_target_commit_matches",
+  "deployment_gaps": [
+    {
+      "latest_production_record_id": 254,
+      "latest_staging_record_id": 253,
+      "next_action": "Re-run docs-front staging for d6182d857ab5, then promote production.",
+      "production_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+      "production_release_task_id": 253,
+      "production_revision": "",
+      "service_key": "docs-front",
+      "staging_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+      "staging_release_task_id": 252,
+      "staging_revision": "",
+      "status": "staging_and_production_behind_target",
+      "target_commit": "d6182d857ab5f4292eaed62f94ce08eb6cdfeb91"
+    },
+    {
+      "latest_production_record_id": 254,
+      "latest_staging_record_id": 253,
+      "next_action": "Re-run user-front staging for d6182d857ab5, then promote production.",
+      "production_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+      "production_release_task_id": 253,
+      "production_revision": "synapse-prod-user-front-00032-2z5",
+      "service_key": "user-front",
+      "staging_commit": "09a8e5fcb1511ca19b2ec417474ba5e780510469",
+      "staging_release_task_id": 252,
+      "staging_revision": "synapse-staging-user-front-00045-xgp",
+      "status": "staging_and_production_behind_target",
+      "target_commit": "d6182d857ab5f4292eaed62f94ce08eb6cdfeb91"
+    }
+  ],
+  "external_probe_keys": {
+    "chatgpt": {
+      "configured": true,
+      "env_key": "OPENAI_API_KEY"
+    },
+    "claude": {
+      "configured": true,
+      "env_key": "ANTHROPIC_API_KEY"
+    },
+    "gemini": {
+      "configured": true,
+      "env_key": "GEMINI_API_KEY or GENIMI_API_KEY"
+    },
+    "grok": {
+      "configured": true,
+      "env_key": "XAI_API_KEY"
+    }
+  },
+  "feed_key": "mcp_paid_api_discovery",
+  "gcloud": {
+    "production": {
+      "ok": false,
+      "project_id": "synapse-network-prod",
+      "status": "failed",
+      "summary": "ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use."
+    },
+    "staging": {
+      "ok": false,
+      "project_id": "fabled-archive-494108-k5",
+      "status": "failed",
+      "summary": "ERROR: (gcloud.projects.describe) There was a problem refreshing your current auth tokens: Reauthentication failed. cannot prompt during non-interactive execution. Please run: $ gcloud auth login to obtain new credentials. If you have already logged in with a different account, run: $ gcloud config set account ACCOUNT to select an already authenticated account to use."
+    }
+  },
+  "generated_at": "2026-06-11T00:00:14.070910+00:00",
+  "live_readiness": {
+    "blocked_count": 0,
+    "items": [
+      {
+        "answer_summary": "Live feed validation passed: www_homepage=200; docs_mcp_paid_api_calls=200; docs_robots=200; www_llms_mcp=200; mcp_readyz=200; mcp_unauth_post=401; mcp_npm_package=200; mcp_registry=200",
+        "checked_urls": [
+          "https://www.synapse-network.ai/",
+          "https://docs.synapse-network.ai/mcp/paid-api-calls",
+          "https://docs.synapse-network.ai/robots.txt",
+          "https://www.synapse-network.ai/llms.txt",
+          "https://mcp.synapse-network.ai/readyz",
+          "https://mcp.synapse-network.ai/mcp",
+          "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+          "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+        ],
+        "checks": [
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://www.synapse-network.ai/",
+            "label": "www_homepage",
+            "ok": true,
+            "status": 200,
+            "url": "https://www.synapse-network.ai/"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://docs.synapse-network.ai/mcp/paid-api-calls",
+            "label": "docs_mcp_paid_api_calls",
+            "ok": true,
+            "status": 200,
+            "url": "https://docs.synapse-network.ai/mcp/paid-api-calls"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://docs.synapse-network.ai/robots.txt",
+            "label": "docs_robots",
+            "ok": true,
+            "status": 200,
+            "url": "https://docs.synapse-network.ai/robots.txt"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://www.synapse-network.ai/llms.txt",
+            "label": "www_llms_mcp",
+            "ok": true,
+            "status": 200,
+            "url": "https://www.synapse-network.ai/llms.txt"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://mcp.synapse-network.ai/readyz",
+            "label": "mcp_readyz",
+            "ok": true,
+            "status": 200,
+            "url": "https://mcp.synapse-network.ai/readyz"
+          },
+          {
+            "contains_synapse": false,
+            "error": "",
+            "final_url": "https://mcp.synapse-network.ai/mcp",
+            "label": "mcp_unauth_post",
+            "ok": true,
+            "status": 401,
+            "url": "https://mcp.synapse-network.ai/mcp"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server",
+            "label": "mcp_npm_package",
+            "ok": true,
+            "status": 200,
+            "url": "https://registry.npmjs.org/@synapse-network-ai%2Fmcp-server"
+          },
+          {
+            "contains_synapse": true,
+            "error": "",
+            "final_url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server",
+            "label": "mcp_registry",
+            "ok": true,
+            "status": 200,
+            "url": "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.SynapseNetworkAI/synapse-network-mcp-server"
+          }
+        ],
+        "external_probe_ready": true,
+        "feed_key": "mcp_paid_api_discovery",
+        "feed_ready": true,
+        "missing_facts": [],
+        "next_action": "Run MCP discovery probes and ChatGPT/Claude connector checks.",
+        "platform": "mcp_live_validation",
+        "query": "Remote MCP live readiness",
+        "run_group": "2026-06-11-next-cycle-after-agent-payment-context",
+        "status": "ready"
+      }
+    ],
+    "ready_count": 1,
+    "status": "ready_for_external_probe"
+  },
+  "module_key": "ai_visibility",
+  "next_actions": [
+    "Merge and deploy the Remote MCP metadata refresh, then run npm run test:e2e:remote:metadata against https://mcp.synapse-network.ai.",
+    "Run gcloud auth login if GCloud checks are blocked.",
+    "Rerun live readiness and external GPT/Claude/Grok/Gemini probes after feed validation passes."
+  ],
+  "official_homepage": "https://www.synapse-network.ai/",
+  "pending_publication_gaps": [],
+  "pending_source_prs": [],
+  "release_plan_status": "blocked_until_target_commit_matches",
+  "remote_mcp_public_metadata": {
+    "blocker": "Remote MCP public metadata gate failed (stale or incomplete): https://mcp.synapse-network.ai/.well-known/glama.json missing name, serverUrl, repository, tools.discover_services, tools.invoke_and_pay, tools.get_receipt. Merge and deploy Synapse-Network-MCP-Server metadata refresh, then run npm run test:e2e:remote:metadata before rerunning AI visibility probes.",
+    "http_status": 200,
+    "missing_fields": [
+      "name",
+      "serverUrl",
+      "repository",
+      "tools.discover_services",
+      "tools.invoke_and_pay",
+      "tools.get_receipt"
+    ],
+    "observed": {
+      "$schema": "https://glama.ai/mcp/schemas/connector.json",
+      "name": null,
+      "repository": null,
+      "serverUrl": null,
+      "tools": []
+    },
+    "ok": false,
+    "status": "stale_or_incomplete",
+    "summary": "Remote MCP public metadata is missing required AI directory fields.",
+    "url": "https://mcp.synapse-network.ai/.well-known/glama.json"
+  },
+  "run_group": "2026-06-11-next-cycle-after-agent-payment-context",
+  "snapshot_type": "release_blocker",
+  "status": "blocked",
+  "target_commit_sha": "d6182d857ab5f4292eaed62f94ce08eb6cdfeb91",
+  "verified_publication_surfaces": [
+    {
+      "current_status": 200,
+      "expected_after_merge": 200,
+      "next_action": "Verified in production HTML after user-front deployment #254.",
+      "source_pr": 216,
+      "surface": "www-jsonld",
+      "url": "https://www.synapse-network.ai/mcp-server-for-paid-api-calls"
+    },
+    {
+      "current_status": 200,
+      "expected_after_merge": 200,
+      "next_action": "Verified in production HTML after user-front deployment #254.",
+      "source_pr": 216,
+      "surface": "www-jsonld",
+      "url": "https://www.synapse-network.ai/chatgpt-mcp-app-api-payments"
+    }
+  ]
+}
